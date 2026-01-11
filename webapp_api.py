@@ -400,8 +400,6 @@ def api_check_payment():
             # Помечаем как оплатившего
             game_main.waiting_players[user_id]["paid"] = True
             log_info(f"User {user_id} invoice {invoice_id} marked as paid")
-        else:
-            log_info(f"User {user_id} invoice {invoice_id} status is {status}, not paid yet")
             
             # Проверяем, есть ли второй игрок
             other_waiting = [uid for uid in game_main.waiting_players.keys() if uid != user_id]
@@ -430,6 +428,7 @@ def api_check_payment():
                     'waiting': True
                 })
         else:
+            log_info(f"User {user_id} invoice {invoice_id} status is {status}, not paid yet")
             return jsonify({'paid': False})
             
     except Exception as e:
