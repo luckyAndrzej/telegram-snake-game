@@ -10,6 +10,7 @@ from typing import Dict, Optional
 import hmac
 import hashlib
 import json
+import random
 
 from config import TELEGRAM_BOT_TOKEN, GAME_PRICE_USD, GAME_START_DELAY
 from game import Game, Direction
@@ -259,9 +260,10 @@ def api_start_game():
         # Проверяем, есть ли ожидающие игроки (другие, не текущий)
         other_waiting = [uid for uid in game_main.waiting_players.keys() if uid != user_id]
         if other_waiting:
-            # Подключаем к существующему матчу
-            opponent_id = other_waiting[0]
+            # Случайно выбираем одного из ожидающих игроков для подключения
+            opponent_id = random.choice(other_waiting)
             opponent_data = game_main.waiting_players[opponent_id]
+            log_info(f"User {user_id} connecting to existing waiting player {opponent_id}")
             
             # Если соперник уже оплатил, создаем инвойс для текущего игрока
             if opponent_data.get("paid"):

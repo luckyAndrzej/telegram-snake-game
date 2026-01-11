@@ -307,12 +307,17 @@ async function checkPayment() {
         });
         
         const data = await response.json();
+        console.log('Check payment response:', data);
         
         if (data.paid) {
+            // Показываем экран ожидания сразу после подтверждения оплаты
+            showWaitingScreen();
+            
             if (data.game_starting) {
+                // Оба игрока оплатили - начинаем игру
                 startCountdown(data.countdown || 5);
             } else {
-                showWaitingScreen();
+                // Ждем второго игрока
                 tg.showAlert('Оплата подтверждена! Ожидание соперника...');
             }
         } else {
