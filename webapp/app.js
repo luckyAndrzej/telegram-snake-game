@@ -214,8 +214,10 @@ function showPaymentScreen(invoiceUrl) {
     console.log('Showing payment screen with URL:', invoiceUrl);
     showScreen('payment');
     
-    // Рисуем превью игрового поля
-    renderFieldPreview('field-preview');
+    // Рисуем превью игрового поля после небольшой задержки, чтобы canvas был отрендерен
+    setTimeout(() => {
+        renderFieldPreview('field-preview');
+    }, 100);
     
     // Сохраняем URL для оплаты в data-атрибут и устанавливаем обработчик
     const payBtn = document.getElementById('pay-btn');
@@ -315,7 +317,10 @@ async function checkPayment() {
 // Экран ожидания
 function showWaitingScreen() {
     showScreen('waiting');
-    renderFieldPreview('waiting-field');
+    // Рисуем превью игрового поля после небольшой задержки
+    setTimeout(() => {
+        renderFieldPreview('waiting-field');
+    }, 100);
     
     // Периодическая проверка статуса
     const checkInterval = setInterval(async () => {
@@ -347,7 +352,10 @@ function showWaitingScreen() {
 // Обратный отсчет
 function startCountdown(seconds = 5) {
     showScreen('countdown');
-    renderFieldPreview('countdown-field');
+    // Рисуем превью игрового поля после небольшой задержки
+    setTimeout(() => {
+        renderFieldPreview('countdown-field');
+    }, 100);
     
     const countdownEl = document.getElementById('countdown-number');
     let count = seconds;
@@ -514,39 +522,58 @@ function closeGame() {
 
 // Рендер превью поля
 function renderFieldPreview(canvasId) {
-    const canvas = document.getElementById(canvasId);
-    if (!canvas) return;
+    const canvasElement = document.getElementById(canvasId);
+    if (!canvasElement) {
+        console.warn(`Canvas element with id '${canvasId}' not found`);
+        return;
+    }
     
-    const ctx = canvas.getContext('2d');
-    const size = canvas.offsetWidth;
-    canvas.width = size;
-    canvas.height = size;
+    // Проверяем, что это canvas элемент
+    if (canvasElement.tagName !== 'CANVAS') {
+        console.warn(`Element with id '${canvasId}' is not a canvas element, it's a ${canvasElement.tagName}`);
+        return;
+    }
     
-    const gridSize = 20;
-    const tileSize = size / gridSize;
-    
-    // Фон
-    ctx.fillStyle = '#1e293b';
-    ctx.fillRect(0, 0, size, size);
-    
-    // Границы
-    ctx.strokeStyle = '#475569';
-    ctx.lineWidth = 3;
-    ctx.strokeRect(0, 0, size, size);
-    
-    // Сетка
-    ctx.strokeStyle = '#475569';
-    ctx.lineWidth = 1;
-    for (let i = 0; i <= gridSize; i++) {
-        ctx.beginPath();
-        ctx.moveTo(i * tileSize, 0);
-        ctx.lineTo(i * tileSize, size);
-        ctx.stroke();
+    try {
+        const ctx = canvasElement.getContext('2d');
+        if (!ctx) {
+            console.warn(`Could not get 2d context for canvas '${canvasId}'`);
+            return;
+        }
         
-        ctx.beginPath();
-        ctx.moveTo(0, i * tileSize);
-        ctx.lineTo(size, i * tileSize);
-        ctx.stroke();
+        // Получаем размер после того, как элемент отрендерен
+        const size = canvasElement.offsetWidth || 300;
+        canvasElement.width = size;
+        canvasElement.height = size;
+        
+        const gridSize = 20;
+        const tileSize = size / gridSize;
+        
+        // Фон
+        ctx.fillStyle = '#1e293b';
+        ctx.fillRect(0, 0, size, size);
+        
+        // Границы
+        ctx.strokeStyle = '#475569';
+        ctx.lineWidth = 3;
+        ctx.strokeRect(0, 0, size, size);
+        
+        // Сетка
+        ctx.strokeStyle = '#475569';
+        ctx.lineWidth = 1;
+        for (let i = 0; i <= gridSize; i++) {
+            ctx.beginPath();
+            ctx.moveTo(i * tileSize, 0);
+            ctx.lineTo(i * tileSize, size);
+            ctx.stroke();
+            
+            ctx.beginPath();
+            ctx.moveTo(0, i * tileSize);
+            ctx.lineTo(size, i * tileSize);
+            ctx.stroke();
+        }
+    } catch (error) {
+        console.error(`Error rendering field preview for '${canvasId}':`, error);
     }
 }
 
