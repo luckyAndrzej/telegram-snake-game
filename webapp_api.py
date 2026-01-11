@@ -11,7 +11,7 @@ import hashlib
 import json
 import random
 
-from config import TELEGRAM_BOT_TOKEN, GAME_PRICE_USD, GAME_START_DELAY
+from config import TELEGRAM_BOT_TOKEN, GAME_PRICE_USD, GAME_START_DELAY, OWNER_ID, OWNER_PERCENTAGE
 from game import Game, Direction
 from payment import crypto_pay
 from logger import log_info, log_error
@@ -477,9 +477,29 @@ def api_game_end():
         data = request.json
         user_id = data.get('user_id')
         winner = data.get('winner')
+        head_to_head = data.get('headToHeadCollision', False)
         
         if not user_id:
             return jsonify({'error': 'User ID required'}), 400
+        
+        total_bank = GAME_PRICE_USD * 2
+        
+        if head_to_head or winner == 'draw':
+            # Столкновение "лоб в лоб" или ничья - вся сумма идет на комиссионный счет
+            if OWNER_ID:
+                try:
+                    success = crypto_pay.transfer(OWNER_ID, total_bank)
+                    if success:
+                        log_info(f"Head-to-head collision: transferred {total_bank} USDT to owner {OWNER_ID}")
+                except Exception as e:
+                    log_error("api_game_end", e, OWNER_ID)
+            
+            return jsonify({
+                'winner': False,
+                'prize': 0,
+                'draw': True,
+                'message': 'Столкновение "лоб в лоб"! Вся сумма уходит на комиссионный счет.'
+            })
         
         if user_id in game_main.player_to_game:
             game_id = game_main.player_to_game[user_id]
@@ -488,7 +508,6 @@ def api_game_end():
                 
                 if game.winner_id == user_id:
                     # Пользователь победил
-                    total_bank = GAME_PRICE_USD * 2
                     prize = total_bank * 0.75  # 75% победителю
                     return jsonify({
                         'winner': True,

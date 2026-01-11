@@ -391,13 +391,14 @@ function startCountdown(seconds = 5) {
 // Начало игрового процесса
 function startGamePlay() {
     showScreen('game');
+    gameState = 'playing';
     
     // Создаем игру
     game = new SnakeGame('game-canvas');
     
     // Запускаем игровой цикл
     gameLoop = setInterval(() => {
-        if (gameState === 'playing') {
+        if (gameState === 'playing' && game) {
             game.update();
             game.draw();
             
@@ -417,7 +418,9 @@ function startGamePlay() {
         }
     }, 100);
     
-    game.draw();
+    if (game) {
+        game.draw();
+    }
 }
 
 // Обработка направления
@@ -471,6 +474,7 @@ async function endGame() {
     // Отправляем результат на сервер
     try {
         const baseUrl = window.location.origin;
+        const state = game.getGameState();
         const response = await fetch(`${baseUrl}/api/game/end`, {
             method: 'POST',
             headers: {
@@ -479,20 +483,21 @@ async function endGame() {
             body: JSON.stringify({
                 user_id: userData?.id,
                 winner: winner,
+                headToHeadCollision: state.headToHeadCollision || false,
                 init_data: tg.initData
             })
         });
         
         const data = await response.json();
-        showResultScreen(winner, data.prize);
+        showResultScreen(winner, data.prize, state.headToHeadCollision);
     } catch (error) {
         console.error('Error ending game:', error);
-        showResultScreen(winner, null);
+        showResultScreen(winner, null, false);
     }
 }
 
 // Экран результатов
-function showResultScreen(winner, prize) {
+function showResultScreen(winner, prize, headToHead = false) {
     showScreen('result');
     
     const resultCanvas = document.getElementById('result-canvas');
@@ -519,7 +524,12 @@ function showResultScreen(winner, prize) {
     game.setupCanvas();
     game.draw();
     
-    if (winner === 'player1') {
+    if (headToHead || winner === 'draw') {
+        document.getElementById('result-icon').textContent = '💥';
+        document.getElementById('result-title').textContent = 'Столкновение "лоб в лоб"!';
+        document.getElementById('result-message').textContent = 'Оба игрока проиграли. Вся сумма уходит на комиссионный счет.';
+        document.getElementById('result-prize').textContent = '';
+    } else if (winner === 'player1') {
         document.getElementById('result-icon').textContent = '🏆';
         document.getElementById('result-title').textContent = 'Победа!';
         document.getElementById('result-message').textContent = 'Вы выиграли!';

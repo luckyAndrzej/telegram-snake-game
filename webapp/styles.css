@@ -361,42 +361,55 @@ body {
 }
 
 .game-controls {
-    padding: 15px;
+    padding: 20px;
+    display: flex;
+    justify-content: center;
+    align-items: center;
 }
 
 .controls-grid {
-    max-width: 200px;
-    margin: 0 auto;
-    display: grid;
-    grid-template-columns: 1fr;
-    gap: 10px;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    gap: 15px;
+    width: 100%;
+    max-width: 300px;
 }
 
 .controls-row {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 10px;
+    display: flex;
+    justify-content: center;
+    gap: 15px;
+    width: 100%;
 }
 
 .control-btn {
-    aspect-ratio: 1;
+    width: 80px;
+    height: 80px;
     border: none;
-    border-radius: 12px;
+    border-radius: 16px;
     background: var(--bg-card);
     color: var(--text-primary);
-    font-size: 24px;
+    font-size: 36px;
     cursor: pointer;
     transition: all 0.2s ease;
-    box-shadow: 0 4px 10px rgba(0, 0, 0, 0.2);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    user-select: none;
+    -webkit-user-select: none;
+    touch-action: manipulation;
+}
+
+.control-btn:hover {
+    background: var(--primary-color);
+    transform: scale(1.05);
 }
 
 .control-btn:active {
-    transform: scale(0.9);
-    background: var(--primary-color);
-}
-
-#btn-up {
-    grid-column: 2;
+    transform: scale(0.95);
+    background: var(--primary-dark);
 }
 
 /* Экран результатов */

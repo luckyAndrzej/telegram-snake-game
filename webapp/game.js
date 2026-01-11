@@ -17,6 +17,7 @@ class SnakeGame {
         }
         
         this.gridSize = 20;
+        this.headToHeadCollision = false;
         this.reset();
         this.setupCanvas();
         this.tileSize = Math.min(this.canvas.width, this.canvas.height) / this.gridSize;
@@ -30,8 +31,15 @@ class SnakeGame {
     }
 
     reset() {
+        // Изначальная длина змейки - 5 квадратов
         this.player1 = {
-            body: [{x: 5, y: 10}, {x: 4, y: 10}, {x: 3, y: 10}],
+            body: [
+                {x: 5, y: 10},
+                {x: 4, y: 10},
+                {x: 3, y: 10},
+                {x: 2, y: 10},
+                {x: 1, y: 10}
+            ],
             direction: {x: 1, y: 0},
             nextDirection: {x: 1, y: 0},
             color: '#ef4444',
@@ -39,7 +47,13 @@ class SnakeGame {
         };
         
         this.player2 = {
-            body: [{x: 15, y: 10}, {x: 16, y: 10}, {x: 17, y: 10}],
+            body: [
+                {x: 15, y: 10},
+                {x: 16, y: 10},
+                {x: 17, y: 10},
+                {x: 18, y: 10},
+                {x: 19, y: 10}
+            ],
             direction: {x: -1, y: 0},
             nextDirection: {x: -1, y: 0},
             color: '#3b82f6',
@@ -109,25 +123,34 @@ class SnakeGame {
         const p1 = this.player1;
         const p2 = this.player2;
         
-        // Проверяем столкновение player1 с player2
-        if (p1.alive) {
-            const p1Head = p1.body[0];
-            for (let segment of p2.body) {
-                if (p1Head.x === segment.x && p1Head.y === segment.y) {
-                    p1.alive = false;
-                    break;
-                }
+        if (!p1.alive || !p2.alive) return;
+        
+        const p1Head = p1.body[0];
+        const p2Head = p2.body[0];
+        
+        // Проверяем столкновение "лоб в лоб" (голова в голову)
+        if (p1Head.x === p2Head.x && p1Head.y === p2Head.y) {
+            p1.alive = false;
+            p2.alive = false;
+            this.headToHeadCollision = true;
+            return;
+        }
+        
+        // Проверяем столкновение player1 с телом player2
+        for (let i = 0; i < p2.body.length; i++) {
+            const segment = p2.body[i];
+            if (p1Head.x === segment.x && p1Head.y === segment.y) {
+                p1.alive = false;
+                break;
             }
         }
         
-        // Проверяем столкновение player2 с player1
-        if (p2.alive) {
-            const p2Head = p2.body[0];
-            for (let segment of p1.body) {
-                if (p2Head.x === segment.x && p2Head.y === segment.y) {
-                    p2.alive = false;
-                    break;
-                }
+        // Проверяем столкновение player2 с телом player1
+        for (let i = 0; i < p1.body.length; i++) {
+            const segment = p1.body[i];
+            if (p2Head.x === segment.x && p2Head.y === segment.y) {
+                p2.alive = false;
+                break;
             }
         }
     }
@@ -189,11 +212,14 @@ class SnakeGame {
         return {
             player1Alive: this.player1.alive,
             player2Alive: this.player2.alive,
-            finished: !this.player1.alive || !this.player2.alive
+            finished: !this.player1.alive || !this.player2.alive,
+            headToHeadCollision: this.headToHeadCollision || false
         };
     }
 
     getWinner() {
+        // Если столкновение "лоб в лоб", оба игрока проигрывают (draw)
+        if (this.headToHeadCollision) return 'draw';
         if (!this.player1.alive && !this.player2.alive) return 'draw';
         if (!this.player1.alive) return 'player2';
         if (!this.player2.alive) return 'player1';
