@@ -131,7 +131,9 @@ async def handle_start_game(user_id: int, query, context: ContextTypes.DEFAULT_T
             status_text += f"💰 Для присоединения к игре необходимо оплатить ${GAME_PRICE_USD}"
     
     # Создаем счет для текущего игрока
-    invoice = await crypto_pay.create_invoice(user_id)
+    # Используем run_in_executor для вызова синхронной функции из async контекста
+    loop = asyncio.get_event_loop()
+    invoice = await loop.run_in_executor(None, crypto_pay.create_invoice, user_id)
     if not invoice:
         await query.edit_message_text(
             UserLogger.error_banner("Не удалось создать счет на оплату. Попробуйте позже.")
@@ -176,7 +178,9 @@ async def handle_check_payment(user_id: int, query, context: ContextTypes.DEFAUL
         return
     
     invoice_id = waiting_players[user_id]["invoice_id"]
-    invoice_data = await crypto_pay.check_invoice(invoice_id)
+    # Используем run_in_executor для вызова синхронной функции из async контекста
+    loop = asyncio.get_event_loop()
+    invoice_data = await loop.run_in_executor(None, crypto_pay.check_invoice, invoice_id)
     
     if not invoice_data:
         await query.answer(UserLogger.error_banner("Не удалось проверить статус оплаты. Попробуйте позже."), show_alert=True)
@@ -465,7 +469,9 @@ async def handle_game_end(game_id: int, context: ContextTypes.DEFAULT_TYPE):
         owner_amount = total_bank * OWNER_PERCENTAGE
         
         # Переводим выигрыш победителю
-        success = await crypto_pay.transfer(game.winner_id, winner_amount)
+        # Используем run_in_executor для вызова синхронной функции из async контекста
+        loop = asyncio.get_event_loop()
+        success = await loop.run_in_executor(None, crypto_pay.transfer, game.winner_id, winner_amount)
         if success:
             result_text += f"\n💰 Выигрыш: ${winner_amount:.2f}"
         else:
@@ -474,14 +480,18 @@ async def handle_game_end(game_id: int, context: ContextTypes.DEFAULT_TYPE):
         # Переводим комиссию владельцу (если указан)
         from config import OWNER_ID
         if OWNER_ID:
-            owner_success = await crypto_pay.transfer(OWNER_ID, owner_amount)
+            # Используем run_in_executor для вызова синхронной функции из async контекста
+            loop = asyncio.get_event_loop()
+            owner_success = await loop.run_in_executor(None, crypto_pay.transfer, OWNER_ID, owner_amount)
             if not owner_success:
                 log_error("handle_game_end", Exception("Failed to transfer owner fee"), OWNER_ID)
     else:
         result_text = "\n\n🤝 Ничья!"
         # Возвращаем деньги обоим игрокам
         for player_id in [game.player1_id, game.player2_id]:
-            await crypto_pay.transfer(player_id, GAME_PRICE_USD)
+            # Используем run_in_executor для вызова синхронной функции из async контекста
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, crypto_pay.transfer, player_id, GAME_PRICE_USD)
     
     full_text = f"{field_text}\n\n{status_text}{result_text}"
     

@@ -5,7 +5,6 @@ API эндпоинты для веб-приложения Telegram Mini App
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
 import os
-import asyncio
 from typing import Dict, Optional
 import hmac
 import hashlib
@@ -115,9 +114,7 @@ def api_game_status():
             
             # Если статус оплаты не установлен, проверяем инвойс
             if not player_data.get("paid") and invoice_id:
-                import nest_asyncio
-                nest_asyncio.apply()
-                invoice_status = asyncio.run(crypto_pay.check_invoice(invoice_id))
+                invoice_status = crypto_pay.check_invoice(invoice_id)
                 if invoice_status:
                     invoice_status_str = invoice_status.get("status", "")
                     invoice_status_lower = invoice_status_str.lower() if invoice_status_str else ""
@@ -265,13 +262,11 @@ def api_start_game():
             opponent_data = game_main.waiting_players[opponent_id]
             log_info(f"User {user_id} connecting to existing waiting player {opponent_id}")
             
-            # Если соперник уже оплатил, создаем инвойс для текущего игрока
-            if opponent_data.get("paid"):
-                # Создаем счет для текущего игрока (асинхронно)
-                import nest_asyncio
-                nest_asyncio.apply()
-                try:
-                    invoice = asyncio.run(crypto_pay.create_invoice(user_id))
+                # Если соперник уже оплатил, создаем инвойс для текущего игрока
+                if opponent_data.get("paid"):
+                    # Создаем счет для текущего игрока
+                    try:
+                        invoice = crypto_pay.create_invoice(user_id)
                     if not invoice:
                         log_error("api_start_game", Exception("Invoice creation returned None for second player (opponent paid)"), user_id)
                         return jsonify({'error': 'Failed to create invoice. Please try again later.'}), 500
@@ -298,10 +293,8 @@ def api_start_game():
                 })
             else:
                 # Соперник еще не оплатил - создаем инвойс для текущего игрока
-                import nest_asyncio
-                nest_asyncio.apply()
                 try:
-                    invoice = asyncio.run(crypto_pay.create_invoice(user_id))
+                    invoice = crypto_pay.create_invoice(user_id)
                     if not invoice:
                         log_error("api_start_game", Exception("Invoice creation returned None for waiting player (opponent not paid)"), user_id)
                         return jsonify({'error': 'Failed to create invoice. Please try again later.'}), 500
@@ -328,10 +321,8 @@ def api_start_game():
                 })
         
         # Создаем счет для текущего игрока (первый игрок)
-        import nest_asyncio
-        nest_asyncio.apply()
         try:
-            invoice = asyncio.run(crypto_pay.create_invoice(user_id))
+            invoice = crypto_pay.create_invoice(user_id)
             if not invoice:
                 log_error("api_start_game", Exception("Invoice creation returned None for first player"), user_id)
                 return jsonify({'error': 'Failed to create invoice. Please try again later.'}), 500
@@ -386,9 +377,7 @@ def api_check_payment():
             return jsonify({'paid': False, 'error': 'No payment found'}), 400
         
         invoice_id = game_main.waiting_players[user_id]["invoice_id"]
-        import nest_asyncio
-        nest_asyncio.apply()
-        invoice_data = asyncio.run(crypto_pay.check_invoice(invoice_id))
+        invoice_data = crypto_pay.check_invoice(invoice_id)
         
         if not invoice_data:
             return jsonify({'paid': False}), 200
