@@ -31,3 +31,6 @@ SNAKE_COLOR_PLAYER2 = "🔵"  # Синий
 # ID владельца бота (устанавливается через переменную окружения)
 OWNER_ID = int(os.getenv("OWNER_ID")) if os.getenv("OWNER_ID") else None
 
+# URL веб-приложения (для Telegram Mini App)
+WEB_APP_URL = os.getenv("WEB_APP_URL", "")
+

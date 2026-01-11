@@ -1,0 +1,313 @@
+"""
+API эндпоинты для веб-приложения Telegram Mini App
+"""
+
+from flask import Flask, request, jsonify, send_from_directory
+from flask_cors import CORS
+import os
+import asyncio
+from typing import Dict, Optional
+import hmac
+import hashlib
+import json
+
+from config import TELEGRAM_BOT_TOKEN, GAME_PRICE_USD, GAME_START_DELAY
+from game import Game, Direction
+from payment import crypto_pay
+from logger import log_info, log_error
+
+# Импортируем глобальные переменные из main.py
+# В реальном проекте лучше использовать Redis или базу данных
+import main as game_main
+
+app = Flask(__name__, static_folder='webapp')
+CORS(app)
+
+# Валидация initData от Telegram
+def validate_init_data(init_data: str) -> Optional[Dict]:
+    """Валидирует initData от Telegram Web App"""
+    try:
+        from urllib.parse import parse_qs, unquote
+        
+        # Парсим init_data
+        parsed = parse_qs(init_data)
+        hash_value = parsed.get('hash', [None])[0]
+        
+        if not hash_value:
+            return None
+        
+        # Создаем секретный ключ
+        secret_key = hmac.new(
+            b"WebAppData",
+            TELEGRAM_BOT_TOKEN.encode(),
+            hashlib.sha256
+        ).digest()
+        
+        # Создаем data_check_string
+        data_check_string = '\n'.join(
+            f"{key}={value[0]}"
+            for key, value in sorted(parsed.items())
+            if key != 'hash'
+        )
+        
+        # Проверяем подпись
+        calculated_hash = hmac.new(
+            secret_key,
+            data_check_string.encode(),
+            hashlib.sha256
+        ).hexdigest()
+        
+        if calculated_hash != hash_value:
+            return None
+        
+        # Парсим user
+        user_str = parsed.get('user', [None])[0]
+        if user_str:
+            user = json.loads(unquote(user_str))
+            return user
+        
+        return None
+    except Exception as e:
+        log_error("validate_init_data", e)
+        return None
+
+
+@app.route('/webapp/<path:filename>')
+def serve_static(filename):
+    """Раздача статических файлов веб-приложения"""
+    return send_from_directory('webapp', filename)
+
+
+@app.route('/webapp/')
+def serve_index():
+    """Главная страница веб-приложения"""
+    return send_from_directory('webapp', 'index.html')
+
+
+@app.route('/api/game/start', methods=['POST'])
+def api_start_game():
+    """API для начала игры"""
+    try:
+        data = request.json
+        user_id = data.get('user_id')
+        init_data = data.get('init_data')
+        
+        if not user_id:
+            return jsonify({'error': 'User ID required'}), 400
+        
+        # Валидируем init_data (в продакшене)
+        # user = validate_init_data(init_data)
+        
+        # Проверяем, не находится ли игрок уже в игре
+        if user_id in game_main.player_to_game:
+            game_id = game_main.player_to_game[user_id]
+            if game_id in game_main.active_games:
+                return jsonify({'error': 'Already in game'}), 400
+        
+        # Проверяем, есть ли ожидающие игроки
+        if game_main.waiting_players:
+            # Подключаем к существующему матчу
+            opponent_id = next(iter(game_main.waiting_players.keys()))
+            opponent_data = game_main.waiting_players[opponent_id]
+            
+            # Проверяем, оплатил ли соперник
+            if opponent_data.get("paid"):
+                # Оба игрока готовы - начинаем игру
+                return jsonify({
+                    'game_starting': True,
+                    'countdown': GAME_START_DELAY
+                })
+        
+        # Создаем счет для текущего игрока (асинхронно)
+        import nest_asyncio
+        nest_asyncio.apply()
+        invoice = asyncio.run(crypto_pay.create_invoice(user_id))
+        if not invoice:
+            return jsonify({'error': 'Failed to create invoice'}), 500
+        
+        # Сохраняем информацию об ожидающем игроке
+        game_main.waiting_players[user_id] = {
+            "invoice_id": invoice.get("invoice_id"),
+            "invoice_data": invoice,
+            "paid": False
+        }
+        
+        return jsonify({
+            'requires_payment': True,
+            'invoice_url': invoice.get("pay_url", "#")
+        })
+        
+    except Exception as e:
+        log_error("api_start_game", e)
+        return jsonify({'error': 'Internal server error'}), 500
+
+
+@app.route('/api/game/check-payment', methods=['POST'])
+def api_check_payment():
+    """API для проверки оплаты"""
+    try:
+        data = request.json
+        user_id = data.get('user_id')
+        
+        if not user_id:
+            return jsonify({'error': 'User ID required'}), 400
+        
+        if user_id not in game_main.waiting_players:
+            return jsonify({'paid': False, 'error': 'No payment found'}), 400
+        
+        invoice_id = game_main.waiting_players[user_id]["invoice_id"]
+        import nest_asyncio
+        nest_asyncio.apply()
+        invoice_data = asyncio.run(crypto_pay.check_invoice(invoice_id))
+        
+        if not invoice_data:
+            return jsonify({'paid': False}), 200
+        
+        status = invoice_data.get("status", "").lower()
+        
+        if status == "paid":
+            # Помечаем как оплатившего
+            game_main.waiting_players[user_id]["paid"] = True
+            
+            # Проверяем, есть ли второй игрок
+            other_waiting = [uid for uid in game_main.waiting_players.keys() if uid != user_id]
+            
+            if other_waiting:
+                opponent_id = other_waiting[0]
+                opponent_data = game_main.waiting_players[opponent_id]
+                
+                # Проверяем оплату соперника
+                if opponent_data.get("paid"):
+                    # Оба игрока оплатили - начинаем игру
+                    # Создаем игру (упрощенная версия)
+                    return jsonify({
+                        'paid': True,
+                        'game_starting': True,
+                        'countdown': GAME_START_DELAY
+                    })
+                else:
+                    return jsonify({
+                        'paid': True,
+                        'waiting': True
+                    })
+            else:
+                return jsonify({
+                    'paid': True,
+                    'waiting': True
+                })
+        else:
+            return jsonify({'paid': False})
+            
+    except Exception as e:
+        log_error("api_check_payment", e)
+        return jsonify({'error': 'Internal server error'}), 500
+
+
+@app.route('/api/game/status', methods=['POST'])
+def api_game_status():
+    """API для проверки статуса игры"""
+    try:
+        data = request.json
+        user_id = data.get('user_id')
+        
+        if not user_id:
+            return jsonify({'error': 'User ID required'}), 400
+        
+        if user_id in game_main.player_to_game:
+            game_id = game_main.player_to_game[user_id]
+            if game_id in game_main.active_games:
+                game = game_main.active_games[game_id]
+                return jsonify({
+                    'in_game': True,
+                    'game_running': game.is_running,
+                    'game_finished': game.is_finished
+                })
+        
+        return jsonify({'in_game': False})
+        
+    except Exception as e:
+        log_error("api_game_status", e)
+        return jsonify({'error': 'Internal server error'}), 500
+
+
+@app.route('/api/game/direction', methods=['POST'])
+def api_game_direction():
+    """API для отправки направления движения"""
+    try:
+        data = request.json
+        user_id = data.get('user_id')
+        direction_str = data.get('direction')
+        
+        if not user_id or not direction_str:
+            return jsonify({'error': 'User ID and direction required'}), 400
+        
+        if user_id not in game_main.player_to_game:
+            return jsonify({'error': 'Not in game'}), 400
+        
+        game_id = game_main.player_to_game[user_id]
+        if game_id not in game_main.active_games:
+            return jsonify({'error': 'Game not found'}), 404
+        
+        game = game_main.active_games[game_id]
+        
+        if not game.is_running or game.is_finished:
+            return jsonify({'error': 'Game not running'}), 400
+        
+        # Преобразуем строку в Direction
+        direction_map = {
+            "up": Direction.UP,
+            "down": Direction.DOWN,
+            "left": Direction.LEFT,
+            "right": Direction.RIGHT
+        }
+        
+        direction = direction_map.get(direction_str)
+        if direction:
+            game.set_direction(user_id, direction)
+            return jsonify({'success': True})
+        
+        return jsonify({'error': 'Invalid direction'}), 400
+        
+    except Exception as e:
+        log_error("api_game_direction", e)
+        return jsonify({'error': 'Internal server error'}), 500
+
+
+@app.route('/api/game/end', methods=['POST'])
+def api_game_end():
+    """API для окончания игры"""
+    try:
+        data = request.json
+        user_id = data.get('user_id')
+        winner = data.get('winner')
+        
+        if not user_id:
+            return jsonify({'error': 'User ID required'}), 400
+        
+        if user_id in game_main.player_to_game:
+            game_id = game_main.player_to_game[user_id]
+            if game_id in game_main.active_games:
+                game = game_main.active_games[game_id]
+                
+                if game.winner_id == user_id:
+                    # Пользователь победил
+                    total_bank = GAME_PRICE_USD * 2
+                    prize = total_bank * 0.75  # 75% победителю
+                    return jsonify({
+                        'winner': True,
+                        'prize': prize
+                    })
+        
+        return jsonify({
+            'winner': False,
+            'prize': 0
+        })
+        
+    except Exception as e:
+        log_error("api_game_end", e)
+        return jsonify({'error': 'Internal server error'}), 500
+
+
+if __name__ == '__main__':
+    app.run(host='0.0.0.0', port=5000, debug=True)
+

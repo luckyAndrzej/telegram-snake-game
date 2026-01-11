@@ -7,7 +7,7 @@ import asyncio
 import os
 from typing import Dict, Optional, Set
 from datetime import datetime
-from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot
+from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup, Bot, WebAppInfo
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, ContextTypes
 from telegram.constants import ParseMode
 
@@ -59,22 +59,18 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         )
         return
     
-    # Создаем кнопку для начала игры
+    # Создаем кнопку для открытия Mini App
+    web_app_url = os.getenv("WEB_APP_URL", "https://your-domain.com/webapp")
     keyboard = [
-        [InlineKeyboardButton("🎮 Начать игру", callback_data="start_game")]
+        [InlineKeyboardButton("🎮 Играть", web_app=WebAppInfo(url=web_app_url))]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
     await update.message.reply_text(
         f"🐍 Добро пожаловать в игру Змейка!\n\n"
         f"💰 Стоимость участия: ${GAME_PRICE_USD}\n"
-        f"🏆 Победитель получает 75% от банка\n"
-        f"📋 Правила:\n"
-        f"• Управление кнопками: ⬆️ ⬇️ ⬅️ ➡️\n"
-        f"• Проигрыш при столкновении со стеной или другой змейкой\n"
-        f"• Ваша змейка: {SNAKE_COLOR_PLAYER1} (красная)\n"
-        f"• Змейка соперника: {SNAKE_COLOR_PLAYER2} (синяя)\n\n"
-        f"Нажмите кнопку ниже, чтобы начать:",
+        f"🏆 Победитель получает 75% от банка\n\n"
+        f"Нажмите кнопку ниже, чтобы открыть игру:",
         reply_markup=reply_markup
     )
 
@@ -539,7 +535,18 @@ def main():
     
     # Запускаем бота
     log_info("Bot starting...")
-    application.run_polling(allowed_updates=Update.ALL_TYPES)
+    
+    # Запускаем в отдельном потоке, чтобы не блокировать Flask
+    import threading
+    bot_thread = threading.Thread(target=lambda: application.run_polling(allowed_updates=Update.ALL_TYPES))
+    bot_thread.daemon = True
+    bot_thread.start()
+    
+    # Запускаем Flask API для веб-приложения
+    from webapp_api import app
+    web_app_url = os.getenv("WEB_APP_URL", "http://localhost:5000")
+    log_info(f"Web App API starting on {web_app_url}")
+    app.run(host='0.0.0.0', port=5000, debug=False)
 
 
 if __name__ == "__main__":

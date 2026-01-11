@@ -1,0 +1,450 @@
+// Telegram Web App интеграция
+let tg = window.Telegram.WebApp;
+let game = null;
+let gameLoop = null;
+let currentDirection = null;
+let userData = null;
+let gameState = 'menu'; // menu, payment, waiting, countdown, playing, result
+
+// Инициализация
+document.addEventListener('DOMContentLoaded', () => {
+    tg.ready();
+    tg.expand();
+    
+    // Получаем данные пользователя
+    userData = tg.initDataUnsafe?.user;
+    
+    // Инициализируем игру
+    initEventListeners();
+    showScreen('menu');
+    
+    // Проверяем состояние игры через WebSocket или polling
+    checkGameState();
+});
+
+// Инициализация обработчиков событий
+function initEventListeners() {
+    // Главное меню
+    document.getElementById('start-game-btn').addEventListener('click', startGame);
+    
+    // Платежный экран
+    document.getElementById('pay-btn').addEventListener('click', openPayment);
+    document.getElementById('check-payment-btn').addEventListener('click', checkPayment);
+    
+    // Экран ожидания
+    document.getElementById('check-payment-waiting-btn').addEventListener('click', checkPayment);
+    
+    // Игровые кнопки
+    document.getElementById('btn-up').addEventListener('click', () => handleDirection('up'));
+    document.getElementById('btn-down').addEventListener('click', () => handleDirection('down'));
+    document.getElementById('btn-left').addEventListener('click', () => handleDirection('left'));
+    document.getElementById('btn-right').addEventListener('click', () => handleDirection('right'));
+    
+    // Результаты
+    document.getElementById('play-again-btn').addEventListener('click', playAgain);
+    document.getElementById('close-btn').addEventListener('click', closeGame);
+    
+    // Свайпы для управления
+    let touchStartX = 0;
+    let touchStartY = 0;
+    
+    const canvas = document.getElementById('game-canvas');
+    canvas.addEventListener('touchstart', (e) => {
+        touchStartX = e.touches[0].clientX;
+        touchStartY = e.touches[0].clientY;
+    });
+    
+    canvas.addEventListener('touchend', (e) => {
+        if (!touchStartX || !touchStartY) return;
+        
+        const touchEndX = e.changedTouches[0].clientX;
+        const touchEndY = e.changedTouches[0].clientY;
+        
+        const diffX = touchStartX - touchEndX;
+        const diffY = touchStartY - touchEndY;
+        
+        if (Math.abs(diffX) > Math.abs(diffY)) {
+            if (diffX > 0) handleDirection('left');
+            else handleDirection('right');
+        } else {
+            if (diffY > 0) handleDirection('up');
+            else handleDirection('down');
+        }
+        
+        touchStartX = 0;
+        touchStartY = 0;
+    });
+    
+    // Клавиатурное управление
+    document.addEventListener('keydown', (e) => {
+        if (gameState !== 'playing') return;
+        
+        switch(e.key) {
+            case 'ArrowUp':
+                e.preventDefault();
+                handleDirection('up');
+                break;
+            case 'ArrowDown':
+                e.preventDefault();
+                handleDirection('down');
+                break;
+            case 'ArrowLeft':
+                e.preventDefault();
+                handleDirection('left');
+                break;
+            case 'ArrowRight':
+                e.preventDefault();
+                handleDirection('right');
+                break;
+        }
+    });
+}
+
+// Показ экранов
+function showScreen(screenName) {
+    document.querySelectorAll('.screen').forEach(screen => {
+        screen.classList.remove('active');
+    });
+    
+    const screen = document.getElementById(screenName + '-screen');
+    if (screen) {
+        screen.classList.add('active');
+        gameState = screenName;
+    }
+}
+
+// Начало игры
+async function startGame() {
+    showScreen('loading');
+    
+    try {
+        // Отправляем запрос на сервер для создания/присоединения к игре
+        const baseUrl = window.location.origin;
+        const response = await fetch(`${baseUrl}/api/game/start`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                user_id: userData?.id,
+                init_data: tg.initData
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.error) {
+            tg.showAlert(data.error);
+            showScreen('menu');
+            return;
+        }
+        
+        if (data.requires_payment) {
+            showPaymentScreen(data.invoice_url);
+        } else if (data.waiting) {
+            showWaitingScreen();
+        } else if (data.game_starting) {
+            startCountdown(data.countdown || 5);
+        }
+    } catch (error) {
+        console.error('Error starting game:', error);
+        tg.showAlert('Ошибка при запуске игры. Попробуйте позже.');
+        showScreen('menu');
+    }
+}
+
+// Показ экрана оплаты
+function showPaymentScreen(invoiceUrl) {
+    showScreen('payment');
+    
+    // Рисуем превью игрового поля
+    renderFieldPreview('field-preview');
+    
+    // Сохраняем URL для оплаты
+    document.getElementById('pay-btn').onclick = () => {
+        tg.openLink(invoiceUrl);
+    };
+}
+
+// Открытие платежа
+function openPayment() {
+    // URL должен быть установлен в showPaymentScreen
+    tg.openLink(document.getElementById('pay-btn').dataset.invoiceUrl);
+}
+
+// Проверка оплаты
+async function checkPayment() {
+    try {
+        const baseUrl = window.location.origin;
+        const response = await fetch(`${baseUrl}/api/game/check-payment`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                user_id: userData?.id,
+                init_data: tg.initData
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.paid) {
+            if (data.game_starting) {
+                startCountdown(data.countdown || 5);
+            } else {
+                showWaitingScreen();
+                tg.showAlert('Оплата подтверждена! Ожидание соперника...');
+            }
+        } else {
+            tg.showAlert('Оплата еще не подтверждена. Пожалуйста, оплатите счет.');
+        }
+    } catch (error) {
+        console.error('Error checking payment:', error);
+        tg.showAlert('Ошибка при проверке оплаты.');
+    }
+}
+
+// Экран ожидания
+function showWaitingScreen() {
+    showScreen('waiting');
+    renderFieldPreview('waiting-field');
+    
+    // Периодическая проверка статуса
+    const checkInterval = setInterval(async () => {
+        try {
+            const baseUrl = window.location.origin;
+            const response = await fetch(`${baseUrl}/api/game/status`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    user_id: userData?.id,
+                    init_data: tg.initData
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (data.game_starting) {
+                clearInterval(checkInterval);
+                startCountdown(data.countdown || 5);
+            }
+        } catch (error) {
+            console.error('Error checking status:', error);
+        }
+    }, 3000);
+}
+
+// Обратный отсчет
+function startCountdown(seconds = 5) {
+    showScreen('countdown');
+    renderFieldPreview('countdown-field');
+    
+    const countdownEl = document.getElementById('countdown-number');
+    let count = seconds;
+    
+    countdownEl.textContent = count;
+    
+    const countdownInterval = setInterval(() => {
+        count--;
+        if (count > 0) {
+            countdownEl.textContent = count;
+        } else {
+            clearInterval(countdownInterval);
+            startGamePlay();
+        }
+    }, 1000);
+}
+
+// Начало игрового процесса
+function startGamePlay() {
+    showScreen('game');
+    
+    // Создаем игру
+    game = new SnakeGame('game-canvas');
+    
+    // Запускаем игровой цикл
+    gameLoop = setInterval(() => {
+        if (gameState === 'playing') {
+            game.update();
+            game.draw();
+            
+            const state = game.getGameState();
+            updatePlayerStatus(state);
+            
+            // Отправляем направление на сервер
+            if (currentDirection) {
+                sendDirection(currentDirection);
+                currentDirection = null;
+            }
+            
+            // Проверяем окончание игры
+            if (state.finished) {
+                endGame();
+            }
+        }
+    }, 100);
+    
+    game.draw();
+}
+
+// Обработка направления
+function handleDirection(direction) {
+    if (gameState !== 'playing' || !game) return;
+    
+    game.setDirection('player1', direction);
+    currentDirection = direction;
+    sendDirection(direction);
+}
+
+// Отправка направления на сервер
+async function sendDirection(direction) {
+    try {
+        const baseUrl = window.location.origin;
+        await fetch(`${baseUrl}/api/game/direction`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                user_id: userData?.id,
+                direction: direction,
+                init_data: tg.initData
+            })
+        });
+    } catch (error) {
+        console.error('Error sending direction:', error);
+    }
+}
+
+// Обновление статуса игроков
+function updatePlayerStatus(state) {
+    document.getElementById('player1-status').textContent = 
+        `Вы: ${state.player1Alive ? 'Живы' : 'Мертвы'}`;
+    document.getElementById('player2-status').textContent = 
+        `Соперник: ${state.player2Alive ? 'Живы' : 'Мертвы'}`;
+}
+
+// Конец игры
+async function endGame() {
+    if (gameLoop) {
+        clearInterval(gameLoop);
+        gameLoop = null;
+    }
+    
+    gameState = 'result';
+    
+    const winner = game.getWinner();
+    
+    // Отправляем результат на сервер
+    try {
+        const baseUrl = window.location.origin;
+        const response = await fetch(`${baseUrl}/api/game/end`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                user_id: userData?.id,
+                winner: winner,
+                init_data: tg.initData
+            })
+        });
+        
+        const data = await response.json();
+        showResultScreen(winner, data.prize);
+    } catch (error) {
+        console.error('Error ending game:', error);
+        showResultScreen(winner, null);
+    }
+}
+
+// Экран результатов
+function showResultScreen(winner, prize) {
+    showScreen('result');
+    
+    const resultCanvas = document.getElementById('result-canvas');
+    const resultCtx = resultCanvas.getContext('2d');
+    resultCanvas.width = resultCanvas.offsetWidth;
+    resultCanvas.height = resultCanvas.offsetWidth;
+    game.ctx = resultCtx;
+    game.canvas = resultCanvas;
+    game.setupCanvas();
+    game.draw();
+    
+    if (winner === 'player1') {
+        document.getElementById('result-icon').textContent = '🏆';
+        document.getElementById('result-title').textContent = 'Победа!';
+        document.getElementById('result-message').textContent = 'Вы выиграли!';
+        if (prize) {
+            document.getElementById('result-prize').textContent = `💰 $${prize.toFixed(2)}`;
+        }
+    } else if (winner === 'player2') {
+        document.getElementById('result-icon').textContent = '💔';
+        document.getElementById('result-title').textContent = 'Поражение';
+        document.getElementById('result-message').textContent = 'Вы проиграли';
+        document.getElementById('result-prize').textContent = '';
+    } else {
+        document.getElementById('result-icon').textContent = '🤝';
+        document.getElementById('result-title').textContent = 'Ничья';
+        document.getElementById('result-message').textContent = 'Оба игрока проиграли';
+        document.getElementById('result-prize').textContent = '';
+    }
+}
+
+// Играть снова
+function playAgain() {
+    showScreen('menu');
+    game = null;
+}
+
+// Закрыть игру
+function closeGame() {
+    tg.close();
+}
+
+// Рендер превью поля
+function renderFieldPreview(canvasId) {
+    const canvas = document.getElementById(canvasId);
+    if (!canvas) return;
+    
+    const ctx = canvas.getContext('2d');
+    const size = canvas.offsetWidth;
+    canvas.width = size;
+    canvas.height = size;
+    
+    const gridSize = 20;
+    const tileSize = size / gridSize;
+    
+    // Фон
+    ctx.fillStyle = '#1e293b';
+    ctx.fillRect(0, 0, size, size);
+    
+    // Границы
+    ctx.strokeStyle = '#475569';
+    ctx.lineWidth = 3;
+    ctx.strokeRect(0, 0, size, size);
+    
+    // Сетка
+    ctx.strokeStyle = '#475569';
+    ctx.lineWidth = 1;
+    for (let i = 0; i <= gridSize; i++) {
+        ctx.beginPath();
+        ctx.moveTo(i * tileSize, 0);
+        ctx.lineTo(i * tileSize, size);
+        ctx.stroke();
+        
+        ctx.beginPath();
+        ctx.moveTo(0, i * tileSize);
+        ctx.lineTo(size, i * tileSize);
+        ctx.stroke();
+    }
+}
+
+// Проверка состояния игры
+async function checkGameState() {
+    // Реализация проверки через WebSocket или polling
+}
+
