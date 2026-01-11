@@ -32,14 +32,6 @@ config_local.py
 # Railway
 .railway/
 
-# Vercel
-.vercel
-
 # Временные файлы
 *.tmp
 *.bak
-
-# Тестовые файлы
-*.test.py
-test_*.py
-
