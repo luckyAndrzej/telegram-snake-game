@@ -27,8 +27,7 @@ function initEventListeners() {
     // Главное меню
     document.getElementById('start-game-btn').addEventListener('click', startGame);
     
-    // Платежный экран
-    document.getElementById('pay-btn').addEventListener('click', openPayment);
+    // Платежный экран - обработчики устанавливаются динамически в showPaymentScreen
     document.getElementById('check-payment-btn').addEventListener('click', checkPayment);
     
     // Экран ожидания
@@ -140,11 +139,19 @@ async function startGame() {
         }
         
         if (data.requires_payment) {
-            showPaymentScreen(data.invoice_url);
+            if (data.invoice_url) {
+                showPaymentScreen(data.invoice_url);
+            } else {
+                tg.showAlert('Ошибка: не получен URL для оплаты');
+                showScreen('menu');
+            }
         } else if (data.waiting) {
             showWaitingScreen();
         } else if (data.game_starting) {
             startCountdown(data.countdown || 5);
+        } else {
+            tg.showAlert('Неизвестный статус игры');
+            showScreen('menu');
         }
     } catch (error) {
         console.error('Error starting game:', error);
@@ -155,21 +162,79 @@ async function startGame() {
 
 // Показ экрана оплаты
 function showPaymentScreen(invoiceUrl) {
+    if (!invoiceUrl || invoiceUrl === '#' || invoiceUrl === '') {
+        console.error('Invalid invoice URL:', invoiceUrl);
+        tg.showAlert('Ошибка: не получен URL для оплаты');
+        showScreen('menu');
+        return;
+    }
+    
+    console.log('Showing payment screen with URL:', invoiceUrl);
     showScreen('payment');
     
     // Рисуем превью игрового поля
     renderFieldPreview('field-preview');
     
-    // Сохраняем URL для оплаты
-    document.getElementById('pay-btn').onclick = () => {
-        tg.openLink(invoiceUrl);
-    };
+    // Сохраняем URL для оплаты в data-атрибут и устанавливаем обработчик
+    const payBtn = document.getElementById('pay-btn');
+    if (payBtn && invoiceUrl) {
+        // Удаляем старый обработчик, если есть
+        const newPayBtn = payBtn.cloneNode(true);
+        payBtn.parentNode.replaceChild(newPayBtn, payBtn);
+        
+        // Устанавливаем новый обработчик
+        newPayBtn.dataset.invoiceUrl = invoiceUrl;
+        newPayBtn.addEventListener('click', function() {
+            console.log('Pay button clicked, opening URL:', invoiceUrl);
+            openPaymentUrl(invoiceUrl);
+        });
+    } else {
+        console.error('Pay button not found or invoice URL missing');
+        tg.showAlert('Ошибка: не удалось настроить кнопку оплаты');
+    }
 }
 
-// Открытие платежа
+// Функция для открытия URL оплаты
+function openPaymentUrl(url) {
+    console.log('Opening payment URL:', url);
+    
+    if (!url || url === '#' || url === '') {
+        tg.showAlert('Ошибка: неверный URL для оплаты');
+        return;
+    }
+    
+    try {
+        // Проверяем, доступен ли tg.openLink
+        if (typeof tg !== 'undefined' && tg.openLink) {
+            console.log('Using tg.openLink');
+            tg.openLink(url);
+        } else {
+            console.log('tg.openLink not available, using window.open');
+            // Fallback: открываем в новом окне
+            window.open(url, '_blank');
+        }
+    } catch (error) {
+        console.error('Error opening payment link:', error);
+        // Последняя попытка: пробуем открыть напрямую
+        try {
+            window.location.href = url;
+        } catch (e) {
+            tg.showAlert('Ошибка при открытии платежной системы: ' + error.message);
+        }
+    }
+}
+
+// Открытие платежа (legacy функция, теперь используется openPaymentUrl)
 function openPayment() {
-    // URL должен быть установлен в showPaymentScreen
-    tg.openLink(document.getElementById('pay-btn').dataset.invoiceUrl);
+    const payBtn = document.getElementById('pay-btn');
+    const invoiceUrl = payBtn?.dataset.invoiceUrl;
+    
+    if (!invoiceUrl) {
+        tg.showAlert('Ошибка: URL для оплаты не найден');
+        return;
+    }
+    
+    openPaymentUrl(invoiceUrl);
 }
 
 // Проверка оплаты

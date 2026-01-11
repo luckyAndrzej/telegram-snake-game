@@ -123,7 +123,17 @@ def api_start_game():
         nest_asyncio.apply()
         invoice = asyncio.run(crypto_pay.create_invoice(user_id))
         if not invoice:
+            log_error("api_start_game", Exception("Invoice creation returned None"), user_id)
             return jsonify({'error': 'Failed to create invoice'}), 500
+        
+        # Получаем URL для оплаты из инвойса (пробуем разные варианты)
+        invoice_url = invoice.get("pay_url") or invoice.get("url") or invoice.get("payUrl") or invoice.get("invoice_url")
+        
+        log_info(f"Invoice created for user {user_id}: invoice={invoice}, url={invoice_url}")
+        
+        if not invoice_url or invoice_url == "#":
+            log_error("api_start_game", Exception(f"No payment URL in invoice: {invoice}"), user_id)
+            return jsonify({'error': 'Failed to get payment URL from invoice'}), 500
         
         # Сохраняем информацию об ожидающем игроке
         game_main.waiting_players[user_id] = {
@@ -134,7 +144,8 @@ def api_start_game():
         
         return jsonify({
             'requires_payment': True,
-            'invoice_url': invoice.get("pay_url", "#")
+            'invoice_url': invoice_url,
+            'invoice_id': invoice.get("invoice_id")
         })
         
     except Exception as e:
