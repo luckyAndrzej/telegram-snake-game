@@ -3,8 +3,11 @@
 """
 
 import os
+import sys
 import threading
 import asyncio
+import signal
+import time
 from config import TELEGRAM_BOT_TOKEN
 from logger import log_info
 
@@ -32,6 +35,9 @@ def run_bot():
     
     log_info("Bot thread starting...")
     
+    # Небольшая задержка перед запуском бота для стабилизации
+    time.sleep(2)
+    
     # Инициализируем приложение в этом потоке
     application = init_application()
     if not application:
@@ -42,12 +48,45 @@ def run_bot():
     try:
         # run_polling() использует установленный event loop
         application.run_polling(allowed_updates=None, stop_signals=None)
+    except KeyboardInterrupt:
+        log_info("Bot polling interrupted by user")
     except Exception as e:
         log_info(f"Bot thread error: {e}")
         import traceback
         traceback.print_exc()
     finally:
-        loop.close()
+        try:
+            # Корректно останавливаем бота перед закрытием для освобождения соединения с Telegram
+            if application:
+                log_info("Stopping bot polling...")
+                try:
+                    # Останавливаем polling
+                    loop.run_until_complete(application.stop())
+                    # Завершаем работу приложения
+                    loop.run_until_complete(application.shutdown())
+                    log_info("Bot stopped successfully")
+                except AttributeError as e:
+                    # Если методы недоступны
+                    log_info(f"Application stop methods not available: {e}")
+                except Exception as e:
+                    log_info(f"Error stopping bot: {e}")
+        except Exception as e:
+            log_info(f"Error in bot cleanup: {e}")
+        finally:
+            try:
+                # Отменяем все оставшиеся задачи перед закрытием loop
+                pending = asyncio.all_tasks(loop)
+                if pending:
+                    log_info(f"Cancelling {len(pending)} pending tasks...")
+                    for task in pending:
+                        task.cancel()
+                    # Ждем завершения отмененных задач
+                    loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            except Exception as e:
+                log_info(f"Error closing tasks: {e}")
+            finally:
+                loop.close()
+                log_info("Bot thread closed and event loop freed")
 
 
 def run_webapp():
@@ -65,7 +104,29 @@ def run_webapp():
     app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
 
+# Глобальная переменная для хранения ссылки на приложение бота
+bot_application = None
+
+def signal_handler(signum, frame):
+    """Обработчик сигналов завершения"""
+    log_info(f"Received signal {signum}, shutting down gracefully...")
+    
+    # Останавливаем веб-приложение
+    try:
+        from webapp_api import app
+        # Flask не имеет встроенного способа остановки, но мы можем попытаться
+        log_info("Web app shutdown initiated")
+    except Exception as e:
+        log_info(f"Error during web app shutdown: {e}")
+    
+    # Выходим из программы
+    sys.exit(0)
+
 if __name__ == "__main__":
+    # Регистрируем обработчики сигналов
+    signal.signal(signal.SIGTERM, signal_handler)
+    signal.signal(signal.SIGINT, signal_handler)
+    
     # Проверяем, есть ли токен
     token = os.getenv("TELEGRAM_BOT_TOKEN") or TELEGRAM_BOT_TOKEN
     
@@ -79,9 +140,12 @@ if __name__ == "__main__":
     bot_thread.start()
     
     # Даем боту время на инициализацию
-    import time
     time.sleep(2)
     
     # Запускаем веб-приложение в основном потоке
-    run_webapp()
+    try:
+        run_webapp()
+    except KeyboardInterrupt:
+        log_info("Application interrupted by user")
+        signal_handler(signal.SIGINT, None)
 
