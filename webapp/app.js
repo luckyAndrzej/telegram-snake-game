@@ -496,7 +496,22 @@ function showResultScreen(winner, prize) {
     showScreen('result');
     
     const resultCanvas = document.getElementById('result-canvas');
+    if (!resultCanvas) {
+        console.error('Result canvas not found');
+        return;
+    }
+    
+    if (resultCanvas.tagName !== 'CANVAS') {
+        console.error('Result element is not a canvas');
+        return;
+    }
+    
     const resultCtx = resultCanvas.getContext('2d');
+    if (!resultCtx) {
+        console.error('Could not get 2d context for result canvas');
+        return;
+    }
+    
     resultCanvas.width = resultCanvas.offsetWidth;
     resultCanvas.height = resultCanvas.offsetWidth;
     game.ctx = resultCtx;

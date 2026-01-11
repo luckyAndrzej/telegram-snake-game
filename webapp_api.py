@@ -262,11 +262,11 @@ def api_start_game():
             opponent_data = game_main.waiting_players[opponent_id]
             log_info(f"User {user_id} connecting to existing waiting player {opponent_id}")
             
-                # Если соперник уже оплатил, создаем инвойс для текущего игрока
-                if opponent_data.get("paid"):
-                    # Создаем счет для текущего игрока
-                    try:
-                        invoice = crypto_pay.create_invoice(user_id)
+            # Если соперник уже оплатил, создаем инвойс для текущего игрока
+            if opponent_data.get("paid"):
+                # Создаем счет для текущего игрока
+                try:
+                    invoice = crypto_pay.create_invoice(user_id)
                     if not invoice:
                         log_error("api_start_game", Exception("Invoice creation returned None for second player (opponent paid)"), user_id)
                         return jsonify({'error': 'Failed to create invoice. Please try again later.'}), 500

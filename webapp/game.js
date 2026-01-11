@@ -2,12 +2,24 @@
 class SnakeGame {
     constructor(canvasId) {
         this.canvas = document.getElementById(canvasId);
-        this.ctx = this.canvas.getContext('2d');
-        this.gridSize = 20;
-        this.tileSize = Math.min(this.canvas.width, this.canvas.height) / this.gridSize;
+        if (!this.canvas) {
+            throw new Error(`Canvas element with id '${canvasId}' not found`);
+        }
         
+        // Проверяем, что это canvas элемент
+        if (this.canvas.tagName !== 'CANVAS') {
+            throw new Error(`Element with id '${canvasId}' is not a canvas element`);
+        }
+        
+        this.ctx = this.canvas.getContext('2d');
+        if (!this.ctx) {
+            throw new Error(`Could not get 2d context for canvas '${canvasId}'`);
+        }
+        
+        this.gridSize = 20;
         this.reset();
         this.setupCanvas();
+        this.tileSize = Math.min(this.canvas.width, this.canvas.height) / this.gridSize;
     }
 
     setupCanvas() {
