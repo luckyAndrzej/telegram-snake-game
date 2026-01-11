@@ -52,9 +52,17 @@ def run_bot():
 
 def run_webapp():
     """Запускает Flask веб-приложение"""
-    web_app_url = os.getenv("WEB_APP_URL", "http://localhost:5000")
-    log_info(f"Web App API starting on {web_app_url}")
-    app.run(host='0.0.0.0', port=5000, debug=False, use_reloader=False)
+    from webapp_api import app
+    
+    # Railway предоставляет PORT через переменную окружения
+    port = int(os.getenv("PORT", "5000"))
+    web_app_url = os.getenv("WEB_APP_URL", f"http://0.0.0.0:{port}")
+    
+    log_info(f"Web App API starting on 0.0.0.0:{port}")
+    log_info(f"Web App URL: {web_app_url}")
+    
+    # Запускаем Flask на всех интерфейсах (0.0.0.0) и указанном порту
+    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
 
 
 if __name__ == "__main__":
@@ -75,6 +83,5 @@ if __name__ == "__main__":
     time.sleep(2)
     
     # Запускаем веб-приложение в основном потоке
-    from webapp_api import app
     run_webapp()
 
