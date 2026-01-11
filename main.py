@@ -61,7 +61,7 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     
     # Создаем кнопку для начала игры
     keyboard = [
-        [InlineKeyboardButton("🎮 Начать игру ($1)", callback_data="start_game")]
+        [InlineKeyboardButton("🎮 Начать игру", callback_data="start_game")]
     ]
     reply_markup = InlineKeyboardMarkup(keyboard)
     
@@ -94,6 +94,9 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
             await handle_pay_invoice(user_id, query, context)
         elif data in ["up", "down", "left", "right"]:
             await handle_direction_change(user_id, data, query, context)
+        elif data.endswith("_disabled"):
+            # Игрок пытается управлять до оплаты
+            await query.answer(UserLogger.warning_banner("Сначала необходимо оплатить участие в игре!"), show_alert=True)
         elif data == "check_payment":
             await handle_check_payment(user_id, query, context)
     except Exception as e:
@@ -102,7 +105,7 @@ async def button_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
 
 async def handle_start_game(user_id: int, query, context: ContextTypes.DEFAULT_TYPE):
-    """Обработка начала игры"""
+    """Обработка начала игры - показывает интерфейс игры, затем требует оплату"""
     log_info(f"User {user_id} wants to start game")
     
     # Проверяем, не находится ли игрок уже в игре
@@ -112,78 +115,62 @@ async def handle_start_game(user_id: int, query, context: ContextTypes.DEFAULT_T
             await query.edit_message_text(UserLogger.warning_banner("Вы уже находитесь в игре!"))
             return
     
+    # Сначала показываем интерфейс игры (пустое поле)
+    empty_field = render_empty_field()
+    status_text = f"{UserLogger.info_banner('Ожидание игроков...')}\n\n"
+    status_text += f"💰 Для присоединения к игре необходимо оплатить ${GAME_PRICE_USD}"
+    
     # Проверяем, есть ли ожидающие игроки
     if waiting_players:
-        # Подключаем к существующему матчу
+        # Есть ожидающий игрок - показываем его поле
         opponent_id = next(iter(waiting_players.keys()))
         opponent_data = waiting_players[opponent_id]
         
-        # Проверяем, оплатил ли соперник
+        # Если соперник уже оплатил, показываем его статус
         if opponent_data.get("paid"):
-            # Создаем игру
-            await create_match_with_query(user_id, opponent_id, query, context)
+            status_text = f"{UserLogger.success_banner('Игрок ожидает соперника!')}\n\n"
+            status_text += f"💰 Для присоединения к игре необходимо оплатить ${GAME_PRICE_USD}"
         else:
-            # Создаем счет для текущего игрока
-            invoice = await crypto_pay.create_invoice(user_id)
-            if not invoice:
-                await query.edit_message_text(
-                    UserLogger.error_banner("Не удалось создать счет на оплату. Попробуйте позже.")
-                )
-                return
-            
-            # Сохраняем информацию об ожидающем игроке
-            waiting_players[user_id] = {
-                "invoice_id": invoice.get("invoice_id"),
-                "invoice_data": invoice,
-                "message_id": query.message.message_id,
-                "paid": False
-            }
-            
-            # Отправляем сообщение с кнопкой оплаты
-            keyboard = [
-                [InlineKeyboardButton("💳 Оплатить", url=invoice.get("pay_url", "#"))],
-                [InlineKeyboardButton("✅ Проверить оплату", callback_data="check_payment")]
-            ]
-            reply_markup = InlineKeyboardMarkup(keyboard)
-            
-            await query.edit_message_text(
-                f"{UserLogger.info_banner('Ожидание второго игрока...')}\n\n"
-                f"{UserLogger.warning_banner('Оплатите счет для участия в игре:')}\n"
-                f"💰 Сумма: ${GAME_PRICE_USD}\n"
-                f"📋 После оплаты нажмите 'Проверить оплату'",
-                reply_markup=reply_markup
-            )
-    else:
-        # Создаем счет для текущего игрока
-        invoice = await crypto_pay.create_invoice(user_id)
-        if not invoice:
-            await query.edit_message_text(
-                UserLogger.error_banner("Не удалось создать счет на оплату. Попробуйте позже.")
-            )
-            return
-        
-        # Сохраняем информацию об ожидающем игроке
-        waiting_players[user_id] = {
-            "invoice_id": invoice.get("invoice_id"),
-            "invoice_data": invoice,
-            "message_id": query.message.message_id,
-            "paid": False
-        }
-        
-        # Отправляем сообщение с кнопкой оплаты
-        keyboard = [
-            [InlineKeyboardButton("💳 Оплатить", url=invoice.get("pay_url", "#"))],
-            [InlineKeyboardButton("✅ Проверить оплату", callback_data="check_payment")]
-        ]
-        reply_markup = InlineKeyboardMarkup(keyboard)
-        
+            status_text = f"{UserLogger.info_banner('Игрок ожидает оплаты...')}\n\n"
+            status_text += f"💰 Для присоединения к игре необходимо оплатить ${GAME_PRICE_USD}"
+    
+    # Создаем счет для текущего игрока
+    invoice = await crypto_pay.create_invoice(user_id)
+    if not invoice:
         await query.edit_message_text(
-            f"{UserLogger.info_banner('Ожидание второго игрока...')}\n\n"
-            f"{UserLogger.warning_banner('Оплатите счет для участия в игре:')}\n"
-            f"💰 Сумма: ${GAME_PRICE_USD}\n"
-            f"📋 После оплаты нажмите 'Проверить оплату'",
-            reply_markup=reply_markup
+            UserLogger.error_banner("Не удалось создать счет на оплату. Попробуйте позже.")
         )
+        return
+    
+    # Сохраняем информацию об ожидающем игроке
+    waiting_players[user_id] = {
+        "invoice_id": invoice.get("invoice_id"),
+        "invoice_data": invoice,
+        "message_id": query.message.message_id,
+        "paid": False
+    }
+    
+    # Создаем кнопки: управление (пока неактивные) и оплата
+    keyboard = [
+        [
+            InlineKeyboardButton("⬆️", callback_data="up_disabled"),
+            InlineKeyboardButton("⬇️", callback_data="down_disabled")
+        ],
+        [
+            InlineKeyboardButton("⬅️", callback_data="left_disabled"),
+            InlineKeyboardButton("➡️", callback_data="right_disabled")
+        ],
+        [InlineKeyboardButton("💳 Оплатить $1 для присоединения", url=invoice.get("pay_url", "#"))],
+        [InlineKeyboardButton("✅ Проверить оплату", callback_data="check_payment")]
+    ]
+    reply_markup = InlineKeyboardMarkup(keyboard)
+    
+    full_text = f"{empty_field}\n\n{status_text}"
+    
+    await query.edit_message_text(
+        full_text,
+        reply_markup=reply_markup
+    )
 
 
 async def handle_check_payment(user_id: int, query, context: ContextTypes.DEFAULT_TYPE):
@@ -216,25 +203,63 @@ async def handle_check_payment(user_id: int, query, context: ContextTypes.DEFAUL
             if opponent_data.get("paid"):
                 # Оба игрока оплатили - создаем игру
                 await query.answer(UserLogger.success_banner("Оплата подтверждена! Начинаем игру..."), show_alert=True)
-                # Используем фиктивный query для второго игрока
+                # Создаем игру
                 await create_match_with_query(user_id, opponent_id, query, context)
             else:
-                # Ждем оплаты соперника
+                # Ждем оплаты соперника - обновляем интерфейс
+                empty_field = render_empty_field()
+                status_text = f"{UserLogger.success_banner('Оплата подтверждена!')}\n\n"
+                status_text += f"{UserLogger.info_banner('Ожидание оплаты соперника...')}\n"
+                status_text += f"💰 Соперник должен оплатить ${GAME_PRICE_USD}"
+                
+                # Кнопки управления пока неактивны
+                keyboard = [
+                    [
+                        InlineKeyboardButton("⬆️", callback_data="up_disabled"),
+                        InlineKeyboardButton("⬇️", callback_data="down_disabled")
+                    ],
+                    [
+                        InlineKeyboardButton("⬅️", callback_data="left_disabled"),
+                        InlineKeyboardButton("➡️", callback_data="right_disabled")
+                    ],
+                    [InlineKeyboardButton("✅ Проверить оплату", callback_data="check_payment")]
+                ]
+                reply_markup = InlineKeyboardMarkup(keyboard)
+                
                 await query.answer(UserLogger.success_banner("Оплата подтверждена! Ожидаем оплату соперника..."), show_alert=True)
                 try:
                     await query.edit_message_text(
-                        f"{UserLogger.success_banner('Оплата подтверждена!')}\n\n"
-                        f"{UserLogger.info_banner('Ожидание оплаты соперника...')}"
+                        f"{empty_field}\n\n{status_text}",
+                        reply_markup=reply_markup
                     )
                 except:
                     pass
         else:
-            # Ждем второго игрока
+            # Ждем второго игрока - обновляем интерфейс
+            empty_field = render_empty_field()
+            status_text = f"{UserLogger.success_banner('Оплата подтверждена!')}\n\n"
+            status_text += f"{UserLogger.info_banner('Ожидание второго игрока...')}\n"
+            status_text += f"💰 Второй игрок должен оплатить ${GAME_PRICE_USD}"
+            
+            # Кнопки управления пока неактивны
+            keyboard = [
+                [
+                    InlineKeyboardButton("⬆️", callback_data="up_disabled"),
+                    InlineKeyboardButton("⬇️", callback_data="down_disabled")
+                ],
+                [
+                    InlineKeyboardButton("⬅️", callback_data="left_disabled"),
+                    InlineKeyboardButton("➡️", callback_data="right_disabled")
+                ],
+                [InlineKeyboardButton("✅ Проверить оплату", callback_data="check_payment")]
+            ]
+            reply_markup = InlineKeyboardMarkup(keyboard)
+            
             await query.answer(UserLogger.success_banner("Оплата подтверждена! Ожидаем второго игрока..."), show_alert=True)
             try:
                 await query.edit_message_text(
-                    f"{UserLogger.success_banner('Оплата подтверждена!')}\n\n"
-                    f"{UserLogger.info_banner('Ожидание второго игрока...')}"
+                    f"{empty_field}\n\n{status_text}",
+                    reply_markup=reply_markup
                 )
             except:
                 pass
@@ -312,6 +337,26 @@ async def create_match_with_query(player1_id: int, player2_id: int, query, conte
 async def create_match(player1_id: int, player2_id: int, query, context: ContextTypes.DEFAULT_TYPE):
     """Создает матч (устаревший метод, используем create_match_with_query)"""
     await create_match_with_query(player1_id, player2_id, query, context)
+
+
+def render_empty_field() -> str:
+    """Отрисовывает пустое игровое поле"""
+    from config import GAME_FIELD_WIDTH, GAME_FIELD_HEIGHT
+    
+    # Создаем пустое поле
+    field = [['⬜' for _ in range(GAME_FIELD_WIDTH)] for _ in range(GAME_FIELD_HEIGHT)]
+    
+    # Добавляем границы
+    for i in range(GAME_FIELD_HEIGHT):
+        field[i][0] = '🟦'  # Левая граница
+        field[i][GAME_FIELD_WIDTH - 1] = '🟦'  # Правая граница
+    for j in range(GAME_FIELD_WIDTH):
+        field[0][j] = '🟦'  # Верхняя граница
+        field[GAME_FIELD_HEIGHT - 1][j] = '🟦'  # Нижняя граница
+    
+    # Преобразуем в строку
+    lines = [''.join(row) for row in field]
+    return '\n'.join(lines)
 
 
 async def handle_direction_change(user_id: int, direction_str: str, query, context: ContextTypes.DEFAULT_TYPE):
