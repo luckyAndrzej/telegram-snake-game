@@ -4,6 +4,7 @@
 
 import os
 import threading
+import asyncio
 from config import TELEGRAM_BOT_TOKEN
 from logger import log_info
 
@@ -25,21 +26,28 @@ def init_application():
 
 def run_bot():
     """Запускает Telegram бота в отдельном потоке"""
+    # Создаем новый event loop для этого потока
+    loop = asyncio.new_event_loop()
+    asyncio.set_event_loop(loop)
+    
     log_info("Bot thread starting...")
     
     # Инициализируем приложение в этом потоке
     application = init_application()
     if not application:
         log_info("Bot initialization failed: no token")
+        loop.close()
         return
     
     try:
-        # run_polling() создает свой event loop автоматически
+        # run_polling() использует установленный event loop
         application.run_polling(allowed_updates=None, stop_signals=None)
     except Exception as e:
         log_info(f"Bot thread error: {e}")
         import traceback
         traceback.print_exc()
+    finally:
+        loop.close()
 
 
 def run_webapp():
