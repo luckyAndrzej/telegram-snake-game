@@ -46,8 +46,20 @@ def run_bot():
         return
     
     try:
+        # Удаляем webhook перед запуском polling для избежания конфликтов
+        log_info("Deleting any existing webhook...")
+        try:
+            loop.run_until_complete(application.bot.delete_webhook(drop_pending_updates=True))
+            log_info("Webhook deleted successfully")
+        except Exception as e:
+            log_info(f"Error deleting webhook (may not exist): {e}")
+        
+        # Небольшая пауза после удаления webhook
+        time.sleep(1)
+        
         # run_polling() использует установленный event loop
-        application.run_polling(allowed_updates=None, stop_signals=None)
+        log_info("Starting bot polling...")
+        application.run_polling(allowed_updates=None, stop_signals=None, drop_pending_updates=True)
     except KeyboardInterrupt:
         log_info("Bot polling interrupted by user")
     except Exception as e:
