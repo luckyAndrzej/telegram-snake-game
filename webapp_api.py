@@ -88,11 +88,21 @@ def serve_index():
 def api_start_game():
     """API для начала игры"""
     try:
+        log_info("API /api/game/start called")
         data = request.json
+        log_info(f"Request data: {data}")
+        
+        if not data:
+            log_error("api_start_game", Exception("No JSON data in request"))
+            return jsonify({'error': 'No data received'}), 400
+        
         user_id = data.get('user_id')
         init_data = data.get('init_data')
         
+        log_info(f"User ID: {user_id}")
+        
         if not user_id:
+            log_error("api_start_game", Exception("User ID not provided"))
             return jsonify({'error': 'User ID required'}), 400
         
         # Валидируем init_data (в продакшене)
@@ -149,8 +159,14 @@ def api_start_game():
         })
         
     except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
         log_error("api_start_game", e)
-        return jsonify({'error': 'Internal server error'}), 500
+        log_info(f"Full traceback: {error_details}")
+        return jsonify({
+            'error': 'Internal server error',
+            'details': str(e) if app.debug else None
+        }), 500
 
 
 @app.route('/api/game/check-payment', methods=['POST'])

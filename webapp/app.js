@@ -119,20 +119,52 @@ async function startGame() {
     try {
         // Отправляем запрос на сервер для создания/присоединения к игре
         const baseUrl = window.location.origin;
+        console.log('Starting game, baseUrl:', baseUrl);
+        console.log('User data:', userData);
+        
+        // Проверяем, есть ли данные пользователя
+        if (!userData || !userData.id) {
+            console.error('User data not available:', userData);
+            tg.showAlert('Ошибка: данные пользователя не найдены. Попробуйте перезагрузить приложение.');
+            showScreen('menu');
+            return;
+        }
+        
+        const requestData = {
+            user_id: userData.id,
+            init_data: tg.initData || tg.initDataUnsafe || ''
+        };
+        console.log('Sending request:', requestData);
+        
         const response = await fetch(`${baseUrl}/api/game/start`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-                user_id: userData?.id,
-                init_data: tg.initData
-            })
+            body: JSON.stringify(requestData)
         });
         
+        console.log('Response status:', response.status, response.statusText);
+        
+        // Проверяем статус ответа
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error('API error response:', errorText);
+            try {
+                const errorData = JSON.parse(errorText);
+                tg.showAlert(errorData.error || `Ошибка сервера: ${response.status}`);
+            } catch (e) {
+                tg.showAlert(`Ошибка сервера: ${response.status}`);
+            }
+            showScreen('menu');
+            return;
+        }
+        
         const data = await response.json();
+        console.log('Response data:', data);
         
         if (data.error) {
+            console.error('Error in response:', data.error);
             tg.showAlert(data.error);
             showScreen('menu');
             return;
@@ -140,22 +172,32 @@ async function startGame() {
         
         if (data.requires_payment) {
             if (data.invoice_url) {
+                console.log('Showing payment screen with URL:', data.invoice_url);
                 showPaymentScreen(data.invoice_url);
             } else {
+                console.error('No invoice_url in response:', data);
                 tg.showAlert('Ошибка: не получен URL для оплаты');
                 showScreen('menu');
             }
         } else if (data.waiting) {
+            console.log('Game waiting');
             showWaitingScreen();
         } else if (data.game_starting) {
+            console.log('Game starting');
             startCountdown(data.countdown || 5);
         } else {
+            console.error('Unknown game status:', data);
             tg.showAlert('Неизвестный статус игры');
             showScreen('menu');
         }
     } catch (error) {
         console.error('Error starting game:', error);
-        tg.showAlert('Ошибка при запуске игры. Попробуйте позже.');
+        console.error('Error details:', {
+            name: error.name,
+            message: error.message,
+            stack: error.stack
+        });
+        tg.showAlert(`Ошибка при запуске игры: ${error.message || 'Неизвестная ошибка'}`);
         showScreen('menu');
     }
 }
