@@ -6,8 +6,11 @@ let currentDirection = null;
 let userData = null;
 let gameState = 'menu'; // menu, payment, waiting, countdown, playing, result
 
+// Константы
+const GAME_START_DELAY = 5;
+
 // Инициализация
-document.addEventListener('DOMContentLoaded', () => {
+document.addEventListener('DOMContentLoaded', async () => {
     tg.ready();
     tg.expand();
     
@@ -16,10 +19,17 @@ document.addEventListener('DOMContentLoaded', () => {
     
     // Инициализируем игру
     initEventListeners();
-    showScreen('menu');
     
-    // Проверяем состояние игры через WebSocket или polling
-    checkGameState();
+    // Показываем загрузку
+    showScreen('loading');
+    
+    // Проверяем состояние игры при загрузке
+    const statusRestored = await checkGameState();
+    
+    // Если статус не восстановлен, показываем меню
+    if (!statusRestored && (gameState === 'menu' || !document.getElementById('menu-screen')?.classList.contains('active'))) {
+        showScreen('menu');
+    }
 });
 
 // Инициализация обработчиков событий
@@ -577,8 +587,62 @@ function renderFieldPreview(canvasId) {
     }
 }
 
-// Проверка состояния игры
+// Проверка состояния игры при загрузке
 async function checkGameState() {
-    // Реализация проверки через WebSocket или polling
+    try {
+        if (!userData || !userData.id) {
+            console.log('User data not available for status check');
+            return;
+        }
+        
+        const baseUrl = window.location.origin;
+        const response = await fetch(`${baseUrl}/api/game/status`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                user_id: userData.id,
+                init_data: tg.initData
+            })
+        });
+        
+        if (!response.ok) {
+            console.log('Status check failed:', response.status);
+            return;
+        }
+        
+        const data = await response.json();
+        console.log('Game status check:', data);
+        
+        if (data.status === 'payment_required') {
+            // Игрок должен оплатить
+            if (data.invoice_url) {
+                console.log('Restoring payment screen with existing invoice');
+                showPaymentScreen(data.invoice_url);
+                return true; // Статус восстановлен
+            }
+        } else if (data.status === 'waiting_opponent' || data.status === 'waiting_opponent_payment') {
+            // Игрок оплатил, ждет соперника
+            console.log('Restoring waiting screen');
+            showWaitingScreen();
+            return true; // Статус восстановлен
+        } else if (data.status === 'ready_to_start') {
+            // Оба игрока готовы
+            console.log('Game ready to start');
+            startCountdown(GAME_START_DELAY);
+            return true; // Статус восстановлен
+        } else if (data.in_game && data.game_running) {
+            // Игрок в активной игре
+            console.log('Player is in active game');
+            tg.showAlert('Вы уже в игре!');
+            return true; // Статус восстановлен
+        }
+        
+        return false; // Статус не восстановлен
+    } catch (error) {
+        console.error('Error checking game state:', error);
+        // Не критично, продолжаем работу
+    }
 }
 

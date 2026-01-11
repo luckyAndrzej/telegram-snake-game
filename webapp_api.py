@@ -84,6 +84,94 @@ def serve_index():
     return send_from_directory('webapp', 'index.html')
 
 
+@app.route('/api/game/status', methods=['POST'])
+def api_game_status():
+    """API для проверки статуса игрока при загрузке"""
+    try:
+        data = request.json
+        user_id = data.get('user_id')
+        
+        if not user_id:
+            return jsonify({'error': 'User ID required'}), 400
+        
+        # Проверяем, находится ли игрок в активной игре
+        if user_id in game_main.player_to_game:
+            game_id = game_main.player_to_game[user_id]
+            if game_id in game_main.active_games:
+                game = game_main.active_games[game_id]
+                return jsonify({
+                    'in_game': True,
+                    'game_running': game.is_running,
+                    'game_finished': game.is_finished,
+                    'status': 'playing' if game.is_running and not game.is_finished else 'finished'
+                })
+        
+        # Проверяем, есть ли ожидающий игрок (включая текущего)
+        if user_id in game_main.waiting_players:
+            player_data = game_main.waiting_players[user_id]
+            invoice_id = player_data.get("invoice_id")
+            invoice_data = player_data.get("invoice_data", {})
+            
+            # Если статус оплаты не установлен, проверяем инвойс
+            if not player_data.get("paid") and invoice_id:
+                import nest_asyncio
+                nest_asyncio.apply()
+                invoice_status = asyncio.run(crypto_pay.check_invoice(invoice_id))
+                if invoice_status:
+                    invoice_status_str = invoice_status.get("status", "")
+                    if invoice_status_str == "paid":
+                        # Инвойс оплачен, обновляем статус
+                        game_main.waiting_players[user_id]["paid"] = True
+                        player_data["paid"] = True
+                        log_info(f"User {user_id} invoice {invoice_id} is paid, status updated")
+            
+            # Проверяем статус оплаты
+            if player_data.get("paid"):
+                # Игрок оплатил - проверяем, есть ли второй игрок
+                other_waiting = [uid for uid in game_main.waiting_players.keys() if uid != user_id]
+                if other_waiting:
+                    opponent_id = other_waiting[0]
+                    opponent_data = game_main.waiting_players[opponent_id]
+                    if opponent_data.get("paid"):
+                        return jsonify({
+                            'status': 'ready_to_start',
+                            'paid': True,
+                            'message': 'Оба игрока готовы, игра скоро начнется'
+                        })
+                    else:
+                        return jsonify({
+                            'status': 'waiting_opponent_payment',
+                            'paid': True,
+                            'message': 'Ожидание оплаты соперника'
+                        })
+                else:
+                    return jsonify({
+                        'status': 'waiting_opponent',
+                        'paid': True,
+                        'message': 'Ожидание второго игрока'
+                    })
+            else:
+                # Игрок не оплатил - возвращаем информацию об инвойсе
+                invoice_url = invoice_data.get("pay_url") or invoice_data.get("url") or invoice_data.get("payUrl")
+                return jsonify({
+                    'status': 'payment_required',
+                    'paid': False,
+                    'invoice_url': invoice_url,
+                    'invoice_id': invoice_id,
+                    'message': 'Требуется оплата'
+                })
+        
+        return jsonify({
+            'status': 'no_game',
+            'paid': False,
+            'message': 'Нет активной игры'
+        })
+        
+    except Exception as e:
+        log_error("api_game_status", e)
+        return jsonify({'error': 'Internal server error'}), 500
+
+
 @app.route('/api/game/start', methods=['POST'])
 def api_start_game():
     """API для начала игры"""
@@ -112,9 +200,58 @@ def api_start_game():
         if user_id in game_main.player_to_game:
             game_id = game_main.player_to_game[user_id]
             if game_id in game_main.active_games:
-                return jsonify({'error': 'Already in game'}), 400
+                game = game_main.active_games[game_id]
+                if game.is_running and not game.is_finished:
+                    return jsonify({
+                        'in_game': True,
+                        'game_running': True
+                    })
         
-        # Проверяем, есть ли ожидающие игроки
+        # Проверяем, есть ли уже ожидающий игрок с этим user_id
+        if user_id in game_main.waiting_players:
+            player_data = game_main.waiting_players[user_id]
+            invoice_data = player_data.get("invoice_data", {})
+            invoice_url = invoice_data.get("pay_url") or invoice_data.get("url") or invoice_data.get("payUrl")
+            
+            if player_data.get("paid"):
+                # Игрок уже оплатил - проверяем статус
+                other_waiting = [uid for uid in game_main.waiting_players.keys() if uid != user_id]
+                if other_waiting:
+                    opponent_id = other_waiting[0]
+                    opponent_data = game_main.waiting_players[opponent_id]
+                    if opponent_data.get("paid"):
+                        # Оба игрока оплатили - начинаем игру
+                        return jsonify({
+                            'game_starting': True,
+                            'countdown': GAME_START_DELAY
+                        })
+                    else:
+                        return jsonify({
+                            'waiting': True,
+                            'paid': True,
+                            'message': 'Ожидание оплаты соперника'
+                        })
+                else:
+                    return jsonify({
+                        'waiting': True,
+                        'paid': True,
+                        'message': 'Ожидание второго игрока'
+                    })
+            else:
+                # Игрок не оплатил - возвращаем существующий инвойс
+                log_info(f"User {user_id} already has invoice, returning existing invoice")
+                if invoice_url:
+                    return jsonify({
+                        'requires_payment': True,
+                        'invoice_url': invoice_url,
+                        'invoice_id': player_data.get("invoice_id"),
+                        'existing': True
+                    })
+                else:
+                    # URL не найден, создаем новый
+                    log_info(f"Invoice URL not found, creating new invoice")
+        
+        # Проверяем, есть ли ожидающие игроки (другие)
         if game_main.waiting_players:
             # Подключаем к существующему матчу
             opponent_id = next(iter(game_main.waiting_players.keys()))
@@ -227,33 +364,6 @@ def api_check_payment():
             
     except Exception as e:
         log_error("api_check_payment", e)
-        return jsonify({'error': 'Internal server error'}), 500
-
-
-@app.route('/api/game/status', methods=['POST'])
-def api_game_status():
-    """API для проверки статуса игры"""
-    try:
-        data = request.json
-        user_id = data.get('user_id')
-        
-        if not user_id:
-            return jsonify({'error': 'User ID required'}), 400
-        
-        if user_id in game_main.player_to_game:
-            game_id = game_main.player_to_game[user_id]
-            if game_id in game_main.active_games:
-                game = game_main.active_games[game_id]
-                return jsonify({
-                    'in_game': True,
-                    'game_running': game.is_running,
-                    'game_finished': game.is_finished
-                })
-        
-        return jsonify({'in_game': False})
-        
-    except Exception as e:
-        log_error("api_game_status", e)
         return jsonify({'error': 'Internal server error'}), 500
 
 
