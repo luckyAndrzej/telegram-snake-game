@@ -516,37 +516,34 @@ async def handle_game_end(game_id: int, context: ContextTypes.DEFAULT_TYPE):
     log_info(f"Game {game_id} ended. Winner: {game.winner_id}")
 
 
+# Глобальное приложение бота (создается при импорте)
+token = os.getenv("TELEGRAM_BOT_TOKEN") or TELEGRAM_BOT_TOKEN
+application = None
+
+if token:
+    application = Application.builder().token(token).build()
+    # Регистрируем обработчики
+    application.add_handler(CommandHandler("start", start_command))
+    application.add_handler(CallbackQueryHandler(button_handler))
+
+
 def main():
     """Главная функция запуска бота"""
-    # Получаем токен из переменной окружения или используем из config
-    token = os.getenv("TELEGRAM_BOT_TOKEN") or TELEGRAM_BOT_TOKEN
+    global application
     
     if not token:
         print("Ошибка: не указан TELEGRAM_BOT_TOKEN!")
         print("Установите токен через переменную окружения или в config.py")
         return
     
-    # Создаем приложение
-    application = Application.builder().token(token).build()
-    
-    # Регистрируем обработчики
-    application.add_handler(CommandHandler("start", start_command))
-    application.add_handler(CallbackQueryHandler(button_handler))
+    if not application:
+        application = Application.builder().token(token).build()
+        application.add_handler(CommandHandler("start", start_command))
+        application.add_handler(CallbackQueryHandler(button_handler))
     
     # Запускаем бота
     log_info("Bot starting...")
-    
-    # Запускаем в отдельном потоке, чтобы не блокировать Flask
-    import threading
-    bot_thread = threading.Thread(target=lambda: application.run_polling(allowed_updates=Update.ALL_TYPES))
-    bot_thread.daemon = True
-    bot_thread.start()
-    
-    # Запускаем Flask API для веб-приложения
-    from webapp_api import app
-    web_app_url = os.getenv("WEB_APP_URL", "http://localhost:5000")
-    log_info(f"Web App API starting on {web_app_url}")
-    app.run(host='0.0.0.0', port=5000, debug=False)
+    application.run_polling(allowed_updates=Update.ALL_TYPES)
 
 
 if __name__ == "__main__":

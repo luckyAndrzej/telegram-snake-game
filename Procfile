@@ -1,2 +1,2 @@
-web: python main.py
+web: python run.py
 
