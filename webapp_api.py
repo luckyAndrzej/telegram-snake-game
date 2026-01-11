@@ -119,11 +119,16 @@ def api_game_status():
                 invoice_status = asyncio.run(crypto_pay.check_invoice(invoice_id))
                 if invoice_status:
                     invoice_status_str = invoice_status.get("status", "")
-                    if invoice_status_str == "paid":
+                    invoice_status_lower = invoice_status_str.lower() if invoice_status_str else ""
+                    log_info(f"Checking invoice {invoice_id} status for user {user_id}: {invoice_status_str} (full data: {invoice_status})")
+                    # Проверяем статус оплаты (может быть "paid", "PAID", "active" и т.д.)
+                    if invoice_status_lower in ["paid", "active"]:
                         # Инвойс оплачен, обновляем статус
                         game_main.waiting_players[user_id]["paid"] = True
                         player_data["paid"] = True
                         log_info(f"User {user_id} invoice {invoice_id} is paid, status updated")
+                    else:
+                        log_info(f"User {user_id} invoice {invoice_id} status is {invoice_status_str}, not paid yet")
             
             # Проверяем статус оплаты
             if player_data.get("paid"):
@@ -386,11 +391,17 @@ def api_check_payment():
         if not invoice_data:
             return jsonify({'paid': False}), 200
         
-        status = invoice_data.get("status", "").lower()
+        status = invoice_data.get("status", "")
+        status_lower = status.lower() if status else ""
+        log_info(f"Checking payment status for user {user_id}, invoice {invoice_id}: {status} (raw data: {invoice_data})")
         
-        if status == "paid":
+        # Проверяем статус оплаты (может быть "paid", "PAID", "active" и т.д.)
+        if status_lower in ["paid", "active"]:
             # Помечаем как оплатившего
             game_main.waiting_players[user_id]["paid"] = True
+            log_info(f"User {user_id} invoice {invoice_id} marked as paid")
+        else:
+            log_info(f"User {user_id} invoice {invoice_id} status is {status}, not paid yet")
             
             # Проверяем, есть ли второй игрок
             other_waiting = [uid for uid in game_main.waiting_players.keys() if uid != user_id]

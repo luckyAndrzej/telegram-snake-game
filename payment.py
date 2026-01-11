@@ -100,8 +100,11 @@ class CryptoPayAPI:
                     if data.get("ok"):
                         invoices = data.get("result", {}).get("items", [])
                         if invoices:
-                            log_info(f"Checked invoice {invoice_id}: {invoices[0].get('status')}")
-                            return invoices[0]
+                            invoice_info = invoices[0]
+                            log_info(f"Checked invoice {invoice_id}: status={invoice_info.get('status')}, full data={invoice_info}")
+                            return invoice_info
+                        else:
+                            log_info(f"No invoices found for invoice_id {invoice_id}")
                         return None
                     else:
                         log_error("check_invoice", Exception(f"API error: {data}"))
