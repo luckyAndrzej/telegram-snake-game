@@ -148,16 +148,35 @@ def api_game_status():
             return jsonify({'error': 'User ID required'}), 400
         
         # Проверяем, находится ли игрок в активной игре
+        # КРИТИЧНО: Проверяем player_to_game ПЕРВЫМ, чтобы первый игрок видел матч сразу после создания
         if user_id in game_main.player_to_game:
             game_id = game_main.player_to_game[user_id]
             if game_id in game_main.active_games:
                 game = game_main.active_games[game_id]
-                return jsonify({
-                    'in_game': True,
-                    'game_running': game.is_running,
-                    'game_finished': game.is_finished,
-                    'status': 'playing' if game.is_running and not game.is_finished else 'finished'
-                })
+                # Если игра создана, но еще не запущена (COUNTDOWN) - оба игрока подключены
+                if not game.is_running and not game.is_finished:
+                    return jsonify({
+                        'status': 'ready_to_start',
+                        'game_starting': True,
+                        'countdown': GAME_START_DELAY,
+                        'paid': True,
+                        'message': 'Оба игрока готовы, игра скоро начнется'
+                    })
+                # Если игра идет
+                elif game.is_running and not game.is_finished:
+                    return jsonify({
+                        'in_game': True,
+                        'game_running': True,
+                        'status': 'playing'
+                    })
+                # Если игра завершена
+                else:
+                    return jsonify({
+                        'in_game': True,
+                        'game_running': False,
+                        'game_finished': True,
+                        'status': 'finished'
+                    })
         
         # Проверяем, есть ли ожидающий игрок (включая текущего)
         # PAYMENT DISABLED: Проверка оплаты отключена временно

@@ -355,7 +355,7 @@ function showWaitingScreen() {
         renderFieldPreview('waiting-field');
     }, 100);
     
-    // Периодическая проверка статуса
+    // Периодическая проверка статуса (каждые 1 секунду для быстрого реагирования)
     const checkInterval = setInterval(async () => {
         try {
             const baseUrl = window.location.origin;
@@ -370,16 +370,24 @@ function showWaitingScreen() {
                 })
             });
             
-            const data = await response.json();
+            if (!response.ok) {
+                console.error('Status check failed:', response.status);
+                return;
+            }
             
+            const data = await response.json();
+            console.log('Waiting screen polling status:', data);
+            
+            // Когда второй игрок подключился и матч создан, начинаем обратный отсчет
             if (data.status === 'ready_to_start' || data.game_starting) {
                 clearInterval(checkInterval);
+                console.log('Opponent connected! Starting countdown...', data);
                 startCountdown(data.countdown || GAME_START_DELAY);
             }
         } catch (error) {
             console.error('Error checking status:', error);
         }
-    }, 3000);
+    }, 1000); // Проверяем каждую секунду для быстрого реагирования
 }
 
 // Обратный отсчет (синхронизированный с сервером)
