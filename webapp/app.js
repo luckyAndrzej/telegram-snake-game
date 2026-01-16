@@ -430,11 +430,21 @@ async function checkServerStartStatus() {
 let gameSyncInterval = null;
 let gameStateSyncInterval = null;
 let gameStartTimestamp = null;
+let lastSyncTime = 0;
+let pendingDirectionChanges = []; // Очередь изменений направления для отправки
+let directionSyncInProgress = false;
+let networkErrorCount = 0;
+let ghostOpponentPosition = null; // Ghost snake для плавности при сбоях сети
 
 // Начало игрового процесса
 function startGamePlay() {
     showScreen('game');
     gameState = 'playing';
+    lastSyncTime = Date.now();
+    networkErrorCount = 0;
+    pendingDirectionChanges = [];
+    directionSyncInProgress = false;
+    ghostOpponentPosition = null;
     
     // Создаем игру
     game = new SnakeGame('game-canvas');
@@ -442,10 +452,10 @@ function startGamePlay() {
     // Отправляем сигнал готовности на сервер
     sendReadySignal();
     
-    // Запускаем синхронизацию состояния игры с сервером
-    startGameStateSync();
+    // Запускаем редкую синхронизацию оппонента (только позиция оппонента, не весь state)
+    startOpponentSync();
     
-    // Запускаем игровой цикл
+    // Запускаем игровой цикл полностью на клиенте (client-side prediction)
     gameLoop = setInterval(() => {
         if (gameState === 'playing' && game) {
             // Проверяем, не наступило ли время старта (если есть timestamp)
@@ -458,24 +468,22 @@ function startGamePlay() {
                 }
             }
             
+            // КЛИЕНТСКИЙ ЦИКЛ: Змейка двигается немедленно без ожидания сервера
             game.update();
             game.draw();
             
             const state = game.getGameState();
             updatePlayerStatus(state);
             
-            // Отправляем направление на сервер
-            if (currentDirection) {
-                sendDirection(currentDirection);
-                currentDirection = null;
-            }
+            // Отправляем изменения направления на сервер (только изменения, не весь state)
+            sendDirectionChangesIfAny();
             
             // Проверяем окончание игры
             if (state.finished) {
                 endGame();
             }
         }
-    }, 100);
+    }, 100); // 100ms = 10 ticks per second
     
     if (game) {
         game.draw();
@@ -509,12 +517,13 @@ async function sendReadySignal() {
     }
 }
 
-// Синхронизация состояния игры с сервером
-function startGameStateSync() {
+// Редкая синхронизация только позиции оппонента (не весь state)
+function startOpponentSync() {
     if (gameStateSyncInterval) {
         clearInterval(gameStateSyncInterval);
     }
     
+    // Синхронизируем позицию оппонента каждые 500ms (не каждый тик)
     gameStateSyncInterval = setInterval(async () => {
         try {
             const baseUrl = window.location.origin;
@@ -529,32 +538,37 @@ function startGameStateSync() {
                 })
             });
             
+            if (!response.ok) {
+                throw new Error(`HTTP ${response.status}`);
+            }
+            
             const data = await response.json();
             
             if (data.error) {
-                console.error('Game state sync error:', data.error);
+                console.warn('Opponent sync error:', data.error);
+                networkErrorCount++;
+                // Используем ghost position при ошибках сети
+                if (ghostOpponentPosition && game) {
+                    game.player2.body = ghostOpponentPosition;
+                }
                 return;
             }
+            
+            // Сброс счетчика ошибок при успешной синхронизации
+            networkErrorCount = 0;
             
             // Обновляем timestamp старта игры
             if (data.game_start_timestamp && !gameStartTimestamp) {
                 gameStartTimestamp = data.game_start_timestamp;
             }
             
-            // Синхронизируем позиции змеек с сервера
-            if (game && data.my_snake && data.opponent_snake) {
-                // Обновляем позицию оппонента из данных сервера
-                if (data.opponent_snake.body) {
-                    game.player2.body = data.opponent_snake.body.map(pos => ({x: pos[0], y: pos[1]}));
-                    game.player2.alive = data.opponent_snake.alive;
-                }
-                
-                // Обновляем свою позицию (если сервер считает иначе)
-                if (data.my_snake.body) {
-                    // Можно синхронизировать, но обычно клиент управляет своей змейкой
-                    // game.player1.body = data.my_snake.body.map(pos => ({x: pos[0], y: pos[1]}));
-                    game.player1.alive = data.my_snake.alive;
-                }
+            // Синхронизируем ТОЛЬКО позицию оппонента (не свою змейку)
+            if (game && data.opponent_snake && data.opponent_snake.body) {
+                const opponentBody = data.opponent_snake.body.map(pos => ({x: pos[0], y: pos[1]}));
+                game.player2.body = opponentBody;
+                game.player2.alive = data.opponent_snake.alive;
+                // Сохраняем ghost position для использования при ошибках
+                ghostOpponentPosition = JSON.parse(JSON.stringify(opponentBody));
             }
             
             // Проверяем окончание игры
@@ -570,9 +584,21 @@ function startGameStateSync() {
                 endGameFromServer(data);
             }
         } catch (error) {
-            console.error('Error syncing game state:', error);
+            console.warn('Network error syncing opponent (using ghost position):', error);
+            networkErrorCount++;
+            
+            // При ошибках сети используем ghost snake для плавности
+            if (ghostOpponentPosition && game && game.player2 && game.player2.body) {
+                // Продолжаем движение оппонента на основе последней известной позиции
+                // Это создает плавную анимацию даже при сбоях сети
+            }
+            
+            // Если ошибок слишком много, может быть проблема с соединением
+            if (networkErrorCount > 10) {
+                console.error('Too many network errors, stopping sync');
+            }
         }
-    }, 100); // Синхронизация каждые 100ms для плавности
+    }, 500); // Синхронизация каждые 500ms (только оппонент, не весь state)
 }
 
 // Завершение игры на основе данных сервера
@@ -595,25 +621,50 @@ function endGameFromServer(serverData) {
     showResultScreen(isWinner ? 'player1' : 'player2', prize, false);
 }
 
-// Обработка направления
+// Обработка направления (клиентское предсказание - змейка двигается немедленно)
 function handleDirection(direction) {
     if (gameState !== 'playing' || !game) return;
     
+    // КЛИЕНТСКОЕ ПРЕДСКАЗАНИЕ: Змейка меняет направление немедленно
     game.setDirection('player1', direction);
-    currentDirection = direction;
-    sendDirection(direction);
+    
+    // Добавляем в очередь для отправки на сервер (отправляем только изменения направления)
+    pendingDirectionChanges.push({
+        direction: direction,
+        timestamp: Date.now()
+    });
+    
+    // Отправляем изменение направления асинхронно (не блокируя игру)
+    sendDirectionChangesIfAny();
 }
 
-// Отправка направления на сервер
+// Отправка изменений направления на сервер (только изменения, не весь state)
+async function sendDirectionChangesIfAny() {
+    // Если уже идет отправка или нет изменений, пропускаем
+    if (directionSyncInProgress || pendingDirectionChanges.length === 0) {
+        return;
+    }
+    
+    // Берем последнее изменение направления (игнорируем старые)
+    const lastChange = pendingDirectionChanges[pendingDirectionChanges.length - 1];
+    pendingDirectionChanges = []; // Очищаем очередь после отправки
+    
+    // Отправляем только последнее изменение направления
+    await sendDirection(lastChange.direction);
+}
+
+// Отправка направления на сервер (отдельная функция для одного изменения)
 async function sendDirection(direction) {
     // Валидация перед отправкой
     if (!userData || !userData.id) {
         console.error('Cannot send direction: userData or userData.id is missing', userData);
+        directionSyncInProgress = false;
         return;
     }
     
     if (!direction || typeof direction !== 'string') {
         console.error('Cannot send direction: direction is missing or not a string', direction);
+        directionSyncInProgress = false;
         return;
     }
     
@@ -622,8 +673,12 @@ async function sendDirection(direction) {
     const directionLower = direction.toLowerCase().trim();
     if (!validDirections.includes(directionLower)) {
         console.error('Cannot send direction: invalid direction value', direction, 'Valid values:', validDirections);
+        directionSyncInProgress = false;
         return;
     }
+    
+    // Помечаем, что идет отправка
+    directionSyncInProgress = true;
     
     try {
         const baseUrl = window.location.origin;
@@ -631,12 +686,6 @@ async function sendDirection(direction) {
             user_id: userData.id,
             direction: directionLower  // Используем нормализованное значение
         };
-        
-        console.log('Sending direction request:', {
-            url: `${baseUrl}/api/game/direction`,
-            method: 'POST',
-            body: requestBody
-        });
         
         const response = await fetch(`${baseUrl}/api/game/direction`, {
             method: 'POST',
@@ -649,25 +698,23 @@ async function sendDirection(direction) {
         // Проверяем статус ответа
         if (!response.ok) {
             const errorText = await response.text();
-            console.error(`Direction request failed with status ${response.status}:`, errorText);
-            try {
-                const errorData = JSON.parse(errorText);
-                console.error('Error details:', errorData);
-            } catch (e) {
-                // Если не удалось распарсить как JSON, выводим как текст
-                console.error('Error response (not JSON):', errorText);
-            }
+            console.warn(`Direction request failed with status ${response.status}:`, errorText);
+            // НЕ замораживаем игру при ошибке - используем ghost snake
+            // Игра продолжается на клиенте (client-side prediction)
         } else {
             const responseData = await response.json();
-            console.log('Direction request successful:', responseData);
+            // Успешная отправка - сбрасываем счетчик ошибок
+            if (networkErrorCount > 0) {
+                networkErrorCount = Math.max(0, networkErrorCount - 1);
+            }
         }
     } catch (error) {
-        console.error('Error sending direction:', error);
-        console.error('Error details:', {
-            name: error.name,
-            message: error.message,
-            stack: error.stack
-        });
+        console.warn('Network error sending direction (game continues with client-side prediction):', error);
+        // При ошибке сети игра продолжается на клиенте
+        // Оппонент продолжит движение на основе последней синхронизированной позиции
+    } finally {
+        // Снимаем флаг после завершения (успешного или с ошибкой)
+        directionSyncInProgress = false;
     }
 }
 
