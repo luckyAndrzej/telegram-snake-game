@@ -22,6 +22,10 @@ import time
 # В реальном проекте лучше использовать Redis или базу данных
 import main as game_main
 
+# USER ISOLATION: Словарь для изоляции игр по user_id
+# Каждый user_id имеет доступ только к своей игре через game_id
+user_games: Dict[int, int] = {}  # user_id -> game_id (изоляция пользователей)
+
 # Блокировка для атомарного создания матча
 matchmaking_lock = threading.Lock()
 
@@ -58,6 +62,10 @@ def create_game_match(player1_id: int, player2_id: int):
         game_main.active_games[game_id] = game
         game_main.player_to_game[player1_id] = game_id
         game_main.player_to_game[player2_id] = game_id
+        
+        # USER ISOLATION: Сохраняем связь user_id -> game_id для изоляции пользователей
+        user_games[player1_id] = game_id
+        user_games[player2_id] = game_id
         
         # Удаляем из ожидающих
         if player1_id in game_main.waiting_players:
@@ -859,6 +867,14 @@ def _cleanup_game_state(game_id: int, game: Game):
             del game_main.player_to_game[game.player1_id]
         if game.player2_id in game_main.player_to_game:
             del game_main.player_to_game[game.player2_id]
+        
+        # USER ISOLATION: Удаляем из user_games для изоляции пользователей
+        if game.player1_id in user_games:
+            del user_games[game.player1_id]
+            log_info(f"Removed player {game.player1_id} from user_games after game end")
+        if game.player2_id in user_games:
+            del user_games[game.player2_id]
+            log_info(f"Removed player {game.player2_id} from user_games after game end")
         
         # Удаляем игроков из очереди ожидания (чтобы они должны были оплатить снова)
         if game.player1_id in game_main.waiting_players:

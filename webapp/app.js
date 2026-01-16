@@ -4,6 +4,7 @@ let game = null;
 let gameLoop = null;
 let currentDirection = null;
 let userData = null;
+let userId = null; // ИЗОЛЯЦИЯ ПОЛЬЗОВАТЕЛЯ: user_id всегда из Telegram
 let gameState = 'menu'; // menu, payment, waiting, countdown, playing, result
 
 // Константы
@@ -14,8 +15,14 @@ document.addEventListener('DOMContentLoaded', async () => {
     tg.ready();
     tg.expand();
     
-    // Получаем данные пользователя
+    // TELEGRAM INTEGRATION: Получаем user_id из window.Telegram.WebApp.initDataUnsafe.user.id
     userData = tg.initDataUnsafe?.user;
+    userId = userData?.id || null;
+    
+    if (!userId) {
+        console.error('ERROR: user_id not found in tg.initDataUnsafe.user.id');
+        tg.showAlert('Ошибка: не удалось определить пользователя. Перезагрузите приложение.');
+    }
     
     // Инициализируем игру
     initEventListeners();
@@ -132,16 +139,17 @@ async function startGame() {
         console.log('Starting game, baseUrl:', baseUrl);
         console.log('User data:', userData);
         
-        // Проверяем, есть ли данные пользователя
-        if (!userData || !userData.id) {
-            console.error('User data not available:', userData);
-            tg.showAlert('Ошибка: данные пользователя не найдены. Попробуйте перезагрузить приложение.');
+        // VALIDATION: Проверяем user_id (обязательное поле для всех запросов)
+        if (!userId) {
+            console.error('ERROR: user_id is required but not found');
+            tg.showAlert('Ошибка: данные пользователя не найдены. Перезагрузите приложение.');
             showScreen('menu');
             return;
         }
         
+        // VALIDATION: Стандартизированные JSON ключи для всех запросов
         const requestData = {
-            user_id: userData.id,
+            user_id: userId,  // Всегда отправляем user_id для изоляции пользователя
             init_data: tg.initData || tg.initDataUnsafe || ''
         };
         console.log('Sending request:', requestData);
@@ -300,10 +308,10 @@ async function checkPayment() {
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-                user_id: userData?.id,
-                init_data: tg.initData
-            })
+                body: JSON.stringify({
+                    user_id: userId,  // Всегда используем userId из tg.initDataUnsafe.user.id
+                    init_data: tg.initData || tg.initDataUnsafe || ''
+                })
         });
         
         const data = await response.json();
@@ -347,8 +355,8 @@ function showWaitingScreen() {
                     'Content-Type': 'application/json',
                 },
                 body: JSON.stringify({
-                    user_id: userData?.id,
-                    init_data: tg.initData
+                    user_id: userId,  // Всегда используем userId из tg.initDataUnsafe.user.id
+                    init_data: tg.initData || tg.initDataUnsafe || ''
                 })
             });
             
@@ -404,10 +412,10 @@ async function checkServerStartStatus() {
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-                user_id: userData?.id,
-                init_data: tg.initData
-            })
+                body: JSON.stringify({
+                    user_id: userId,  // Всегда используем userId из tg.initDataUnsafe.user.id
+                    init_data: tg.initData || tg.initDataUnsafe || ''
+                })
         });
         
         const data = await response.json();
@@ -451,13 +459,14 @@ function startGamePlay() {
     // Создаем игру
     game = new SnakeGame('game-canvas');
     
-    // Отправляем сигнал готовности на сервер
+    // POST REQUEST #1: Отправляем сигнал готовности на сервер (при старте игры)
     sendReadySignal();
     
-    // Запускаем редкую синхронизацию оппонента (только позиция оппонента, не весь state)
-    startOpponentSync();
+    // FIX LAG: НЕ запускаем периодический опрос сервера - игра работает полностью на клиенте
+    // Удален startOpponentSync() - больше нет fetch в игровом цикле
     
-    // Запускаем игровой цикл полностью на клиенте (client-side prediction)
+    // LOCAL VISUALS: Игровой цикл полностью на клиенте (client-side prediction)
+    // Змейка двигается немедленно без ожидания сервера (нет fetch в draw loop)
     gameLoop = setInterval(() => {
         if (gameState === 'playing' && game) {
             // Проверяем, не наступило ли время старта (если есть timestamp)
@@ -471,44 +480,54 @@ function startGamePlay() {
             }
             
             // КЛИЕНТСКИЙ ЦИКЛ: Змейка двигается немедленно без ожидания сервера
+            // НЕТ fetch вызовов здесь - только локальные update() и draw()
             game.update();
             game.draw();
             
             const state = game.getGameState();
             updatePlayerStatus(state);
             
-            // Отправляем изменения направления на сервер (только изменения, не весь state)
+            // POST REQUEST #2: Отправляем изменения направления (debounced, только при изменении)
             sendDirectionChangesIfAny();
             
             // Проверяем окончание игры (DEBOUNCED - только один раз)
             if (state.finished && !gameEndCalled) {
-                gameEndCalled = true; // Устанавливаем флаг перед вызовом
-                // Делаем небольшую задержку перед вызовом endGame, чтобы гарантировать один вызов
+                gameEndCalled = true;
+                // POST REQUEST #3: Отправляем окончание игры только один раз
                 setTimeout(() => {
                     endGame();
                 }, 0);
             }
         }
-    }, 100); // 100ms = 10 ticks per second
+    }, 100); // 100ms = 10 ticks per second - полностью локальный цикл, нет fetch
     
     if (game) {
         game.draw();
     }
 }
 
-// Отправка сигнала готовности
+// POST REQUEST #1: Отправка сигнала готовности (только при старте игры)
 async function sendReadySignal() {
+    // VALIDATION: Проверяем user_id перед отправкой
+    if (!userId) {
+        console.error('Cannot send ready signal: user_id is missing');
+        return;
+    }
+    
     try {
         const baseUrl = window.location.origin;
+        // VALIDATION: Стандартизированные JSON ключи
+        const requestBody = {
+            user_id: userId,  // Всегда отправляем user_id для изоляции
+            init_data: tg.initData || tg.initDataUnsafe || ''
+        };
+        
         const response = await fetch(`${baseUrl}/api/game/ready`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-                user_id: userData?.id,
-                init_data: tg.initData
-            })
+            body: JSON.stringify(requestBody)
         });
         
         const data = await response.json();
@@ -523,89 +542,9 @@ async function sendReadySignal() {
     }
 }
 
-// Редкая синхронизация только позиции оппонента (не весь state)
-function startOpponentSync() {
-    if (gameStateSyncInterval) {
-        clearInterval(gameStateSyncInterval);
-    }
-    
-    // Синхронизируем позицию оппонента каждые 500ms (не каждый тик)
-    gameStateSyncInterval = setInterval(async () => {
-        try {
-            const baseUrl = window.location.origin;
-            const response = await fetch(`${baseUrl}/api/game/state`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    user_id: userData?.id,
-                    init_data: tg.initData
-                })
-            });
-            
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-            }
-            
-            const data = await response.json();
-            
-            if (data.error) {
-                console.warn('Opponent sync error:', data.error);
-                networkErrorCount++;
-                // Используем ghost position при ошибках сети
-                if (ghostOpponentPosition && game) {
-                    game.player2.body = ghostOpponentPosition;
-                }
-                return;
-            }
-            
-            // Сброс счетчика ошибок при успешной синхронизации
-            networkErrorCount = 0;
-            
-            // Обновляем timestamp старта игры
-            if (data.game_start_timestamp && !gameStartTimestamp) {
-                gameStartTimestamp = data.game_start_timestamp;
-            }
-            
-            // Синхронизируем ТОЛЬКО позицию оппонента (не свою змейку)
-            if (game && data.opponent_snake && data.opponent_snake.body) {
-                const opponentBody = data.opponent_snake.body.map(pos => ({x: pos[0], y: pos[1]}));
-                game.player2.body = opponentBody;
-                game.player2.alive = data.opponent_snake.alive;
-                // Сохраняем ghost position для использования при ошибках
-                ghostOpponentPosition = JSON.parse(JSON.stringify(opponentBody));
-            }
-            
-            // Проверяем окончание игры
-            if (data.game_finished) {
-                if (gameStateSyncInterval) {
-                    clearInterval(gameStateSyncInterval);
-                    gameStateSyncInterval = null;
-                }
-                if (gameLoop) {
-                    clearInterval(gameLoop);
-                    gameLoop = null;
-                }
-                endGameFromServer(data);
-            }
-        } catch (error) {
-            console.warn('Network error syncing opponent (using ghost position):', error);
-            networkErrorCount++;
-            
-            // При ошибках сети используем ghost snake для плавности
-            if (ghostOpponentPosition && game && game.player2 && game.player2.body) {
-                // Продолжаем движение оппонента на основе последней известной позиции
-                // Это создает плавную анимацию даже при сбоях сети
-            }
-            
-            // Если ошибок слишком много, может быть проблема с соединением
-            if (networkErrorCount > 10) {
-                console.error('Too many network errors, stopping sync');
-            }
-        }
-    }, 500); // Синхронизация каждые 500ms (только оппонент, не весь state)
-}
+// FIX LAG: УДАЛЕНА функция startOpponentSync()
+// Больше нет периодических fetch вызовов в игровом цикле
+// Синхронизация оппонента происходит только при изменении направления (через sendDirection)
 
 // Завершение игры на основе данных сервера
 function endGameFromServer(serverData) {
@@ -621,7 +560,7 @@ function endGameFromServer(serverData) {
     
     gameState = 'result';
     
-    const isWinner = serverData.winner_id === userData?.id;
+    const isWinner = serverData.winner_id === userId;
     const prize = isWinner ? (GAME_PRICE_USD * 2 * 0.75) : 0;
     
     showResultScreen(isWinner ? 'player1' : 'player2', prize, false);
@@ -673,22 +612,23 @@ async function sendDirectionChangesIfAny() {
     await sendDirection(lastChange.direction);
 }
 
-// Отправка направления на сервер (отдельная функция для одного изменения)
+// POST REQUEST #2: Отправка изменения направления (debounced, только при изменении)
 async function sendDirection(direction) {
-    // Валидация перед отправкой
-    if (!userData || !userData.id) {
-        console.error('Cannot send direction: userData or userData.id is missing', userData);
+    // VALIDATION: Проверяем user_id (обязательное поле)
+    if (!userId) {
+        console.error('Cannot send direction: user_id is missing');
         directionSyncInProgress = false;
         return;
     }
     
+    // VALIDATION: Проверяем direction
     if (!direction || typeof direction !== 'string') {
         console.error('Cannot send direction: direction is missing or not a string', direction);
         directionSyncInProgress = false;
         return;
     }
     
-    // Проверяем, что direction - это допустимое значение
+    // VALIDATION: Проверяем, что direction - это допустимое значение
     const validDirections = ['up', 'down', 'left', 'right'];
     const directionLower = direction.toLowerCase().trim();
     if (!validDirections.includes(directionLower)) {
@@ -702,9 +642,10 @@ async function sendDirection(direction) {
     
     try {
         const baseUrl = window.location.origin;
+        // VALIDATION: Стандартизированные JSON ключи (должны совпадать с backend)
         const requestBody = {
-            user_id: userData.id,
-            direction: directionLower  // Используем нормализованное значение
+            user_id: userId,  // Всегда отправляем user_id для изоляции пользователя
+            direction: directionLower  // Нормализованное значение направления
         };
         
         const response = await fetch(`${baseUrl}/api/game/direction`, {
@@ -746,7 +687,7 @@ function updatePlayerStatus(state) {
         `Соперник: ${state.player2Alive ? 'Живы' : 'Мертвы'}`;
 }
 
-// Конец игры (DEBOUNCED - вызывается только один раз в конце игры)
+// POST REQUEST #3: Конец игры (DEBOUNCED - вызывается только один раз в конце игры)
 async function endGame() {
     // Дополнительная проверка: если уже был вызов, не выполняем повторно
     if (gameEndCalled && gameState === 'result') {
@@ -756,12 +697,7 @@ async function endGame() {
     
     gameEndCalled = true;
     
-    // Останавливаем синхронизацию состояния
-    if (gameStateSyncInterval) {
-        clearInterval(gameStateSyncInterval);
-        gameStateSyncInterval = null;
-    }
-    
+    // Останавливаем игровой цикл (НЕТ gameStateSyncInterval, т.к. удалили startOpponentSync)
     if (gameLoop) {
         clearInterval(gameLoop);
         gameLoop = null;
@@ -771,22 +707,32 @@ async function endGame() {
     
     const winner = game ? game.getWinner() : null;
     
+    // VALIDATION: Проверяем user_id перед отправкой
+    if (!userId) {
+        console.error('Cannot end game: user_id is missing');
+        showResultScreen(winner, null, false);
+        return;
+    }
+    
     // DEBOUNCE API CALLS: Отправляем результат на сервер только один раз в конце игры
     // Не вызываем API во время игрового цикла, только при окончании
     try {
         const baseUrl = window.location.origin;
         const state = game ? game.getGameState() : { headToHeadCollision: false };
+        // VALIDATION: Стандартизированные JSON ключи (должны совпадать с backend)
+        const requestBody = {
+            user_id: userId,  // Всегда отправляем user_id для изоляции пользователя
+            winner: winner,
+            headToHeadCollision: state.headToHeadCollision || false,
+            init_data: tg.initData || tg.initDataUnsafe || ''
+        };
+        
         const response = await fetch(`${baseUrl}/api/game/end`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-                user_id: userData?.id,
-                winner: winner,
-                headToHeadCollision: state.headToHeadCollision || false,
-                init_data: tg.initData
-            })
+            body: JSON.stringify(requestBody)
         });
         
         const data = await response.json();
@@ -941,21 +887,25 @@ function renderFieldPreview(canvasId) {
 // Проверка состояния игры при загрузке
 async function checkGameState() {
     try {
-        if (!userData || !userData.id) {
-            console.log('User data not available for status check');
+        // VALIDATION: Проверяем user_id (обязательное поле)
+        if (!userId) {
+            console.log('User ID not available for status check');
             return;
         }
         
         const baseUrl = window.location.origin;
+        // VALIDATION: Стандартизированные JSON ключи
+        const requestBody = {
+            user_id: userId,  // Всегда используем userId из tg.initDataUnsafe.user.id
+            init_data: tg.initData || tg.initDataUnsafe || ''
+        };
+        
         const response = await fetch(`${baseUrl}/api/game/status`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-                user_id: userData.id,
-                init_data: tg.initData
-            })
+            body: JSON.stringify(requestBody)
         });
         
         if (!response.ok) {
