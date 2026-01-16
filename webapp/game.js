@@ -64,13 +64,6 @@ class SnakeGame {
     setDirection(player, direction) {
         if (!this[player] || !this[player].alive) return;
         
-        const opposite = {
-            up: {x: 0, y: 1},
-            down: {x: 0, y: -1},
-            left: {x: 1, y: 0},
-            right: {x: -1, y: 0}
-        };
-        
         const dirMap = {
             up: {x: 0, y: -1},
             down: {x: 0, y: 1},
@@ -79,14 +72,27 @@ class SnakeGame {
         };
         
         const newDir = dirMap[direction];
-        const currentDir = this[player].direction;
+        if (!newDir) return;
         
-        // Нельзя повернуть в противоположную сторону
-        if (newDir.x === -currentDir.x && newDir.y === -currentDir.y) {
-            return;
+        // АНТИ-180 ГРАДУСОВ: Проверяем против текущего И следующего направления
+        // Это предотвращает поворот на 180° даже при быстрых нажатиях клавиш
+        const currentDir = this[player].direction;
+        const nextDir = this[player].nextDirection;
+        
+        // Проверяем против текущего направления
+        const isOppositeToCurrent = (newDir.x === -currentDir.x && newDir.y === -currentDir.y);
+        
+        // Проверяем против следующего направления (чтобы предотвратить 180° через два быстрых нажатия)
+        const isOppositeToNext = (newDir.x === -nextDir.x && newDir.y === -nextDir.y);
+        
+        // Нельзя повернуть в противоположную сторону ни к текущему, ни к следующему направлению
+        if (isOppositeToCurrent || isOppositeToNext) {
+            return false; // Возвращаем false, чтобы frontend знал, что изменение не применилось
         }
         
+        // Разрешаем изменение направления
         this[player].nextDirection = newDir;
+        return true; // Возвращаем true для успешного изменения
     }
 
     update() {

@@ -435,6 +435,8 @@ let pendingDirectionChanges = []; // Очередь изменений напр�
 let directionSyncInProgress = false;
 let networkErrorCount = 0;
 let ghostOpponentPosition = null; // Ghost snake для плавности при сбоях сети
+let gameEndCalled = false; // Флаг для предотвращения множественных вызовов endGame
+let lastDirectionTime = {}; // Отслеживание времени последнего изменения направления (debounce)
 
 // Начало игрового процесса
 function startGamePlay() {
@@ -478,9 +480,13 @@ function startGamePlay() {
             // Отправляем изменения направления на сервер (только изменения, не весь state)
             sendDirectionChangesIfAny();
             
-            // Проверяем окончание игры
-            if (state.finished) {
-                endGame();
+            // Проверяем окончание игры (DEBOUNCED - только один раз)
+            if (state.finished && !gameEndCalled) {
+                gameEndCalled = true; // Устанавливаем флаг перед вызовом
+                // Делаем небольшую задержку перед вызовом endGame, чтобы гарантировать один вызов
+                setTimeout(() => {
+                    endGame();
+                }, 0);
             }
         }
     }, 100); // 100ms = 10 ticks per second
@@ -625,8 +631,22 @@ function endGameFromServer(serverData) {
 function handleDirection(direction) {
     if (gameState !== 'playing' || !game) return;
     
-    // КЛИЕНТСКОЕ ПРЕДСКАЗАНИЕ: Змейка меняет направление немедленно
-    game.setDirection('player1', direction);
+    // Debounce: Предотвращаем слишком частые изменения направления (минимум 50ms между изменениями)
+    const now = Date.now();
+    const lastChangeTime = lastDirectionTime[direction] || 0;
+    if (now - lastChangeTime < 50) {
+        return; // Игнорируем слишком быстрые повторные нажатия той же клавиши
+    }
+    lastDirectionTime[direction] = now;
+    
+    // КЛИЕНТСКОЕ ПРЕДСКАЗАНИЕ: Змейка меняет направление немедленно (без ожидания сервера)
+    // Функция setDirection уже имеет защиту от поворота на 180° (проверяет currentDir И nextDir)
+    const directionChanged = game.setDirection('player1', direction);
+    
+    // Если направление не изменилось (например, попытка поворота на 180°), не отправляем на сервер
+    if (directionChanged === false) {
+        return;
+    }
     
     // Добавляем в очередь для отправки на сервер (отправляем только изменения направления)
     pendingDirectionChanges.push({
@@ -726,8 +746,16 @@ function updatePlayerStatus(state) {
         `Соперник: ${state.player2Alive ? 'Живы' : 'Мертвы'}`;
 }
 
-// Конец игры
+// Конец игры (DEBOUNCED - вызывается только один раз в конце игры)
 async function endGame() {
+    // Дополнительная проверка: если уже был вызов, не выполняем повторно
+    if (gameEndCalled && gameState === 'result') {
+        console.log('endGame already called, skipping duplicate call');
+        return;
+    }
+    
+    gameEndCalled = true;
+    
     // Останавливаем синхронизацию состояния
     if (gameStateSyncInterval) {
         clearInterval(gameStateSyncInterval);
@@ -741,12 +769,13 @@ async function endGame() {
     
     gameState = 'result';
     
-    const winner = game.getWinner();
+    const winner = game ? game.getWinner() : null;
     
-    // Отправляем результат на сервер
+    // DEBOUNCE API CALLS: Отправляем результат на сервер только один раз в конце игры
+    // Не вызываем API во время игрового цикла, только при окончании
     try {
         const baseUrl = window.location.origin;
-        const state = game.getGameState();
+        const state = game ? game.getGameState() : { headToHeadCollision: false };
         const response = await fetch(`${baseUrl}/api/game/end`, {
             method: 'POST',
             headers: {
@@ -836,6 +865,11 @@ function playAgain() {
     gameState = 'menu';
     currentDirection = null;
     gameStartTimestamp = null;
+    gameEndCalled = false; // Сброс флага для следующей игры
+    lastDirectionTime = {}; // Сброс debounce таймеров
+    pendingDirectionChanges = []; // Очистка очереди направлений
+    networkErrorCount = 0;
+    ghostOpponentPosition = null;
     
     // Игрок должен оплатить снова - показываем меню
     // При следующем нажатии "Играть" будет создан новый инвойс
