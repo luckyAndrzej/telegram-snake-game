@@ -11,7 +11,7 @@ import hashlib
 import json
 import random
 
-from config import TELEGRAM_BOT_TOKEN, GAME_PRICE_USD, GAME_START_DELAY, OWNER_ID, OWNER_PERCENTAGE
+from config import TELEGRAM_BOT_TOKEN, GAME_PRICE_USD, GAME_START_DELAY, OWNER_ID, OWNER_PERCENTAGE, WINNER_PERCENTAGE
 from game import Game, Direction
 from payment import crypto_pay
 from logger import log_info, log_error
@@ -483,16 +483,46 @@ def api_game_end():
             return jsonify({'error': 'User ID required'}), 400
         
         total_bank = GAME_PRICE_USD * 2
+        prize_paid = False
+        
+        # Проверяем, находимся ли мы в активной игре
+        if user_id not in game_main.player_to_game:
+            return jsonify({
+                'winner': False,
+                'prize': 0,
+                'message': 'Игра не найдена'
+            }), 400
+        
+        game_id = game_main.player_to_game[user_id]
+        if game_id not in game_main.active_games:
+            return jsonify({
+                'winner': False,
+                'prize': 0,
+                'message': 'Игра не найдена'
+            }), 400
+        
+        game = game_main.active_games[game_id]
+        
+        # Проверяем, не была ли уже выплачена премия (защита от двойной выплаты)
+        if hasattr(game, 'prize_paid') and game.prize_paid:
+            log_info(f"Prize already paid for game {game_id}, skipping payout")
+            prize_paid = True
         
         if head_to_head or winner == 'draw':
             # Столкновение "лоб в лоб" или ничья - вся сумма идет на комиссионный счет
-            if OWNER_ID:
+            if OWNER_ID and not prize_paid:
                 try:
                     success = crypto_pay.transfer(OWNER_ID, total_bank)
                     if success:
                         log_info(f"Head-to-head collision: transferred {total_bank} USDT to owner {OWNER_ID}")
+                        prize_paid = True
+                        if hasattr(game, 'prize_paid'):
+                            game.prize_paid = True
                 except Exception as e:
                     log_error("api_game_end", e, OWNER_ID)
+            
+            # Очищаем состояние игры
+            _cleanup_game_state(game_id, game)
             
             return jsonify({
                 'winner': False,
@@ -501,18 +531,52 @@ def api_game_end():
                 'message': 'Столкновение "лоб в лоб"! Вся сумма уходит на комиссионный счет.'
             })
         
-        if user_id in game_main.player_to_game:
-            game_id = game_main.player_to_game[user_id]
-            if game_id in game_main.active_games:
-                game = game_main.active_games[game_id]
+        # Определяем победителя
+        if game.winner_id:
+            winner_id = game.winner_id
+            is_winner = (winner_id == user_id)
+            
+            # Выплачиваем призы только один раз (первый запрос от любого игрока)
+            if not prize_paid:
+                winner_amount = total_bank * WINNER_PERCENTAGE  # 75% победителю
+                owner_amount = total_bank * OWNER_PERCENTAGE    # 25% владельцу
                 
-                if game.winner_id == user_id:
-                    # Пользователь победил
-                    prize = total_bank * 0.75  # 75% победителю
-                    return jsonify({
-                        'winner': True,
-                        'prize': prize
-                    })
+                # Выплата победителю
+                try:
+                    winner_success = crypto_pay.transfer(winner_id, winner_amount)
+                    if winner_success:
+                        log_info(f"Prize {winner_amount} USDT transferred to winner {winner_id}")
+                    else:
+                        log_error("api_game_end", Exception("Failed to transfer prize to winner"), winner_id)
+                except Exception as e:
+                    log_error("api_game_end", e, winner_id)
+                
+                # Выплата владельцу (если указан)
+                if OWNER_ID:
+                    try:
+                        owner_success = crypto_pay.transfer(OWNER_ID, owner_amount)
+                        if owner_success:
+                            log_info(f"Owner commission {owner_amount} USDT transferred to owner {OWNER_ID}")
+                        else:
+                            log_error("api_game_end", Exception("Failed to transfer owner commission"), OWNER_ID)
+                    except Exception as e:
+                        log_error("api_game_end", e, OWNER_ID)
+                
+                # Помечаем, что премия выплачена
+                prize_paid = True
+                if hasattr(game, 'prize_paid'):
+                    game.prize_paid = True
+            
+            # Очищаем состояние игры
+            _cleanup_game_state(game_id, game)
+            
+            return jsonify({
+                'winner': is_winner,
+                'prize': total_bank * WINNER_PERCENTAGE if is_winner else 0
+            })
+        
+        # Если нет победителя, просто очищаем состояние
+        _cleanup_game_state(game_id, game)
         
         return jsonify({
             'winner': False,
@@ -522,6 +586,32 @@ def api_game_end():
     except Exception as e:
         log_error("api_game_end", e)
         return jsonify({'error': 'Internal server error'}), 500
+
+
+def _cleanup_game_state(game_id: int, game: Game):
+    """Очищает состояние игры после её завершения"""
+    try:
+        # Удаляем игроков из активных игр
+        if game.player1_id in game_main.player_to_game:
+            del game_main.player_to_game[game.player1_id]
+        if game.player2_id in game_main.player_to_game:
+            del game_main.player_to_game[game.player2_id]
+        
+        # Удаляем игроков из очереди ожидания (чтобы они должны были оплатить снова)
+        if game.player1_id in game_main.waiting_players:
+            del game_main.waiting_players[game.player1_id]
+            log_info(f"Removed player {game.player1_id} from waiting_players after game end")
+        if game.player2_id in game_main.waiting_players:
+            del game_main.waiting_players[game.player2_id]
+            log_info(f"Removed player {game.player2_id} from waiting_players after game end")
+        
+        # Удаляем саму игру
+        if game_id in game_main.active_games:
+            del game_main.active_games[game_id]
+        
+        log_info(f"Game {game_id} state cleaned up. Players {game.player1_id} and {game.player2_id} must pay again for next game.")
+    except Exception as e:
+        log_error("_cleanup_game_state", e)
 
 
 if __name__ == '__main__':

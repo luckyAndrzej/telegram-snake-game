@@ -123,6 +123,7 @@ class Game:
         self.is_running = False
         self.is_finished = False
         self.winner_id: Optional[int] = None
+        self.prize_paid: bool = False  # Флаг для отслеживания выплаты приза (защита от двойной выплаты)
         
         # Создаем змейки в разных углах
         start_pos1 = (self.height // 4, self.width // 4)
