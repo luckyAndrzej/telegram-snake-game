@@ -14,6 +14,16 @@ let ghostOpponentPosition = null; // Ghost позиція для резерву 
 let gameStartTimestamp = null; // Timestamp старту гри для синхронізації countdown
 let gameEndCalled = false; // Флаг для запобігання повторному виклику endGame
 
+// INPUT FIX: Variables для предотвращения double-input и bounce
+let lastDirectionTime = {}; // Debounce: {direction: timestamp}
+let pendingDirectionChanges = []; // Очередь изменений направления
+let directionSyncInProgress = false; // Флаг для предотвращения одновременной отправки
+let networkErrorCount = 0; // Счетчик сетевых ошибок
+
+// PERFORMANCE FIX: Variables для requestAnimationFrame вместо setInterval
+let lastFrameTime = 0;
+const FRAME_INTERVAL = 100; // 100ms = 10 FPS (для игрового цикла)
+
 // Константы
 const GAME_START_DELAY = 5;
 
@@ -126,8 +136,14 @@ function initWebSocket() {
 
 // Инициализация
 document.addEventListener('DOMContentLoaded', async () => {
-    tg.ready();
-    tg.expand();
+    // INITIALIZATION FIX: Telegram SDK should already be initialized in HTML
+    // But ensure ready() and expand() are called again for safety
+    if (tg && typeof tg.ready === 'function') {
+        tg.ready();
+    }
+    if (tg && typeof tg.expand === 'function') {
+        tg.expand(); // VIEWPORT FIX: Ensure full screen
+    }
     
     // TELEGRAM INTEGRATION: Получаем user_id из window.Telegram.WebApp.initDataUnsafe.user.id
     userData = tg.initDataUnsafe?.user;
@@ -233,25 +249,58 @@ function initEventListeners() {
     document.getElementById('play-again-btn').addEventListener('click', playAgain);
     document.getElementById('close-btn').addEventListener('click', closeGame);
     
-    // Свайпы для управления
+    // INPUT FIX: Свайпы для управления с защитой от double-input и bounce
     let touchStartX = 0;
     let touchStartY = 0;
+    let touchStartTime = 0;
+    let lastTouchEndTime = 0;
+    const MIN_SWIPE_DISTANCE = 30; // Минимальное расстояние для свайпа (в пикселях)
+    const MIN_SWIPE_TIME = 50; // Минимальное время для свайпа (в миллисекундах)
     
     const canvas = document.getElementById('game-canvas');
     canvas.addEventListener('touchstart', (e) => {
+        // INPUT FIX: Предотвращаем обработку touchstart, если недавно был touchend (double-input)
+        const now = Date.now();
+        if (now - lastTouchEndTime < 200) {
+            return; // Игнорируем слишком быстрые повторные касания
+        }
+        
         touchStartX = e.touches[0].clientX;
         touchStartY = e.touches[0].clientY;
-    });
+        touchStartTime = now;
+        e.preventDefault(); // Предотвращаем scroll/bounce
+    }, { passive: false });
     
     canvas.addEventListener('touchend', (e) => {
-        if (!touchStartX || !touchStartY) return;
+        if (!touchStartX || !touchStartY || !touchStartTime) return;
+        
+        const now = Date.now();
+        const touchDuration = now - touchStartTime;
+        
+        // INPUT FIX: Игнорируем слишком короткие или длинные касания
+        if (touchDuration < MIN_SWIPE_TIME || touchDuration > 500) {
+            touchStartX = 0;
+            touchStartY = 0;
+            touchStartTime = 0;
+            return;
+        }
         
         const touchEndX = e.changedTouches[0].clientX;
         const touchEndY = e.changedTouches[0].clientY;
         
         const diffX = touchStartX - touchEndX;
         const diffY = touchStartY - touchEndY;
+        const distance = Math.sqrt(diffX * diffX + diffY * diffY);
         
+        // INPUT FIX: Проверяем минимальное расстояние для свайпа
+        if (distance < MIN_SWIPE_DISTANCE) {
+            touchStartX = 0;
+            touchStartY = 0;
+            touchStartTime = 0;
+            return;
+        }
+        
+        // Определяем направление свайпа
         if (Math.abs(diffX) > Math.abs(diffY)) {
             if (diffX > 0) handleDirection('left');
             else handleDirection('right');
@@ -260,9 +309,13 @@ function initEventListeners() {
             else handleDirection('down');
         }
         
+        lastTouchEndTime = now;
         touchStartX = 0;
         touchStartY = 0;
-    });
+        touchStartTime = 0;
+        
+        e.preventDefault(); // Предотвращаем scroll/bounce
+    }, { passive: false });
     
     // Клавиатурное управление
     document.addEventListener('keydown', (e) => {
@@ -630,17 +683,9 @@ async function checkServerStartStatus() {
     }
 }
 
-// Переменные для синхронизации
+// Переменные для синхронизации (дубликаты удалены - определены в начале файла)
 let gameSyncInterval = null;
-let gameStateSyncInterval = null;
-let gameStartTimestamp = null;
 let lastSyncTime = 0;
-let pendingDirectionChanges = []; // Очередь изменений направления для отправки
-let directionSyncInProgress = false;
-let networkErrorCount = 0;
-let ghostOpponentPosition = null; // Ghost snake для плавности при сбоях сети
-let gameEndCalled = false; // Флаг для предотвращения множественных вызовов endGame
-let lastDirectionTime = {}; // Отслеживание времени последнего изменения направления (debounce)
 
 // Начало игрового процесса
 function startGamePlay() {
@@ -661,41 +706,59 @@ function startGamePlay() {
     // WEBSOCKETS: Синхронізація оппонента тепер відбувається автоматично через WebSocket
     // listener для 'game_state' події (не потрібен окремий polling інтервал)
     
-    // LOCAL VISUALS: Игровой цикл полностью на клиенте (client-side prediction)
-    // Змейка двигается немедленно без ожидания сервера (нет fetch в draw loop)
-    gameLoop = setInterval(() => {
-        if (gameState === 'playing' && game) {
-            // Проверяем, не наступило ли время старта (если есть timestamp)
-            if (gameStartTimestamp) {
-                const now = Date.now() / 1000;
-                if (now < gameStartTimestamp) {
-                    // Еще не время старта, только отрисовываем
-                    game.draw();
-                    return;
+    // PERFORMANCE FIX: Используем requestAnimationFrame вместо setInterval для плавной работы на мобильных
+    // Это предотвращает UI stuttering и обеспечивает синхронизацию с частотой обновления экрана
+    function gameLoopFrame(currentTime) {
+        if (!gameLoop) return; // Цикл остановлен
+        
+        // PERFORMANCE FIX: Проверяем интервал времени для контроля частоты обновления
+        const deltaTime = currentTime - lastFrameTime;
+        
+        if (deltaTime >= FRAME_INTERVAL) {
+            lastFrameTime = currentTime;
+            
+            if (gameState === 'playing' && game) {
+                // Проверяем, не наступило ли время старта (если есть timestamp)
+                if (gameStartTimestamp) {
+                    const now = Date.now() / 1000;
+                    if (now < gameStartTimestamp) {
+                        // Еще не время старта, только отрисовываем
+                        game.draw();
+                        requestAnimationFrame(gameLoopFrame);
+                        return;
+                    }
+                }
+                
+                // КЛИЕНТСКИЙ ЦИКЛ: Змейка двигается немедленно без ожидания сервера
+                // НЕТ fetch вызовов здесь - только локальные update() и draw()
+                game.update();
+                game.draw();
+                
+                const state = game.getGameState();
+                updatePlayerStatus(state);
+                
+                // POST REQUEST #2: Отправляем изменения направления (debounced, только при изменении)
+                sendDirectionChangesIfAny();
+                
+                // Проверяем окончание игры (DEBOUNCED - только один раз)
+                if (state.finished && !gameEndCalled) {
+                    gameEndCalled = true;
+                    // POST REQUEST #3: Отправляем окончание игры только один раз
+                    setTimeout(() => {
+                        endGame();
+                    }, 0);
                 }
             }
-            
-            // КЛИЕНТСКИЙ ЦИКЛ: Змейка двигается немедленно без ожидания сервера
-            // НЕТ fetch вызовов здесь - только локальные update() и draw()
-            game.update();
-            game.draw();
-            
-            const state = game.getGameState();
-            updatePlayerStatus(state);
-            
-            // POST REQUEST #2: Отправляем изменения направления (debounced, только при изменении)
-            sendDirectionChangesIfAny();
-            
-            // Проверяем окончание игры (DEBOUNCED - только один раз)
-            if (state.finished && !gameEndCalled) {
-                gameEndCalled = true;
-                // POST REQUEST #3: Отправляем окончание игры только один раз
-                setTimeout(() => {
-                    endGame();
-                }, 0);
-            }
         }
-    }, 100); // 100ms = 10 ticks per second - полностью локальный цикл, нет fetch
+        
+        // Продолжаем цикл
+        requestAnimationFrame(gameLoopFrame);
+    }
+    
+    // Запускаем игровой цикл через requestAnimationFrame
+    lastFrameTime = performance.now();
+    requestAnimationFrame(gameLoopFrame);
+    gameLoop = true; // Используем boolean для контроля цикла
     
     if (game) {
         game.draw();
@@ -737,8 +800,8 @@ function endGameFromServer(serverData) {
     //     gameStateSyncInterval = null;
     // }
     
+    // PERFORMANCE FIX: Останавливаем requestAnimationFrame цикл
     if (gameLoop) {
-        clearInterval(gameLoop);
         gameLoop = null;
     }
     
@@ -750,16 +813,25 @@ function endGameFromServer(serverData) {
     showResultScreen(isWinner ? 'player1' : 'player2', prize, false);
 }
 
-// Обработка направления (клиентское предсказание - змейка двигается немедленно)
+// INPUT FIX: Обработка направления с защитой от double-input и bounce
 function handleDirection(direction) {
     if (gameState !== 'playing' || !game) return;
     
-    // Debounce: Предотвращаем слишком частые изменения направления (минимум 50ms между изменениями)
+    // INPUT FIX: Debounce - предотвращаем слишком частые изменения направления (минимум 100ms между изменениями)
+    // Это предотвращает "stutter" при быстрых нажатиях
     const now = Date.now();
     const lastChangeTime = lastDirectionTime[direction] || 0;
-    if (now - lastChangeTime < 50) {
+    if (now - lastChangeTime < 100) {
         return; // Игнорируем слишком быстрые повторные нажатия той же клавиши
     }
+    
+    // INPUT FIX: Debounce для любого изменения направления (не только той же клавиши)
+    // Это предотвращает "bounce" при быстром переключении между направлениями
+    const lastAnyChangeTime = Math.max(...Object.values(lastDirectionTime), 0);
+    if (now - lastAnyChangeTime < 50) {
+        return; // Игнорируем слишком быстрые изменения направления (например, double-click)
+    }
+    
     lastDirectionTime[direction] = now;
     
     // КЛИЕНТСКОЕ ПРЕДСКАЗАНИЕ: Змейка меняет направление немедленно (без ожидания сервера)
@@ -870,8 +942,8 @@ async function endGame() {
     gameEndCalled = true;
     
     // Останавливаем игровой цикл (НЕТ gameStateSyncInterval, т.к. удалили startOpponentSync)
+    // PERFORMANCE FIX: Останавливаем requestAnimationFrame цикл
     if (gameLoop) {
-        clearInterval(gameLoop);
         gameLoop = null;
     }
     
@@ -971,8 +1043,8 @@ function showResultScreen(winner, prize, headToHead = false) {
 // Играть снова
 function playAgain() {
     // Сброс состояния игры
+    // PERFORMANCE FIX: Останавливаем requestAnimationFrame цикл
     if (gameLoop) {
-        clearInterval(gameLoop);
         gameLoop = null;
     }
     if (gameStateSyncInterval) {

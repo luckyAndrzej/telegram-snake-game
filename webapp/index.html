@@ -8,6 +8,15 @@
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
     <link rel="stylesheet" href="styles.css">
+    
+    <!-- PERFORMANCE FIX: Initialize Telegram SDK immediately to stop loading spinner -->
+    <script>
+        // CRITICAL: Call ready() immediately when script loads to stop infinite loading spinner
+        if (window.Telegram && window.Telegram.WebApp) {
+            window.Telegram.WebApp.ready();
+            window.Telegram.WebApp.expand(); // VIEWPORT FIX: Expand to full screen immediately
+        }
+    </script>
 </head>
 <body>
     <div id="app">
