@@ -124,13 +124,15 @@ class SnakeGame {
     update() {
         // Обновляем направления
         this.player1.direction = this.player1.nextDirection;
-        this.player2.direction = this.player2.nextDirection;
+        // НЕ обновляем направление player2 здесь - он обновляется только с сервера
         
-        // Двигаем змейки
+        // КРИТИЧНО: Двигаем ТОЛЬКО свою змейку (player1) локально
+        // Оппонент (player2) НЕ двигается локально - он обновляется только с сервера
+        // Это предотвращает рассинхронизацию между клиентами
         if (this.player1.alive) this.moveSnake('player1');
-        if (this.player2.alive) this.moveSnake('player2');
+        // player2 НЕ двигаем локально - только обновляем позицию с сервера
         
-        // Проверяем столкновения
+        // Проверяем столкновения (только локально для player1, окончательное решение на сервере)
         this.checkCollisions();
     }
 

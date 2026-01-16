@@ -481,7 +481,8 @@ function startGamePlay() {
     sendReadySignal();
     
     // SYNCHRONIZATION: Частая синхронизация оппонента (не в draw loop, отдельный интервал)
-    // Синхронизируем позицию оппонента каждые 500ms для плавного движения без лагов
+    // Синхронизируем позицию оппонента каждые 200ms для плавного движения без лагов
+    // КРИТИЧНО: Оппонент НЕ двигается локально - только обновляется с сервера
     startOpponentSyncFrequent();
     
     // LOCAL VISUALS: Игровой цикл полностью на клиенте (client-side prediction)
@@ -570,7 +571,8 @@ function startOpponentSyncFrequent() {
         clearInterval(gameStateSyncInterval);
     }
     
-    // Частая синхронизация - каждые 500ms (НЕ в draw loop, для плавного движения)
+    // Частая синхронизация - каждые 200ms (НЕ в draw loop, для плавного движения без лагов)
+    // КРИТИЧНО: Оппонент обновляется ТОЛЬКО с сервера, НЕ двигается локально
     gameStateSyncInterval = setInterval(async () => {
         // Проверяем, что игра запущена
         if (gameState !== 'playing' || !game || !userId) {
@@ -602,12 +604,14 @@ function startOpponentSyncFrequent() {
             }
             
             // SYNCHRONIZATION: Обновляем позицию и направление оппонента из ответа сервера
+            // КРИТИЧНО: Оппонент обновляется ТОЛЬКО с сервера, НЕ двигается локально
             if (game && data.opponent_snake && data.opponent_snake.body) {
                 const opponentBody = data.opponent_snake.body.map(pos => ({x: pos[0], y: pos[1]}));
+                // Полностью заменяем позицию оппонента данными с сервера (авторитетный сервер)
                 game.player2.body = opponentBody;
                 game.player2.alive = data.opponent_snake.alive !== false;
                 
-                // КРИТИЧНО: Синхронизируем направление оппонента для правильного движения
+                // КРИТИЧНО: Синхронизируем направление оппонента для правильной визуализации
                 if (data.opponent_snake.direction) {
                     if (Array.isArray(data.opponent_snake.direction)) {
                         // Направление как массив [dx, dy]
@@ -620,8 +624,26 @@ function startOpponentSyncFrequent() {
                     }
                 }
                 
-                // Сохраняем ghost position для использования при ошибках
+                // Сохраняем ghost position для использования при ошибках сети
                 ghostOpponentPosition = JSON.parse(JSON.stringify(opponentBody));
+            }
+            
+            // SYNCHRONIZATION: Также обновляем свою змейку с сервера для коррекции рассинхронизации
+            if (game && data.my_snake && data.my_snake.body) {
+                // Периодически синхронизируем свою змейку для коррекции (но реже, чем оппонента)
+                // Это предотвращает накопление ошибок из-за client-side prediction
+                const myBody = data.my_snake.body.map(pos => ({x: pos[0], y: pos[1]}));
+                // Плавная коррекция позиции (не резкая замена)
+                if (game.player1.body.length > 0) {
+                    const headDiff = Math.abs(game.player1.body[0].x - myBody[0].x) + Math.abs(game.player1.body[0].y - myBody[0].y);
+                    // Если рассинхронизация большая, полностью заменяем позицию
+                    if (headDiff > 2) {
+                        game.player1.body = myBody;
+                    }
+                } else {
+                    game.player1.body = myBody;
+                }
+                game.player1.alive = data.my_snake.alive !== false;
             }
             
             // Обновляем timestamp старта игры
@@ -649,7 +671,7 @@ function startOpponentSyncFrequent() {
                 // Продолжаем движение оппонента на основе последней известной позиции
             }
         }
-    }, 500); // Синхронизация каждые 500ms (НЕ в draw loop, для плавного движения без лагов)
+    }, 200); // Синхронизация каждые 200ms (НЕ в draw loop, для плавного движения без лагов)
 }
 
 // Завершение игры на основе данных сервера

@@ -515,6 +515,11 @@ def api_game_state():
         
         game = game_main.active_games[game_id]
         
+        # КРИТИЧНО: Обновляем состояние игры на сервере перед возвратом данных
+        # Это гарантирует, что обе змейки двигаются даже если игроки не меняют направление
+        if game.is_running and not game.is_finished:
+            game.update()  # Обновляем состояние игры на сервере (движение обеих змеек)
+        
         # Определяем, какой игрок запрашивает состояние
         is_player1 = (user_id == game.player1_id)
         my_snake = game.snake1 if is_player1 else game.snake2
