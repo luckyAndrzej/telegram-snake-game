@@ -102,8 +102,8 @@ def run_bot():
 
 
 def run_webapp():
-    """Запускает Flask веб-приложение"""
-    from webapp_api import app
+    """Запускает Flask веб-приложение с поддержкой WebSockets"""
+    from webapp_api import app, socketio
     
     # Railway предоставляет PORT через переменную окружения
     port = int(os.getenv("PORT", "5000"))
@@ -112,8 +112,8 @@ def run_webapp():
     log_info(f"Web App API starting on 0.0.0.0:{port}")
     log_info(f"Web App URL: {web_app_url}")
     
-    # Запускаем Flask на всех интерфейсах (0.0.0.0) и указанном порту
-    app.run(host='0.0.0.0', port=port, debug=False, use_reloader=False)
+    # WEBSOCKETS: Запускаем Flask с SocketIO на всех интерфейсах (0.0.0.0) и указанном порту
+    socketio.run(app, host='0.0.0.0', port=port, debug=False, allow_unsafe_werkzeug=True)
 
 
 # Глобальная переменная для хранения ссылки на приложение бота

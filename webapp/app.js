@@ -7,8 +7,122 @@ let userData = null;
 let userId = null; // ИЗОЛЯЦИЯ ПОЛЬЗОВАТЕЛЯ: user_id всегда из Telegram
 let gameState = 'menu'; // menu, payment, waiting, countdown, playing, result
 
+// WEBSOCKETS: Socket.IO з'єднання
+let socket = null;
+let gameStateSyncInterval = null; // Буде замінено на WebSocket listeners
+let ghostOpponentPosition = null; // Ghost позиція для резерву при мережевих помилках
+let gameStartTimestamp = null; // Timestamp старту гри для синхронізації countdown
+let gameEndCalled = false; // Флаг для запобігання повторному виклику endGame
+
 // Константы
 const GAME_START_DELAY = 5;
+
+// WEBSOCKETS: Ініціалізація WebSocket з'єднання
+function initWebSocket() {
+    if (!userId || !window.io) {
+        console.warn('WebSocket: userId or Socket.IO not available');
+        return;
+    }
+    
+    const baseUrl = window.location.origin;
+    
+    // Підключаємося до WebSocket сервера
+    socket = io(baseUrl, {
+        auth: {
+            user_id: userId
+        },
+        transports: ['websocket', 'polling']
+    });
+    
+    // Обробник підключення
+    socket.on('connect', () => {
+        console.log('WebSocket connected:', socket.id);
+    });
+    
+    // Обробник відключення
+    socket.on('disconnect', () => {
+        console.warn('WebSocket disconnected');
+    });
+    
+    // WEBSOCKETS: Отримання оновлень стану гри в реальному часі
+    socket.on('game_state', (data) => {
+        if (!game || gameState !== 'playing') return;
+        
+        try {
+            // Синхронізація позиції оппонента з сервера
+            if (data.opponent_snake && data.opponent_snake.body) {
+                const opponentBody = data.opponent_snake.body.map(pos => ({x: pos[0], y: pos[1]}));
+                game.player2.body = opponentBody;
+                game.player2.alive = data.opponent_snake.alive !== false;
+                
+                // Синхронізація напрямку оппонента
+                if (data.opponent_snake.direction) {
+                    if (Array.isArray(data.opponent_snake.direction)) {
+                        game.player2.direction = {x: data.opponent_snake.direction[0], y: data.opponent_snake.direction[1]};
+                        game.player2.nextDirection = {x: data.opponent_snake.direction[0], y: data.opponent_snake.direction[1]};
+                    } else if (data.opponent_snake.direction.x !== undefined) {
+                        game.player2.direction = {x: data.opponent_snake.direction.x, y: data.opponent_snake.direction.y};
+                        game.player2.nextDirection = {x: data.opponent_snake.direction.x, y: data.opponent_snake.direction.y};
+                    }
+                }
+                
+                ghostOpponentPosition = JSON.parse(JSON.stringify(opponentBody));
+            }
+            
+            // Синхронізація власної змійки для корекції розсинхронізації
+            if (data.my_snake && data.my_snake.body) {
+                const myBody = data.my_snake.body.map(pos => ({x: pos[0], y: pos[1]}));
+                if (game.player1.body.length > 0) {
+                    const headDiff = Math.abs(game.player1.body[0].x - myBody[0].x) + Math.abs(game.player1.body[0].y - myBody[0].y);
+                    if (headDiff > 2) {
+                        game.player1.body = myBody;
+                    }
+                } else {
+                    game.player1.body = myBody;
+                }
+                game.player1.alive = data.my_snake.alive !== false;
+            }
+            
+            // Перевірка завершення гри
+            if (data.game_finished && !gameEndCalled) {
+                gameEndCalled = true;
+                endGameFromServer(data);
+            }
+        } catch (error) {
+            console.error('Error processing game_state:', error);
+        }
+    });
+    
+    // WEBSOCKETS: Обидва гравці готові - починаємо countdown
+    socket.on('both_ready', (data) => {
+        console.log('Both players ready, starting countdown:', data);
+        if (data.game_start_timestamp) {
+            gameStartTimestamp = data.game_start_timestamp;
+        }
+        checkServerStartStatus();
+    });
+    
+    // WEBSOCKETS: Підтвердження збереження команди напрямку
+    socket.on('direction_queued', (data) => {
+        // Команда успішно збережена для наступного тику
+        if (data.success) {
+            // Можна додати візуальне підтвердження, якщо потрібно
+        }
+    });
+    
+    // WEBSOCKETS: Підтвердження готовності
+    socket.on('ready_confirmed', (data) => {
+        console.log('Ready confirmed:', data);
+    });
+    
+    // WEBSOCKETS: Обробка помилок
+    socket.on('error', (error) => {
+        console.error('WebSocket error:', error);
+        if (error.message) {
+            tg.showAlert('Помилка: ' + error.message);
+        }
+    });
+}
 
 // Инициализация
 document.addEventListener('DOMContentLoaded', async () => {
@@ -23,6 +137,9 @@ document.addEventListener('DOMContentLoaded', async () => {
         console.error('ERROR: user_id not found in tg.initDataUnsafe.user.id');
         tg.showAlert('Ошибка: не удалось определить пользователя. Перезагрузите приложение.');
     }
+    
+    // WEBSOCKETS: Ініціалізуємо WebSocket з'єднання
+    initWebSocket();
     
     // Инициализируем игру
     initEventListeners();
@@ -480,10 +597,8 @@ function startGamePlay() {
     // POST REQUEST #1: Отправляем сигнал готовности на сервер (при старте игры)
     sendReadySignal();
     
-    // SYNCHRONIZATION: Частая синхронизация оппонента (не в draw loop, отдельный интервал)
-    // Синхронизируем позицию оппонента каждые 200ms для плавного движения без лагов
-    // КРИТИЧНО: Оппонент НЕ двигается локально - только обновляется с сервера
-    startOpponentSyncFrequent();
+    // WEBSOCKETS: Синхронізація оппонента тепер відбувається автоматично через WebSocket
+    // listener для 'game_state' події (не потрібен окремий polling інтервал)
     
     // LOCAL VISUALS: Игровой цикл полностью на клиенте (client-side prediction)
     // Змейка двигается немедленно без ожидания сервера (нет fetch в draw loop)
@@ -526,160 +641,40 @@ function startGamePlay() {
     }
 }
 
-// POST REQUEST #1: Отправка сигнала готовности (только при старте игры)
-async function sendReadySignal() {
-    // VALIDATION: Проверяем user_id перед отправкой
+// WEBSOCKETS: Відправка сигналу готовності через WebSocket
+function sendReadySignal() {
+    // VALIDATION: Перевіряємо user_id перед відправкою
     if (!userId) {
         console.error('Cannot send ready signal: user_id is missing');
         return;
     }
     
+    if (!socket || !socket.connected) {
+        console.warn('WebSocket not connected, cannot send ready signal');
+        return;
+    }
+    
     try {
-        const baseUrl = window.location.origin;
-        // VALIDATION: Стандартизированные JSON ключи
-        const requestBody = {
-            user_id: userId,  // Всегда отправляем user_id для изоляции
-            init_data: tg.initData || tg.initDataUnsafe || ''
-        };
-        
-        const response = await fetch(`${baseUrl}/api/game/ready`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(requestBody)
-        });
-        
-        const data = await response.json();
-        console.log('Ready signal response:', data);
-        
-        if (data.both_ready && data.game_start_timestamp) {
-            gameStartTimestamp = data.game_start_timestamp;
-            console.log(`Both players ready! Game starts at ${gameStartTimestamp}`);
+        // WEBSOCKETS: Відправляємо сигнал готовності через WebSocket
+        socket.emit('ready', {});
+        console.log('Ready signal sent via WebSocket');
         }
     } catch (error) {
-        console.error('Error sending ready signal:', error);
+        console.error('Error sending ready signal via WebSocket:', error);
     }
 }
 
-// SYNCHRONIZATION: Частая синхронизация оппонента (не в draw loop, отдельный интервал)
-// Синхронизация оппонента происходит:
-// 1. При изменении направления (через sendDirection - мгновенная синхронизация)
-// 2. Каждые 500ms для плавного движения без лагов (отдельный интервал, НЕ в draw loop)
-function startOpponentSyncFrequent() {
-    if (gameStateSyncInterval) {
-        clearInterval(gameStateSyncInterval);
-    }
-    
-    // Частая синхронизация - каждые 200ms (НЕ в draw loop, для плавного движения без лагов)
-    // КРИТИЧНО: Оппонент обновляется ТОЛЬКО с сервера, НЕ двигается локально
-    gameStateSyncInterval = setInterval(async () => {
-        // Проверяем, что игра запущена
-        if (gameState !== 'playing' || !game || !userId) {
-            return;
-        }
-        
-        try {
-            const baseUrl = window.location.origin;
-            const response = await fetch(`${baseUrl}/api/game/state`, {
-                method: 'POST',
-                headers: {
-                    'Content-Type': 'application/json',
-                },
-                body: JSON.stringify({
-                    user_id: userId,
-                    init_data: tg.initData || tg.initDataUnsafe || ''
-                })
-            });
-            
-            if (!response.ok) {
-                throw new Error(`HTTP ${response.status}`);
-            }
-            
-            const data = await response.json();
-            
-            if (data.error) {
-                console.warn('Opponent sync error:', data.error);
-                return;
-            }
-            
-            // SYNCHRONIZATION: Обновляем позицию и направление оппонента из ответа сервера
-            // КРИТИЧНО: Оппонент обновляется ТОЛЬКО с сервера, НЕ двигается локально
-            if (game && data.opponent_snake && data.opponent_snake.body) {
-                const opponentBody = data.opponent_snake.body.map(pos => ({x: pos[0], y: pos[1]}));
-                // Полностью заменяем позицию оппонента данными с сервера (авторитетный сервер)
-                game.player2.body = opponentBody;
-                game.player2.alive = data.opponent_snake.alive !== false;
-                
-                // КРИТИЧНО: Синхронизируем направление оппонента для правильной визуализации
-                if (data.opponent_snake.direction) {
-                    if (Array.isArray(data.opponent_snake.direction)) {
-                        // Направление как массив [dx, dy]
-                        game.player2.direction = {x: data.opponent_snake.direction[0], y: data.opponent_snake.direction[1]};
-                        game.player2.nextDirection = {x: data.opponent_snake.direction[0], y: data.opponent_snake.direction[1]};
-                    } else if (data.opponent_snake.direction.x !== undefined) {
-                        // Направление как объект {x, y}
-                        game.player2.direction = {x: data.opponent_snake.direction.x, y: data.opponent_snake.direction.y};
-                        game.player2.nextDirection = {x: data.opponent_snake.direction.x, y: data.opponent_snake.direction.y};
-                    }
-                }
-                
-                // Сохраняем ghost position для использования при ошибках сети
-                ghostOpponentPosition = JSON.parse(JSON.stringify(opponentBody));
-            }
-            
-            // SYNCHRONIZATION: Также обновляем свою змейку с сервера для коррекции рассинхронизации
-            if (game && data.my_snake && data.my_snake.body) {
-                // Периодически синхронизируем свою змейку для коррекции (но реже, чем оппонента)
-                // Это предотвращает накопление ошибок из-за client-side prediction
-                const myBody = data.my_snake.body.map(pos => ({x: pos[0], y: pos[1]}));
-                // Плавная коррекция позиции (не резкая замена)
-                if (game.player1.body.length > 0) {
-                    const headDiff = Math.abs(game.player1.body[0].x - myBody[0].x) + Math.abs(game.player1.body[0].y - myBody[0].y);
-                    // Если рассинхронизация большая, полностью заменяем позицию
-                    if (headDiff > 2) {
-                        game.player1.body = myBody;
-                    }
-                } else {
-                    game.player1.body = myBody;
-                }
-                game.player1.alive = data.my_snake.alive !== false;
-            }
-            
-            // Обновляем timestamp старта игры
-            if (data.game_start_timestamp && !gameStartTimestamp) {
-                gameStartTimestamp = data.game_start_timestamp;
-            }
-            
-            // Проверяем окончание игры
-            if (data.game_finished && !gameEndCalled) {
-                if (gameStateSyncInterval) {
-                    clearInterval(gameStateSyncInterval);
-                    gameStateSyncInterval = null;
-                }
-                if (gameLoop) {
-                    clearInterval(gameLoop);
-                    gameLoop = null;
-                }
-                gameEndCalled = true;
-                endGameFromServer(data);
-            }
-        } catch (error) {
-            console.warn('Network error syncing opponent (using ghost position):', error);
-            // При ошибках сети используем ghost snake для плавности
-            if (ghostOpponentPosition && game && game.player2 && game.player2.body) {
-                // Продолжаем движение оппонента на основе последней известной позиции
-            }
-        }
-    }, 200); // Синхронизация каждые 200ms (НЕ в draw loop, для плавного движения без лагов)
-}
+// WEBSOCKETS: Ця функція більше не потрібна - синхронізація відбувається автоматично через WebSocket
+// listener для 'game_state' події в initWebSocket()
+// Видалено startOpponentSyncFrequent() - заміна на WebSocket real-time оновлення
 
 // Завершение игры на основе данных сервера
 function endGameFromServer(serverData) {
-    if (gameStateSyncInterval) {
-        clearInterval(gameStateSyncInterval);
-        gameStateSyncInterval = null;
-    }
+    // WEBSOCKETS: gameStateSyncInterval більше не потрібен - WebSocket listener автоматично обробляє оновлення
+    // if (gameStateSyncInterval) {
+    //     clearInterval(gameStateSyncInterval);
+    //     gameStateSyncInterval = null;
+    // }
     
     if (gameLoop) {
         clearInterval(gameLoop);
@@ -740,23 +735,23 @@ async function sendDirectionChangesIfAny() {
     await sendDirection(lastChange.direction);
 }
 
-// POST REQUEST #2: Отправка изменения направления (debounced, только при изменении)
-async function sendDirection(direction) {
-    // VALIDATION: Проверяем user_id (обязательное поле)
+// WEBSOCKETS: Відправка зміни напрямку через WebSocket
+function sendDirection(direction) {
+    // VALIDATION: Перевіряємо user_id (обов'язкове поле)
     if (!userId) {
         console.error('Cannot send direction: user_id is missing');
         directionSyncInProgress = false;
         return;
     }
     
-    // VALIDATION: Проверяем direction
+    // VALIDATION: Перевіряємо direction
     if (!direction || typeof direction !== 'string') {
         console.error('Cannot send direction: direction is missing or not a string', direction);
         directionSyncInProgress = false;
         return;
     }
     
-    // VALIDATION: Проверяем, что direction - это допустимое значение
+    // VALIDATION: Перевіряємо, що direction - це допустиме значення
     const validDirections = ['up', 'down', 'left', 'right'];
     const directionLower = direction.toLowerCase().trim();
     if (!validDirections.includes(directionLower)) {
@@ -765,74 +760,32 @@ async function sendDirection(direction) {
         return;
     }
     
-    // Помечаем, что идет отправка
+    if (!socket || !socket.connected) {
+        console.warn('WebSocket not connected, cannot send direction');
+        directionSyncInProgress = false;
+        return;
+    }
+    
+    // Помічаємо, що йде відправка
     directionSyncInProgress = true;
     
     try {
-        const baseUrl = window.location.origin;
-        // VALIDATION: Стандартизированные JSON ключи (должны совпадать с backend)
-        const requestBody = {
-            user_id: userId,  // Всегда отправляем user_id для изоляции пользователя
-            direction: directionLower  // Нормализованное значение направления
-        };
-        
-        const response = await fetch(`${baseUrl}/api/game/direction`, {
-            method: 'POST',
-            headers: {
-                'Content-Type': 'application/json',
-            },
-            body: JSON.stringify(requestBody)
+        // WEBSOCKETS: Відправляємо напрямок через WebSocket
+        // Синхронізація оппонента тепер відбувається автоматично через 'game_state' listener
+        socket.emit('direction', {
+            direction: directionLower
         });
         
-        // Проверяем статус ответа
-        if (!response.ok) {
-            const errorText = await response.text();
-            console.warn(`Direction request failed with status ${response.status}:`, errorText);
-            // НЕ замораживаем игру при ошибке - используем ghost snake
-            // Игра продолжается на клиенте (client-side prediction)
-        } else {
-            const responseData = await response.json();
-            
-            // SYNCHRONIZATION: Обновляем позицию и направление оппонента из ответа сервера
-            if (responseData.opponent_snake && game && game.player2) {
-                const opponentBody = responseData.opponent_snake.body.map(pos => ({x: pos[0], y: pos[1]}));
-                game.player2.body = opponentBody;
-                game.player2.alive = responseData.opponent_snake.alive !== false;
-                
-                // КРИТИЧНО: Синхронизируем направление оппонента для правильного движения
-                if (responseData.opponent_snake.direction) {
-                    if (Array.isArray(responseData.opponent_snake.direction)) {
-                        game.player2.direction = {x: responseData.opponent_snake.direction[0], y: responseData.opponent_snake.direction[1]};
-                        game.player2.nextDirection = {x: responseData.opponent_snake.direction[0], y: responseData.opponent_snake.direction[1]};
-                    } else if (responseData.opponent_snake.direction.x !== undefined) {
-                        game.player2.direction = {x: responseData.opponent_snake.direction.x, y: responseData.opponent_snake.direction.y};
-                        game.player2.nextDirection = {x: responseData.opponent_snake.direction.x, y: responseData.opponent_snake.direction.y};
-                    }
-                }
-                
-                // Сохраняем ghost position для использования при ошибках
-                ghostOpponentPosition = JSON.parse(JSON.stringify(opponentBody));
-            }
-            
-            // Проверяем окончание игры (из ответа сервера)
-            if (responseData.game_finished && !gameEndCalled) {
-                gameEndCalled = true;
-                setTimeout(() => {
-                    endGameFromServer(responseData);
-                }, 0);
-            }
-            
-            // Успешная отправка - сбрасываем счетчик ошибок
-            if (networkErrorCount > 0) {
-                networkErrorCount = Math.max(0, networkErrorCount - 1);
-            }
+        // Успішна відправка - скидаємо лічильник помилок
+        if (typeof networkErrorCount !== 'undefined' && networkErrorCount > 0) {
+            networkErrorCount = Math.max(0, networkErrorCount - 1);
         }
     } catch (error) {
         console.warn('Network error sending direction (game continues with client-side prediction):', error);
-        // При ошибке сети игра продолжается на клиенте
-        // Оппонент продолжит движение на основе последней синхронизированной позиции
+        // При помилці мережі гра продовжується на клієнті
+        // Опонент продовжить рух на основі останньої синхронізованої позиції
     } finally {
-        // Снимаем флаг после завершения (успешного или с ошибкой)
+        // Знімаємо прапорець після завершення (успішного або з помилкою)
         directionSyncInProgress = false;
     }
 }

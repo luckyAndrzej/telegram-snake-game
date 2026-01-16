@@ -142,3 +142,4 @@ print(f"Pending directions: {game.pending_directions}")
 
 Старые методы будут работать, но не обеспечивают синхронизацию по тикам.
 
+

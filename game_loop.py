@@ -21,7 +21,7 @@ _game_loop_running = False
 _game_loop_task: asyncio.Task = None
 
 
-async def game_tick_loop(active_games: Dict[int, 'Game']):
+async def game_tick_loop(active_games: Dict[int, 'Game'], broadcast_callback=None):
     """
     Основной цикл игровых тиков
     
@@ -30,12 +30,14 @@ async def game_tick_loop(active_games: Dict[int, 'Game']):
     
     Args:
         active_games: Словарь всех активных игр {game_id: Game}
+        broadcast_callback: Опциональная функция callback(game_id) для broadcast после тика
     
     Логика:
     1. Спим TICK_INTERVAL секунд
     2. Для каждой активной игры вызываем game.tick()
-    3. Если игра завершена, она будет удалена из active_games позже
-    4. Повторяем
+    3. После тика вызываем broadcast_callback(game_id) если она предоставлена
+    4. Если игра завершена, она будет удалена из active_games позже
+    5. Повторяем
     """
     global _game_loop_running
     
@@ -70,9 +72,22 @@ async def game_tick_loop(active_games: Dict[int, 'Game']):
                     # Выполняем тик игры
                     game_continues = game.tick(current_time)
                     
+                    # WEBSOCKETS: Отправляем обновление состояния игры через WebSocket
+                    # только если игра запущена (is_running=True)
+                    if game.is_running and broadcast_callback:
+                        try:
+                            broadcast_callback(game_id)
+                        except Exception as e:
+                            log_error(f"broadcast_callback_game_{game_id}", e)
+                    
                     if not game_continues:
-                        # Игра завершена, логируем
+                        # Игра завершена, логируем и отправляем финальное состояние
                         log_info(f"Game {game_id} finished during tick {game.tick_number}")
+                        if broadcast_callback:
+                            try:
+                                broadcast_callback(game_id)
+                            except Exception as e:
+                                log_error(f"broadcast_callback_game_{game_id}_final", e)
                     
                 except Exception as e:
                     log_error(f"game_tick_loop_game_{game_id}", e)
@@ -139,4 +154,5 @@ def stop_game_tick_loop():
 def is_game_loop_running() -> bool:
     """Проверяет, запущен ли игровой цикл тиков"""
     return _game_loop_running
+
 

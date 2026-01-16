@@ -4,6 +4,7 @@ API эндпоинты для веб-приложения Telegram Mini App
 
 from flask import Flask, request, jsonify, send_from_directory
 from flask_cors import CORS
+from flask_socketio import SocketIO, emit, join_room, leave_room, disconnect
 import os
 from typing import Dict, Optional
 import hmac
@@ -15,7 +16,7 @@ from config import TELEGRAM_BOT_TOKEN, GAME_PRICE_USD, GAME_START_DELAY, OWNER_I
 from game import Game, Direction
 from payment import crypto_pay
 from logger import log_info, log_error
-from game_loop import start_game_tick_loop, is_game_loop_running
+from game_loop import start_game_tick_loop, is_game_loop_running, game_tick_loop
 import threading
 import time
 import atexit
@@ -83,6 +84,16 @@ def create_game_match(player1_id: int, player2_id: int):
 app = Flask(__name__, static_folder='webapp')
 CORS(app)
 
+# WEBSOCKETS: Инициализация SocketIO для real-time обновлений
+# Используем async_mode='threading' для совместимости с Flask
+socketio = SocketIO(app, cors_allowed_origins="*", async_mode='threading', logger=True, engineio_logger=True)
+
+# WEBSOCKETS: Словарь для отслеживания подключений игроков
+# Ключ: user_id, Значение: session_id (SocketIO session ID)
+player_connections: Dict[int, str] = {}  # user_id -> session_id
+session_to_user: Dict[str, int] = {}  # session_id -> user_id (обратная связь)
+game_rooms: Dict[int, list] = {}  # game_id -> [user_id1, user_id2] (игроки в игре)
+
 # СИСТЕМА ТИКОВ: Инициализация игрового цикла при старте приложения
 # Запускаем игровой цикл в отдельном потоке при первом импорте модуля
 _game_loop_thread_started = False
@@ -96,21 +107,31 @@ def _start_game_loop_thread():
         return
     
     import threading
+    import asyncio
     
     def run_game_loop():
         """Запускает asyncio event loop в отдельном потоке"""
-        import asyncio
+        # Создаем новый event loop для этого потока
         loop = asyncio.new_event_loop()
         asyncio.set_event_loop(loop)
         
         try:
-            # Запускаем игровой цикл тиков
-            start_game_tick_loop(game_main.active_games)
-            # Запускаем event loop
-            loop.run_forever()
+            # Запускаем игровой цикл тиков напрямую с callback для WebSocket broadcast
+            # game_tick_loop - это бесконечная корутина, которую нужно запустить в event loop
+            loop.run_until_complete(game_tick_loop(game_main.active_games, broadcast_game_state))
         except Exception as e:
             log_error("_start_game_loop_thread", e)
+            import traceback
+            log_info(f"Traceback: {traceback.format_exc()}")
         finally:
+            try:
+                # Отменяем все задачи перед закрытием
+                pending = asyncio.all_tasks(loop)
+                for task in pending:
+                    task.cancel()
+                loop.run_until_complete(asyncio.gather(*pending, return_exceptions=True))
+            except Exception:
+                pass
             loop.close()
     
     _game_loop_thread = threading.Thread(target=run_game_loop, daemon=True, name="GameTickLoop")
@@ -171,6 +192,235 @@ def validate_init_data(init_data: str) -> Optional[Dict]:
     except Exception as e:
         log_error("validate_init_data", e)
         return None
+
+
+# WEBSOCKETS: Обработчики событий WebSocket для real-time обновлений
+@socketio.on('connect')
+def handle_connect(auth):
+    """Обработчик подключения игрока через WebSocket"""
+    try:
+        # Получаем user_id из auth данных (передается при подключении)
+        if not auth or 'user_id' not in auth:
+            log_error("handle_connect", Exception("Missing user_id in auth data"))
+            disconnect()
+            return False
+        
+        user_id = int(auth['user_id'])
+        session_id = request.sid
+        
+        # Сохраняем связь user_id -> session_id
+        player_connections[user_id] = session_id
+        session_to_user[session_id] = user_id
+        
+        log_info(f"WebSocket connected: user_id={user_id}, session_id={session_id}")
+        
+        # Если игрок уже в игре, добавляем его в комнату игры
+        if user_id in game_main.player_to_game:
+            game_id = game_main.player_to_game[user_id]
+            room_name = f"game_{game_id}"
+            join_room(room_name)
+            
+            if game_id not in game_rooms:
+                game_rooms[game_id] = []
+            if user_id not in game_rooms[game_id]:
+                game_rooms[game_id].append(user_id)
+            
+            log_info(f"Player {user_id} joined game room {room_name}")
+            
+            # Отправляем текущее состояние игры новому подключению
+            if game_id in game_main.active_games:
+                game = game_main.active_games[game_id]
+                snapshot = game.get_snapshot()
+                snapshot['user_id'] = user_id
+                emit('game_state', snapshot, room=session_id)
+        
+        return True
+    
+    except Exception as e:
+        log_error("handle_connect", e)
+        disconnect()
+        return False
+
+
+@socketio.on('disconnect')
+def handle_disconnect():
+    """Обработчик отключения игрока через WebSocket"""
+    try:
+        session_id = request.sid
+        
+        if session_id in session_to_user:
+            user_id = session_to_user[session_id]
+            
+            # Удаляем связь
+            if user_id in player_connections:
+                del player_connections[user_id]
+            del session_to_user[session_id]
+            
+            # Удаляем из комнат игр
+            if user_id in game_main.player_to_game:
+                game_id = game_main.player_to_game[user_id]
+                room_name = f"game_{game_id}"
+                leave_room(room_name)
+                
+                if game_id in game_rooms and user_id in game_rooms[game_id]:
+                    game_rooms[game_id].remove(user_id)
+            
+            log_info(f"WebSocket disconnected: user_id={user_id}, session_id={session_id}")
+    
+    except Exception as e:
+        log_error("handle_disconnect", e)
+
+
+@socketio.on('direction')
+def handle_direction(data):
+    """Обработчик получения направления от игрока через WebSocket"""
+    try:
+        session_id = request.sid
+        
+        if session_id not in session_to_user:
+            emit('error', {'message': 'Not authenticated'})
+            return
+        
+        user_id = session_to_user[session_id]
+        direction_str = data.get('direction')
+        
+        if not direction_str:
+            emit('error', {'message': 'Direction required'})
+            return
+        
+        if user_id not in game_main.player_to_game:
+            emit('error', {'message': 'Not in game'})
+            return
+        
+        game_id = game_main.player_to_game[user_id]
+        if game_id not in game_main.active_games:
+            emit('error', {'message': 'Game not found'})
+            return
+        
+        game = game_main.active_games[game_id]
+        
+        if game.is_finished:
+            emit('error', {'message': 'Game finished'})
+            return
+        
+        # Преобразуем строку в Direction
+        direction_map = {
+            "up": Direction.UP,
+            "down": Direction.DOWN,
+            "left": Direction.LEFT,
+            "right": Direction.RIGHT
+        }
+        
+        direction_str = direction_str.lower().strip()
+        direction = direction_map.get(direction_str)
+        
+        if not direction:
+            emit('error', {'message': f'Invalid direction: {direction_str}'})
+            return
+        
+        # Сохраняем направление в очередь для следующего тика
+        command_timestamp = time.time()
+        game.queue_direction(user_id, direction, command_timestamp)
+        
+        log_info(f"WebSocket direction queued for user {user_id} in game {game_id}: {direction_str}")
+        
+        # Подтверждение команды
+        emit('direction_queued', {
+            'success': True,
+            'direction': direction_str,
+            'tick_number': game.tick_number
+        })
+    
+    except Exception as e:
+        log_error("handle_direction", e)
+        emit('error', {'message': str(e)})
+
+
+@socketio.on('ready')
+def handle_ready(data):
+    """Обработчик сигнала готовности игрока через WebSocket"""
+    try:
+        session_id = request.sid
+        
+        if session_id not in session_to_user:
+            emit('error', {'message': 'Not authenticated'})
+            return
+        
+        user_id = session_to_user[session_id]
+        
+        if user_id not in game_main.player_to_game:
+            emit('error', {'message': 'Not in game'})
+            return
+        
+        game_id = game_main.player_to_game[user_id]
+        if game_id not in game_main.active_games:
+            emit('error', {'message': 'Game not found'})
+            return
+        
+        game = game_main.active_games[game_id]
+        
+        # Устанавливаем готовность игрока
+        if user_id == game.player1_id:
+            game.player1_ready = True
+            log_info(f"Player 1 ({user_id}) is ready for game {game_id}")
+        elif user_id == game.player2_id:
+            game.player2_ready = True
+            log_info(f"Player 2 ({user_id}) is ready for game {game_id}")
+        
+        # Проверяем, готовы ли оба игрока
+        if game.player1_ready and game.player2_ready:
+            # Устанавливаем время начала игры (для синхронизации countdown)
+            if game.game_start_timestamp is None:
+                game.game_start_timestamp = time.time()
+                log_info(f"Both players ready! Game {game_id} will start after countdown at timestamp {game.game_start_timestamp}")
+            
+            # Отправляем событие начала игры в комнату игры
+            room_name = f"game_{game_id}"
+            emit('both_ready', {
+                'game_id': game_id,
+                'game_start_timestamp': game.game_start_timestamp,
+                'countdown_seconds': GAME_START_DELAY
+            }, room=room_name, broadcast=True)
+        
+        # Подтверждение готовности
+        emit('ready_confirmed', {
+            'player1_ready': game.player1_ready,
+            'player2_ready': game.player2_ready
+        })
+    
+    except Exception as e:
+        log_error("handle_ready", e)
+        emit('error', {'message': str(e)})
+
+
+# WEBSOCKETS: Функция для broadcast игрового состояния всем игрокам в игре
+def broadcast_game_state(game_id: int):
+    """Отправляет текущее состояние игры всем игрокам через WebSocket"""
+    try:
+        if game_id not in game_main.active_games:
+            return
+        
+        game = game_main.active_games[game_id]
+        base_snapshot = game.get_snapshot()
+        room_name = f"game_{game_id}"
+        
+        # Отправляем персональные данные каждому игроку (my_snake и opponent_snake)
+        # Игрок 1
+        if game.player1_id in player_connections:
+            snapshot_p1 = base_snapshot.copy()
+            snapshot_p1['my_snake'] = snapshot_p1['snake1']
+            snapshot_p1['opponent_snake'] = snapshot_p1['snake2']
+            socketio.emit('game_state', snapshot_p1, room=player_connections[game.player1_id])
+        
+        # Игрок 2
+        if game.player2_id in player_connections:
+            snapshot_p2 = base_snapshot.copy()
+            snapshot_p2['my_snake'] = snapshot_p2['snake2']
+            snapshot_p2['opponent_snake'] = snapshot_p2['snake1']
+            socketio.emit('game_state', snapshot_p2, room=player_connections[game.player2_id])
+    
+    except Exception as e:
+        log_error(f"broadcast_game_state_{game_id}", e)
 
 
 @app.route('/webapp/<path:filename>')
@@ -347,7 +597,7 @@ def api_start_game():
                     "paid": True,
                     "created_at": time.time()
                 }
-            
+                
             # Оба игрока в очереди - создаем игру автоматически
             game_id = create_game_match(user_id, opponent_id)
             if game_id:
@@ -721,15 +971,21 @@ def api_game_direction():
         
         game = game_main.active_games[game_id]
         
-        if not game.is_running or game.is_finished:
-            log_error("api_game_direction", Exception(f"Game {game_id} is not running. is_running={game.is_running}, is_finished={game.is_finished}"), user_id)
+        # СИСТЕМА ТИКОВ: Принимаем направления даже если игра еще не запущена (во время countdown)
+        # Команды будут применены при первом тике после запуска игры
+        if game.is_finished:
+            log_error("api_game_direction", Exception(f"Game {game_id} is finished"), user_id)
             return jsonify({
-                'error': 'Game not running',
-                'is_running': game.is_running,
+                'error': 'Game finished',
                 'is_finished': game.is_finished
             }), 400
         
-        # Преобразуем строку в Direction
+        # Если игра еще не запущена, но создана - разрешаем сохранять направления
+        # Они будут применены когда игра запустится (после countdown через /api/game/start-play)
+        if not game.is_running:
+            log_info(f"Game {game_id} not running yet (countdown?), but direction queued for future tick (is_running={game.is_running})")
+        
+        # Преобразуем строку в Direction (вне зависимости от is_running - команда сохраняется в очередь)
         direction_map = {
             "up": Direction.UP,
             "down": Direction.DOWN,
@@ -971,5 +1227,6 @@ def _cleanup_game_state(game_id: int, game: Game):
 
 
 if __name__ == '__main__':
-    app.run(host='0.0.0.0', port=5000, debug=True)
+    # WEBSOCKETS: Используем socketio.run() вместо app.run() для поддержки WebSockets
+    socketio.run(app, host='0.0.0.0', port=5000, debug=True, allow_unsafe_werkzeug=True)
 

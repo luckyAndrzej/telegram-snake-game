@@ -233,3 +233,4 @@
 - Восстановить создание invoice в `/api/game/start`
 - Включить polling `/api/game/check-payment` на клиенте
 
+
