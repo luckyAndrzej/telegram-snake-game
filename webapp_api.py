@@ -724,10 +724,34 @@ def api_game_direction():
                 'valid_directions': list(direction_map.keys())
             }), 400
         
-        # Устанавливаем направление
+        # Устанавливаем направление на сервере
         game.set_direction(user_id, direction)
+        
+        # SYNCHRONIZATION: Обновляем состояние игры на сервере
+        if game.is_running and not game.is_finished:
+            game.update()  # Обновляем состояние игры на сервере (движение обеих змеек)
+        
+        # Определяем, какой игрок отправил направление
+        is_player1 = (user_id == game.player1_id)
+        opponent_snake = game.snake2 if is_player1 else game.snake1
+        
+        # SYNCHRONIZATION: Возвращаем позицию оппонента для синхронизации
+        def snake_to_dict(snake):
+            return {
+                'body': [(pos[0], pos[1]) for pos in snake.body],
+                'alive': snake.alive,
+                'direction': snake.direction.value if hasattr(snake.direction, 'value') else (snake.direction[0], snake.direction[1]) if isinstance(snake.direction, tuple) else snake.direction
+            }
+        
         log_info(f"Direction updated for user {user_id} in game {game_id}: {direction_str}")
-        return jsonify({'success': True})
+        
+        # Возвращаем успех + позицию оппонента для синхронизации
+        return jsonify({
+            'success': True,
+            'opponent_snake': snake_to_dict(opponent_snake),  # Позиция оппонента для синхронизации
+            'game_finished': game.is_finished,
+            'winner_id': game.winner_id
+        })
         
     except Exception as e:
         import traceback
