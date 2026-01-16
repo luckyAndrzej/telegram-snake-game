@@ -15,8 +15,10 @@ from config import TELEGRAM_BOT_TOKEN, GAME_PRICE_USD, GAME_START_DELAY, OWNER_I
 from game import Game, Direction
 from payment import crypto_pay
 from logger import log_info, log_error
+from game_loop import start_game_tick_loop, is_game_loop_running
 import threading
 import time
+import atexit
 
 # Импортируем глобальные переменные из main.py
 # В реальном проекте лучше использовать Redis или базу данных
@@ -70,11 +72,57 @@ def create_game_match(player1_id: int, player2_id: int):
         if player2_id in game_main.waiting_players:
             del game_main.waiting_players[player2_id]
         
+        # СИСТЕМА ТИКОВ: Убеждаемся, что игровой цикл запущен
+        # (он запускается автоматически при импорте модуля, но проверяем для надежности)
+        if not is_game_loop_running():
+            _start_game_loop_thread()
+        
         log_info(f"Game {game_id} created: Player1 {player1_id} vs Player2 {player2_id}")
         return game_id
 
 app = Flask(__name__, static_folder='webapp')
 CORS(app)
+
+# СИСТЕМА ТИКОВ: Инициализация игрового цикла при старте приложения
+# Запускаем игровой цикл в отдельном потоке при первом импорте модуля
+_game_loop_thread_started = False
+_game_loop_thread = None
+
+def _start_game_loop_thread():
+    """Запускает игровой цикл в отдельном потоке (для Flask синхронного приложения)"""
+    global _game_loop_thread_started, _game_loop_thread
+    
+    if _game_loop_thread_started:
+        return
+    
+    import threading
+    
+    def run_game_loop():
+        """Запускает asyncio event loop в отдельном потоке"""
+        import asyncio
+        loop = asyncio.new_event_loop()
+        asyncio.set_event_loop(loop)
+        
+        try:
+            # Запускаем игровой цикл тиков
+            start_game_tick_loop(game_main.active_games)
+            # Запускаем event loop
+            loop.run_forever()
+        except Exception as e:
+            log_error("_start_game_loop_thread", e)
+        finally:
+            loop.close()
+    
+    _game_loop_thread = threading.Thread(target=run_game_loop, daemon=True, name="GameTickLoop")
+    _game_loop_thread.start()
+    _game_loop_thread_started = True
+    log_info("Game tick loop thread started")
+
+# Автоматически запускаем игровой цикл при импорте модуля
+_start_game_loop_thread()
+
+# Регистрируем остановку игрового цикла при завершении приложения
+atexit.register(lambda: log_info("Application shutting down, game loop will stop"))
 
 # Валидация initData от Telegram
 def validate_init_data(init_data: str) -> Optional[Dict]:
@@ -283,46 +331,27 @@ def api_start_game():
         # PAYMENT DISABLED: Оплата отключена временно
         # Игрок сразу добавляется в матчмейкинг без оплаты
         
-        # Проверяем, есть ли уже ожидающий игрок с этим user_id
-        if user_id in game_main.waiting_players:
-            # Игрок уже в очереди - проверяем, есть ли соперник
-            other_waiting = [uid for uid in game_main.waiting_players.keys() if uid != user_id]
-            if other_waiting:
-                opponent_id = other_waiting[0]
-                # Оба игрока в очереди - создаем игру автоматически
-                game_id = create_game_match(user_id, opponent_id)
-                if game_id:
-                    log_info(f"Game {game_id} created automatically when both players in queue")
-                    return jsonify({
-                        'status': 'ready_to_start',
-                        'paid': True,
-                        'game_starting': True,
-                        'countdown': GAME_START_DELAY,
-                        'message': 'Оба игрока готовы, игра скоро начнется'
-                    })
-            return jsonify({
-                'status': 'waiting_opponent',
-                'paid': True,
-                'message': 'Ожидание второго игрока'
-            })
-        
-        # Проверяем, есть ли ожидающие игроки (другие, не текущий)
+        # ИСПРАВЛЕННАЯ ЛОГИКА МАТЧМЕЙКИНГА:
+        # 1. Если игрок уже в игре - вернуть статус игры (обработано выше)
+        # 2. Проверяем, есть ли другие ожидающие игроки (ПЕРЕД добавлением текущего)
         other_waiting = [uid for uid in game_main.waiting_players.keys() if uid != user_id]
+        
         if other_waiting:
-            # Найден соперник - подключаем к существующей игре или создаем новую
-            opponent_id = random.choice(other_waiting)
-            log_info(f"User {user_id} connecting to existing waiting player {opponent_id}")
+            # Найден соперник! Добавляем текущего игрока и создаем игру
+            opponent_id = other_waiting[0]  # Берем первого доступного
+            log_info(f"User {user_id} connecting to waiting player {opponent_id}")
             
-            # Добавляем текущего игрока в очередь с paid=True (оплата отключена)
-            game_main.waiting_players[user_id] = {
-                "paid": True,
-                "created_at": time.time()
-            }
+            # Добавляем текущего игрока в очередь (если еще не там)
+            if user_id not in game_main.waiting_players:
+                game_main.waiting_players[user_id] = {
+                    "paid": True,
+                    "created_at": time.time()
+                }
             
             # Оба игрока в очереди - создаем игру автоматически
             game_id = create_game_match(user_id, opponent_id)
             if game_id:
-                log_info(f"Game {game_id} created automatically when both players in queue")
+                log_info(f"Game {game_id} created: {user_id} vs {opponent_id}")
                 return jsonify({
                     'status': 'ready_to_start',
                     'paid': True,
@@ -331,20 +360,34 @@ def api_start_game():
                     'message': 'Оба игрока готовы, игра скоро начнется'
                 })
             else:
-                # Игра не создана (возможно, уже создана или игроки в другой игре)
+                # Игра не создана (возможно, уже создана - проверяем)
+                if user_id in game_main.player_to_game:
+                    game_id = game_main.player_to_game[user_id]
+                    if game_id in game_main.active_games:
+                        return jsonify({
+                            'status': 'ready_to_start',
+                            'paid': True,
+                            'game_starting': True,
+                            'countdown': GAME_START_DELAY,
+                            'message': 'Оба игрока готовы, игра скоро начнется'
+                        })
+                # Игра не создана и не найдена - возвращаем ожидание
                 return jsonify({
                     'status': 'waiting_opponent',
                     'paid': True,
                     'message': 'Ожидание второго игрока'
                 })
         
-        # Первый игрок - добавляем в очередь с paid=True (оплата отключена)
-        game_main.waiting_players[user_id] = {
-            "paid": True,
-            "created_at": time.time()
-        }
-        
-        log_info(f"User {user_id} added to matchmaking queue (payment disabled)")
+        # Нет других ожидающих игроков - добавляем текущего в очередь
+        # Проверяем, не находится ли игрок уже в очереди
+        if user_id not in game_main.waiting_players:
+            game_main.waiting_players[user_id] = {
+                "paid": True,
+                "created_at": time.time()
+            }
+            log_info(f"User {user_id} added to matchmaking queue (waiting for opponent)")
+        else:
+            log_info(f"User {user_id} already in matchmaking queue")
         
         return jsonify({
             'status': 'waiting_opponent',
@@ -444,6 +487,46 @@ def api_check_payment():
         return jsonify({'error': 'Internal server error'}), 500
 
 
+@app.route('/api/game/start-play', methods=['POST'])
+def api_start_play():
+    """
+    API для запуска игры после countdown
+    Устанавливает game.is_running = True, чтобы тики начали работать
+    """
+    try:
+        data = request.json
+        user_id = data.get('user_id')
+        
+        if not user_id:
+            return jsonify({'error': 'User ID required'}), 400
+        
+        if user_id not in game_main.player_to_game:
+            return jsonify({'error': 'Not in game'}), 400
+        
+        game_id = game_main.player_to_game[user_id]
+        if game_id not in game_main.active_games:
+            return jsonify({'error': 'Game not found'}), 404
+        
+        game = game_main.active_games[game_id]
+        
+        # Запускаем игру (разрешаем тики)
+        if not game.is_running and not game.is_finished:
+            game.is_running = True
+            game.game_start_timestamp = time.time()
+            log_info(f"Game {game_id} started: is_running = True, tick_number = {game.tick_number}")
+        
+        return jsonify({
+            'success': True,
+            'game_running': game.is_running,
+            'tick_number': game.tick_number,
+            'message': 'Игра запущена'
+        })
+        
+    except Exception as e:
+        log_error("api_start_play", e)
+        return jsonify({'error': 'Internal server error'}), 500
+
+
 @app.route('/api/game/ready', methods=['POST'])
 def api_game_ready():
     """API для сигнала готовности игрока (для синхронизации старта)"""
@@ -476,11 +559,12 @@ def api_game_ready():
         # Проверяем, готовы ли оба игрока
         both_ready = game.player1_ready and game.player2_ready
         
+        # НЕ устанавливаем is_running здесь - это делается через /api/game/start-play после countdown
+        # Система тиков работает только когда is_running = True
         if both_ready and not game.is_running:
-            # Оба игрока готовы - устанавливаем timestamp для синхронизации
+            # Оба игрока готовы - устанавливаем timestamp для синхронизации countdown
             game.game_start_timestamp = time.time() + GAME_START_DELAY
-            game.is_running = True
-            log_info(f"Both players ready! Game {game_id} starting at timestamp {game.game_start_timestamp}")
+            log_info(f"Both players ready! Game {game_id} will start after countdown at timestamp {game.game_start_timestamp}")
         
         return jsonify({
             'ready': True,
@@ -515,10 +599,8 @@ def api_game_state():
         
         game = game_main.active_games[game_id]
         
-        # КРИТИЧНО: Обновляем состояние игры на сервере перед возвратом данных
-        # Это гарантирует, что обе змейки двигаются даже если игроки не меняют направление
-        if game.is_running and not game.is_finished:
-            game.update()  # Обновляем состояние игры на сервере (движение обеих змеек)
+        # СИСТЕМА ТИКОВ: НЕ обновляем игру здесь - это делает game_tick_loop
+        # Просто возвращаем текущее состояние (обновленное последним тиком)
         
         # Определяем, какой игрок запрашивает состояние
         is_player1 = (user_id == game.player1_id)
@@ -544,7 +626,11 @@ def api_game_state():
                 'direction': direction  # Формат [dx, dy] для клиента
             }
         
+        # СИСТЕМА ТИКОВ: Возвращаем tick_number для синхронизации на клиенте
+        # Клиент может игнорировать устаревшие обновления, сравнивая tick_number
         return jsonify({
+            'tick_number': game.tick_number,  # Номер тика для синхронизации
+            'last_tick_time': game.last_tick_time,  # Время последнего тика
             'game_running': game.is_running,
             'game_finished': game.is_finished,
             'game_start_timestamp': game.game_start_timestamp,
@@ -660,12 +746,10 @@ def api_game_direction():
                 'valid_directions': list(direction_map.keys())
             }), 400
         
-        # Устанавливаем направление на сервере
-        game.set_direction(user_id, direction)
-        
-        # SYNCHRONIZATION: Обновляем состояние игры на сервере
-        if game.is_running and not game.is_finished:
-            game.update()  # Обновляем состояние игры на сервере (движение обеих змеек)
+        # СИСТЕМА ТИКОВ: Сохраняем направление в очередь для следующего тика
+        # НЕ обновляем игру сразу - это сделает game_tick_loop в следующем тике
+        command_timestamp = time.time()
+        game.queue_direction(user_id, direction, command_timestamp)
         
         # Определяем, какой игрок отправил направление
         is_player1 = (user_id == game.player1_id)
@@ -690,12 +774,34 @@ def api_game_direction():
                 'direction': direction  # Формат [dx, dy] для клиента
             }
         
-        log_info(f"Direction updated for user {user_id} in game {game_id}: {direction_str}")
+        log_info(f"Direction queued for user {user_id} in game {game_id}: {direction_str} (will apply in next tick)")
         
-        # Возвращаем успех + позицию оппонента для синхронизации
+        # СИСТЕМА ТИКОВ: Возвращаем текущее состояние игры (последний тик) + подтверждение команды
+        # Позиции змеек будут обновлены в следующем тике
+        is_player1 = (user_id == game.player1_id)
+        my_snake = game.snake1 if is_player1 else game.snake2
+        
+        def snake_to_dict_full(snake: 'Snake'):
+            if hasattr(snake.direction, 'value'):
+                dir_value = snake.direction.value
+                direction = [dir_value[0], dir_value[1]] if isinstance(dir_value, tuple) else dir_value
+            elif isinstance(snake.direction, tuple):
+                direction = [snake.direction[0], snake.direction[1]]
+            else:
+                direction = snake.direction
+            
+            return {
+                'body': [(pos[0], pos[1]) for pos in snake.body],
+                'alive': snake.alive,
+                'direction': direction
+            }
+        
         return jsonify({
             'success': True,
-            'opponent_snake': snake_to_dict(opponent_snake),  # Позиция оппонента для синхронизации
+            'direction_queued': True,  # Подтверждение, что команда сохранена для следующего тика
+            'tick_number': game.tick_number,  # Текущий номер тика
+            'my_snake': snake_to_dict_full(my_snake),  # Текущая позиция моей змейки
+            'opponent_snake': snake_to_dict_full(opponent_snake),  # Текущая позиция оппонента
             'game_finished': game.is_finished,
             'winner_id': game.winner_id
         })

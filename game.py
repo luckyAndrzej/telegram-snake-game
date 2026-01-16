@@ -1,9 +1,10 @@
 """
-Модуль с логикой игры змейка
+Модуль с логикой игры змейка с поддержкой системы тиков
 """
 
 from typing import List, Tuple, Optional, Dict
 from enum import Enum
+from dataclasses import dataclass, field
 from config import GAME_FIELD_WIDTH, GAME_FIELD_HEIGHT, SNAKE_COLOR_PLAYER1, SNAKE_COLOR_PLAYER2
 from logger import log_info, log_error
 
@@ -113,7 +114,15 @@ class Snake:
 
 
 class Game:
-    """Класс игры змейка"""
+    """
+    Класс игры змейка с поддержкой системы тиков
+    
+    Система тиков:
+    - Игра обновляется строго по фиксированным тикам (например каждые 500ms)
+    - Направления игроков хранятся в pending_directions до следующего тика
+    - Во время тика применяются самые последние направления из pending_directions
+    - После тика pending_directions очищается
+    """
     
     def __init__(self, player1_id: int, player2_id: int):
         self.player1_id = player1_id
@@ -130,12 +139,27 @@ class Game:
         self.player2_ready: bool = False
         self.game_start_timestamp: Optional[float] = None  # Timestamp когда игра началась (для синхронизации)
         
-        # Создаем змейки в разных углах
-        start_pos1 = (self.height // 4, self.width // 4)
-        start_pos2 = (self.height * 3 // 4, self.width * 3 // 4)
+        # СИСТЕМА ТИКОВ: Номер тика и время последнего тика
+        self.tick_number: int = 0  # Номер текущего тика (увеличивается каждый тик)
+        self.last_tick_time: float = 0.0  # Timestamp последнего тика
+        
+        # СИСТЕМА ТИКОВ: Очередь последних направлений игроков
+        # Ключ: player_id, Значение: (direction: Direction, timestamp: float)
+        # Хранит только САМУЮ ПОСЛЕДНЮЮ команду от каждого игрока
+        self.pending_directions: Dict[int, Tuple[Direction, float]] = {}
+        
+        # Создаем змейки в разных углах (лицом друг к другу)
+        center_y = self.height // 2
+        start_pos1 = (center_y, 5)  # Игрок 1: слева, смотрит вправо
+        start_pos2 = (center_y, 14)  # Игрок 2: справа, смотрит влево
         
         self.snake1 = Snake(player1_id, start_pos1, SNAKE_COLOR_PLAYER1)
+        self.snake1.direction = Direction.RIGHT
+        self.snake1.next_direction = Direction.RIGHT
+        
         self.snake2 = Snake(player2_id, start_pos2, SNAKE_COLOR_PLAYER2)
+        self.snake2.direction = Direction.LEFT
+        self.snake2.next_direction = Direction.LEFT
         
         log_info(f"Game created: Player1 {player1_id} vs Player2 {player2_id}")
     
@@ -147,14 +171,149 @@ class Game:
             return self.snake2
         return None
     
+    def queue_direction(self, player_id: int, direction: Direction, timestamp: float):
+        """
+        Добавляет направление в очередь для следующего тика
+        
+        Args:
+            player_id: ID игрока
+            direction: Направление движения
+            timestamp: Время получения команды (для защиты от старых команд)
+        
+        Важно: Если игрок отправил несколько команд, сохраняется только ПОСЛЕДНЯЯ
+        """
+        # Проверяем, что игрок существует в этой игре
+        if player_id not in (self.player1_id, self.player2_id):
+            log_error("queue_direction", Exception(f"Player {player_id} not in game {self.player1_id} vs {self.player2_id}"))
+            return
+        
+        # Защита от старых команд: не принимаем команды старше 2 секунд
+        MAX_COMMAND_AGE = 2.0
+        current_time = timestamp
+        if self.last_tick_time > 0:
+            if timestamp < self.last_tick_time - MAX_COMMAND_AGE:
+                log_info(f"Ignoring stale command from player {player_id}: timestamp {timestamp}, last_tick {self.last_tick_time}")
+                return
+        
+        # Сохраняем только САМУЮ ПОСЛЕДНЮЮ команду от каждого игрока
+        # Если игрок отправил несколько команд, последняя перезапишет предыдущую
+        self.pending_directions[player_id] = (direction, timestamp)
+        log_info(f"Queued direction for player {player_id}: {direction.name} (tick {self.tick_number})")
+    
+    def tick(self, current_time: float) -> bool:
+        """
+        Выполняет один игровой тик
+        
+        Args:
+            current_time: Текущее время (timestamp)
+        
+        Returns:
+            True если игра продолжается, False если игра закончена
+        
+        Логика тика:
+        1. Применяет последние направления из pending_directions
+        2. Обновляет состояние игры (движение змеек, коллизии)
+        3. Увеличивает tick_number
+        4. Очищает pending_directions после применения
+        """
+        if not self.is_running or self.is_finished:
+            return False
+        
+        # Шаг 1: Применяем последние направления из очереди
+        # Если игрок не отправил команду - змейка продолжает двигаться в текущем направлении
+        for player_id, (direction, _) in self.pending_directions.items():
+            snake = self.get_snake(player_id)
+            if snake and snake.alive:
+                snake.set_direction(direction)
+        
+        # Очищаем очередь направлений после применения (для следующего тика)
+        self.pending_directions.clear()
+        
+        # Шаг 2: Обновляем состояние игры
+        self.snake1.move()
+        self.snake2.move()
+        
+        # Проверяем столкновения
+        if self.snake1.alive:
+            self.snake1.check_collision(self.snake2)
+        if self.snake2.alive:
+            self.snake2.check_collision(self.snake1)
+        
+        # Проверяем окончание игры
+        if not self.snake1.alive and not self.snake2.alive:
+            # Ничья
+            self.is_finished = True
+            self.winner_id = None
+            log_info("Game finished: Draw")
+            return False
+        elif not self.snake1.alive:
+            self.is_finished = True
+            self.winner_id = self.player2_id
+            log_info(f"Game finished: Player {self.player2_id} won")
+            return False
+        elif not self.snake2.alive:
+            self.is_finished = True
+            self.winner_id = self.player1_id
+            log_info(f"Game finished: Player {self.player1_id} won")
+            return False
+        
+        # Шаг 3: Увеличиваем номер тика и обновляем время последнего тика
+        self.tick_number += 1
+        self.last_tick_time = current_time
+        
+        return True
+    
+    def get_snapshot(self) -> Dict:
+        """
+        Возвращает снимок текущего состояния игры для клиента
+        
+        Returns:
+            Словарь с полным состоянием игры включая tick_number для синхронизации
+        """
+        def snake_to_dict(snake: Snake) -> Dict:
+            """Преобразует змейку в словарь для JSON"""
+            if hasattr(snake.direction, 'value'):
+                dir_value = snake.direction.value
+                direction = [dir_value[0], dir_value[1]] if isinstance(dir_value, tuple) else dir_value
+            elif isinstance(snake.direction, tuple):
+                direction = [snake.direction[0], snake.direction[1]]
+            else:
+                direction = snake.direction
+            
+            return {
+                'body': [(pos[0], pos[1]) for pos in snake.body],
+                'alive': snake.alive,
+                'direction': direction
+            }
+        
+        return {
+            'tick_number': self.tick_number,
+            'last_tick_time': self.last_tick_time,
+            'is_running': self.is_running,
+            'is_finished': self.is_finished,
+            'winner_id': self.winner_id,
+            'snake1': snake_to_dict(self.snake1),
+            'snake2': snake_to_dict(self.snake2),
+            'player1_id': self.player1_id,
+            'player2_id': self.player2_id
+        }
+    
     def set_direction(self, player_id: int, direction: Direction):
-        """Устанавливает направление для игрока"""
+        """
+        УСТАРЕЛО: Используйте queue_direction для работы с системой тиков
+        
+        Оставлено для обратной совместимости, но рекомендуется использовать queue_direction
+        """
         snake = self.get_snake(player_id)
         if snake and snake.alive:
             snake.set_direction(direction)
     
     def update(self):
-        """Обновляет состояние игры"""
+        """
+        УСТАРЕЛО: Используйте tick() для работы с системой тиков
+        
+        Оставлено для обратной совместимости, но рекомендуется использовать tick()
+        """
         if not self.is_running or self.is_finished:
             return
         
@@ -239,4 +398,3 @@ class Game:
                 status.append("Ничья!")
         
         return '\n'.join(status)
-
