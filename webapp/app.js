@@ -136,10 +136,9 @@ document.addEventListener('DOMContentLoaded', async () => {
     if (!userId) {
         console.error('ERROR: user_id not found in tg.initDataUnsafe.user.id');
         tg.showAlert('Ошибка: не удалось определить пользователя. Перезагрузите приложение.');
+        showScreen('menu');
+        return;
     }
-    
-    // WEBSOCKETS: Ініціалізуємо WebSocket з'єднання
-    initWebSocket();
     
     // Инициализируем игру
     initEventListeners();
@@ -147,11 +146,35 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Показываем загрузку
     showScreen('loading');
     
-    // Проверяем состояние игры при загрузке
-    const statusRestored = await checkGameState();
+    // WEBSOCKETS: Ініціалізуємо WebSocket з'єднання (з затримкою, щоб Socket.IO встиг завантажитися)
+    // Перевіряємо, чи Socket.IO завантажився
+    if (window.io) {
+        initWebSocket();
+    } else {
+        // Якщо Socket.IO ще не завантажився, чекаємо трохи
+        setTimeout(() => {
+            if (window.io) {
+                initWebSocket();
+            } else {
+                console.warn('Socket.IO не завантажився, WebSocket не буде доступний');
+            }
+        }, 500);
+    }
     
-    // Если статус не восстановлен, показываем меню
-    if (!statusRestored && (gameState === 'menu' || !document.getElementById('menu-screen')?.classList.contains('active'))) {
+    // Проверяем состояние игры при загрузке (з timeout для избежания зависания)
+    try {
+        const statusCheckPromise = checkGameState();
+        const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(false), 5000)); // 5 секунд timeout
+        
+        const statusRestored = await Promise.race([statusCheckPromise, timeoutPromise]);
+        
+        // Если статус не восстановлен или timeout, показываем меню
+        if (!statusRestored && (gameState === 'menu' || !document.getElementById('menu-screen')?.classList.contains('active'))) {
+            showScreen('menu');
+        }
+    } catch (error) {
+        console.error('Error during initialization:', error);
+        // При любой ошибке показываем меню
         showScreen('menu');
     }
 });
@@ -1001,7 +1024,7 @@ async function checkGameState() {
         // VALIDATION: Проверяем user_id (обязательное поле)
         if (!userId) {
             console.log('User ID not available for status check');
-            return;
+            return false;
         }
         
         const baseUrl = window.location.origin;
@@ -1011,17 +1034,24 @@ async function checkGameState() {
             init_data: tg.initData || tg.initDataUnsafe || ''
         };
         
+        // Створюємо AbortController для timeout (3 секунди)
+        const controller = new AbortController();
+        const timeoutId = setTimeout(() => controller.abort(), 3000);
+        
         const response = await fetch(`${baseUrl}/api/game/status`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify(requestBody)
+            body: JSON.stringify(requestBody),
+            signal: controller.signal
         });
+        
+        clearTimeout(timeoutId);
         
         if (!response.ok) {
             console.log('Status check failed:', response.status);
-            return;
+            return false;
         }
         
         const data = await response.json();
@@ -1053,8 +1083,13 @@ async function checkGameState() {
         
         return false; // Статус не восстановлен
     } catch (error) {
-        console.error('Error checking game state:', error);
-        // Не критично, продолжаем работу
+        if (error.name === 'AbortError') {
+            console.warn('Game state check timeout');
+        } else {
+            console.error('Error checking game state:', error);
+        }
+        // Не критично, возвращаем false чтобы показать меню
+        return false;
     }
 }
 
