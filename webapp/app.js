@@ -601,11 +601,25 @@ function startOpponentSyncFrequent() {
                 return;
             }
             
-            // SYNCHRONIZATION: Обновляем позицию оппонента из ответа сервера
+            // SYNCHRONIZATION: Обновляем позицию и направление оппонента из ответа сервера
             if (game && data.opponent_snake && data.opponent_snake.body) {
                 const opponentBody = data.opponent_snake.body.map(pos => ({x: pos[0], y: pos[1]}));
                 game.player2.body = opponentBody;
-                game.player2.alive = data.opponent_snake.alive;
+                game.player2.alive = data.opponent_snake.alive !== false;
+                
+                // КРИТИЧНО: Синхронизируем направление оппонента для правильного движения
+                if (data.opponent_snake.direction) {
+                    if (Array.isArray(data.opponent_snake.direction)) {
+                        // Направление как массив [dx, dy]
+                        game.player2.direction = {x: data.opponent_snake.direction[0], y: data.opponent_snake.direction[1]};
+                        game.player2.nextDirection = {x: data.opponent_snake.direction[0], y: data.opponent_snake.direction[1]};
+                    } else if (data.opponent_snake.direction.x !== undefined) {
+                        // Направление как объект {x, y}
+                        game.player2.direction = {x: data.opponent_snake.direction.x, y: data.opponent_snake.direction.y};
+                        game.player2.nextDirection = {x: data.opponent_snake.direction.x, y: data.opponent_snake.direction.y};
+                    }
+                }
+                
                 // Сохраняем ghost position для использования при ошибках
                 ghostOpponentPosition = JSON.parse(JSON.stringify(opponentBody));
             }
@@ -757,11 +771,23 @@ async function sendDirection(direction) {
         } else {
             const responseData = await response.json();
             
-            // SYNCHRONIZATION: Обновляем позицию оппонента из ответа сервера
+            // SYNCHRONIZATION: Обновляем позицию и направление оппонента из ответа сервера
             if (responseData.opponent_snake && game && game.player2) {
                 const opponentBody = responseData.opponent_snake.body.map(pos => ({x: pos[0], y: pos[1]}));
                 game.player2.body = opponentBody;
-                game.player2.alive = responseData.opponent_snake.alive;
+                game.player2.alive = responseData.opponent_snake.alive !== false;
+                
+                // КРИТИЧНО: Синхронизируем направление оппонента для правильного движения
+                if (responseData.opponent_snake.direction) {
+                    if (Array.isArray(responseData.opponent_snake.direction)) {
+                        game.player2.direction = {x: responseData.opponent_snake.direction[0], y: responseData.opponent_snake.direction[1]};
+                        game.player2.nextDirection = {x: responseData.opponent_snake.direction[0], y: responseData.opponent_snake.direction[1]};
+                    } else if (responseData.opponent_snake.direction.x !== undefined) {
+                        game.player2.direction = {x: responseData.opponent_snake.direction.x, y: responseData.opponent_snake.direction.y};
+                        game.player2.nextDirection = {x: responseData.opponent_snake.direction.x, y: responseData.opponent_snake.direction.y};
+                    }
+                }
+                
                 // Сохраняем ghost position для использования при ошибках
                 ghostOpponentPosition = JSON.parse(JSON.stringify(opponentBody));
             }

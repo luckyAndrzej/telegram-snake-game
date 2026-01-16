@@ -522,10 +522,21 @@ def api_game_state():
         
         # Преобразуем тело змейки в список координат
         def snake_to_dict(snake):
+            # Преобразуем направление в формат [dx, dy] для клиента
+            if hasattr(snake.direction, 'value'):
+                # Direction enum - получаем (dx, dy) tuple
+                dir_value = snake.direction.value
+                direction = [dir_value[0], dir_value[1]] if isinstance(dir_value, tuple) else dir_value
+            elif isinstance(snake.direction, tuple):
+                # Уже tuple (dx, dy)
+                direction = [snake.direction[0], snake.direction[1]]
+            else:
+                direction = snake.direction
+            
             return {
                 'body': [(pos[0], pos[1]) for pos in snake.body],
                 'alive': snake.alive,
-                'direction': snake.direction.value if hasattr(snake.direction, 'value') else (snake.direction[0], snake.direction[1]) if isinstance(snake.direction, tuple) else snake.direction
+                'direction': direction  # Формат [dx, dy] для клиента
             }
         
         return jsonify({
@@ -657,10 +668,21 @@ def api_game_direction():
         
         # SYNCHRONIZATION: Возвращаем позицию оппонента для синхронизации
         def snake_to_dict(snake):
+            # Преобразуем направление в формат [dx, dy] для клиента
+            if hasattr(snake.direction, 'value'):
+                # Direction enum - получаем (dx, dy) tuple
+                dir_value = snake.direction.value
+                direction = [dir_value[0], dir_value[1]] if isinstance(dir_value, tuple) else dir_value
+            elif isinstance(snake.direction, tuple):
+                # Уже tuple (dx, dy)
+                direction = [snake.direction[0], snake.direction[1]]
+            else:
+                direction = snake.direction
+            
             return {
                 'body': [(pos[0], pos[1]) for pos in snake.body],
                 'alive': snake.alive,
-                'direction': snake.direction.value if hasattr(snake.direction, 'value') else (snake.direction[0], snake.direction[1]) if isinstance(snake.direction, tuple) else snake.direction
+                'direction': direction  # Формат [dx, dy] для клиента
             }
         
         log_info(f"Direction updated for user {user_id} in game {game_id}: {direction_str}")
