@@ -354,9 +354,9 @@ function showWaitingScreen() {
             
             const data = await response.json();
             
-            if (data.game_starting) {
+            if (data.status === 'ready_to_start' || data.game_starting) {
                 clearInterval(checkInterval);
-                startCountdown(data.countdown || 5);
+                startCountdown(data.countdown || GAME_START_DELAY);
             }
         } catch (error) {
             console.error('Error checking status:', error);
@@ -551,8 +551,18 @@ function showResultScreen(winner, prize, headToHead = false) {
 
 // Играть снова
 function playAgain() {
-    showScreen('menu');
+    // Сброс состояния игры
+    if (gameLoop) {
+        clearInterval(gameLoop);
+        gameLoop = null;
+    }
     game = null;
+    gameState = 'menu';
+    currentDirection = null;
+    
+    // Игрок должен оплатить снова - показываем меню
+    // При следующем нажатии "Играть" будет создан новый инвойс
+    showScreen('menu');
 }
 
 // Закрыть игру

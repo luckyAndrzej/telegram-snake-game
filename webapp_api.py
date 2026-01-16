@@ -15,10 +15,57 @@ from config import TELEGRAM_BOT_TOKEN, GAME_PRICE_USD, GAME_START_DELAY, OWNER_I
 from game import Game, Direction
 from payment import crypto_pay
 from logger import log_info, log_error
+import threading
 
 # Импортируем глобальные переменные из main.py
 # В реальном проекте лучше использовать Redis или базу данных
 import main as game_main
+
+# Блокировка для атомарного создания матча
+matchmaking_lock = threading.Lock()
+
+# Используем функцию get_game_id из main.py для консистентности
+# (но для webapp_api она должна работать синхронно)
+def get_game_id_webapp():
+    """Генерирует уникальный ID игры (синхронная версия для webapp_api)"""
+    game_main.game_counter += 1
+    return game_main.game_counter
+
+def create_game_match(player1_id: int, player2_id: int):
+    """Создает матч между двумя игроками (атомарно)"""
+    with matchmaking_lock:
+        # Дополнительная проверка - убеждаемся, что игроки еще в waiting_players и не в другой игре
+        if player1_id not in game_main.waiting_players or player2_id not in game_main.waiting_players:
+            log_info(f"Cannot create match: players not in waiting_players. Player1: {player1_id in game_main.waiting_players}, Player2: {player2_id in game_main.waiting_players}")
+            return None
+        
+        if player1_id in game_main.player_to_game or player2_id in game_main.player_to_game:
+            log_info(f"Cannot create match: one or both players already in a game. Player1: {player1_id in game_main.player_to_game}, Player2: {player2_id in game_main.player_to_game}")
+            return None
+        
+        # Проверяем, что оба игрока оплатили
+        player1_data = game_main.waiting_players[player1_id]
+        player2_data = game_main.waiting_players[player2_id]
+        
+        if not player1_data.get("paid") or not player2_data.get("paid"):
+            log_info(f"Cannot create match: one or both players not paid. Player1: {player1_data.get('paid')}, Player2: {player2_data.get('paid')}")
+            return None
+        
+        # Создаем игру
+        game = Game(player1_id, player2_id)
+        game_id = get_game_id_webapp()
+        game_main.active_games[game_id] = game
+        game_main.player_to_game[player1_id] = game_id
+        game_main.player_to_game[player2_id] = game_id
+        
+        # Удаляем из ожидающих
+        if player1_id in game_main.waiting_players:
+            del game_main.waiting_players[player1_id]
+        if player2_id in game_main.waiting_players:
+            del game_main.waiting_players[player2_id]
+        
+        log_info(f"Game {game_id} created: Player1 {player1_id} vs Player2 {player2_id}")
+        return game_id
 
 app = Flask(__name__, static_folder='webapp')
 CORS(app)
@@ -136,11 +183,35 @@ def api_game_status():
                     opponent_id = other_waiting[0]
                     opponent_data = game_main.waiting_players[opponent_id]
                     if opponent_data.get("paid"):
-                        return jsonify({
-                            'status': 'ready_to_start',
-                            'paid': True,
-                            'message': 'Оба игрока готовы, игра скоро начнется'
-                        })
+                        # Оба игрока оплатили - создаем игру автоматически
+                        game_id = create_game_match(user_id, opponent_id)
+                        if game_id:
+                            log_info(f"Game {game_id} created automatically when both players paid")
+                            return jsonify({
+                                'status': 'ready_to_start',
+                                'paid': True,
+                                'game_starting': True,
+                                'countdown': GAME_START_DELAY,
+                                'message': 'Оба игрока готовы, игра скоро начнется'
+                            })
+                        else:
+                            # Игра не создана (возможно, уже создана или игроки в другой игре)
+                            # Проверяем, может быть игрок уже в игре
+                            if user_id in game_main.player_to_game:
+                                game_id = game_main.player_to_game[user_id]
+                                if game_id in game_main.active_games:
+                                    return jsonify({
+                                        'status': 'ready_to_start',
+                                        'paid': True,
+                                        'game_starting': True,
+                                        'countdown': GAME_START_DELAY,
+                                        'message': 'Игра создана, готовимся к старту'
+                                    })
+                            return jsonify({
+                                'status': 'ready_to_start',
+                                'paid': True,
+                                'message': 'Оба игрока готовы, игра скоро начнется'
+                            })
                     else:
                         return jsonify({
                             'status': 'waiting_opponent_payment',
@@ -401,13 +472,30 @@ def api_check_payment():
                 
                 # Проверяем оплату соперника
                 if opponent_data.get("paid"):
-                    # Оба игрока оплатили - начинаем игру
-                    # Создаем игру (упрощенная версия)
-                    return jsonify({
-                        'paid': True,
-                        'game_starting': True,
-                        'countdown': GAME_START_DELAY
-                    })
+                    # Оба игрока оплатили - создаем игру автоматически
+                    game_id = create_game_match(user_id, opponent_id)
+                    if game_id:
+                        log_info(f"Game {game_id} created automatically in check-payment when both players paid")
+                        return jsonify({
+                            'paid': True,
+                            'game_starting': True,
+                            'countdown': GAME_START_DELAY
+                        })
+                    else:
+                        # Игра не создана (возможно, уже создана) - проверяем статус
+                        if user_id in game_main.player_to_game:
+                            game_id = game_main.player_to_game[user_id]
+                            if game_id in game_main.active_games:
+                                return jsonify({
+                                    'paid': True,
+                                    'game_starting': True,
+                                    'countdown': GAME_START_DELAY
+                                })
+                        return jsonify({
+                            'paid': True,
+                            'waiting': True,
+                            'message': 'Ожидание создания игры...'
+                        })
                 else:
                     return jsonify({
                         'paid': True,
