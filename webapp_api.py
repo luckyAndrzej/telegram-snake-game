@@ -94,6 +94,36 @@ player_connections: Dict[int, str] = {}  # user_id -> session_id
 session_to_user: Dict[str, int] = {}  # session_id -> user_id (обратная связь)
 game_rooms: Dict[int, list] = {}  # game_id -> [user_id1, user_id2] (игроки в игре)
 
+# WEBSOCKETS: Функция для broadcast игрового состояния всем игрокам в игре
+# Важно: Определена здесь, до _start_game_loop_thread(), чтобы быть доступной в callback
+def broadcast_game_state(game_id: int):
+    """Отправляет текущее состояние игры всем игрокам через WebSocket"""
+    try:
+        if game_id not in game_main.active_games:
+            return
+        
+        game = game_main.active_games[game_id]
+        base_snapshot = game.get_snapshot()
+        room_name = f"game_{game_id}"
+        
+        # Отправляем персональные данные каждому игроку (my_snake и opponent_snake)
+        # Игрок 1
+        if game.player1_id in player_connections:
+            snapshot_p1 = base_snapshot.copy()
+            snapshot_p1['my_snake'] = snapshot_p1['snake1']
+            snapshot_p1['opponent_snake'] = snapshot_p1['snake2']
+            socketio.emit('game_state', snapshot_p1, room=player_connections[game.player1_id])
+        
+        # Игрок 2
+        if game.player2_id in player_connections:
+            snapshot_p2 = base_snapshot.copy()
+            snapshot_p2['my_snake'] = snapshot_p2['snake2']
+            snapshot_p2['opponent_snake'] = snapshot_p2['snake1']
+            socketio.emit('game_state', snapshot_p2, room=player_connections[game.player2_id])
+    
+    except Exception as e:
+        log_error(f"broadcast_game_state_{game_id}", e)
+
 # СИСТЕМА ТИКОВ: Инициализация игрового цикла при старте приложения
 # Запускаем игровой цикл в отдельном потоке при первом импорте модуля
 _game_loop_thread_started = False
@@ -391,36 +421,6 @@ def handle_ready(data):
     except Exception as e:
         log_error("handle_ready", e)
         emit('error', {'message': str(e)})
-
-
-# WEBSOCKETS: Функция для broadcast игрового состояния всем игрокам в игре
-def broadcast_game_state(game_id: int):
-    """Отправляет текущее состояние игры всем игрокам через WebSocket"""
-    try:
-        if game_id not in game_main.active_games:
-            return
-        
-        game = game_main.active_games[game_id]
-        base_snapshot = game.get_snapshot()
-        room_name = f"game_{game_id}"
-        
-        # Отправляем персональные данные каждому игроку (my_snake и opponent_snake)
-        # Игрок 1
-        if game.player1_id in player_connections:
-            snapshot_p1 = base_snapshot.copy()
-            snapshot_p1['my_snake'] = snapshot_p1['snake1']
-            snapshot_p1['opponent_snake'] = snapshot_p1['snake2']
-            socketio.emit('game_state', snapshot_p1, room=player_connections[game.player1_id])
-        
-        # Игрок 2
-        if game.player2_id in player_connections:
-            snapshot_p2 = base_snapshot.copy()
-            snapshot_p2['my_snake'] = snapshot_p2['snake2']
-            snapshot_p2['opponent_snake'] = snapshot_p2['snake1']
-            socketio.emit('game_state', snapshot_p2, room=player_connections[game.player2_id])
-    
-    except Exception as e:
-        log_error(f"broadcast_game_state_{game_id}", e)
 
 
 @app.route('/webapp/<path:filename>')
