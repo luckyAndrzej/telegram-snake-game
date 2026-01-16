@@ -159,16 +159,10 @@ document.addEventListener('DOMContentLoaded', async () => {
     // Инициализируем игру
     initEventListeners();
     
-    // Показываем загрузку
-    showScreen('loading');
-    
-    // РЕЗЕРВНИЙ ТАЙМЕР: Гарантовано показуємо меню через 5 секунд, навіть якщо щось пішло не так
-    const fallbackTimeout = setTimeout(() => {
-        console.warn('Fallback timeout: forcing menu screen');
-        if (gameState === 'menu' || document.getElementById('loading-screen')?.classList.contains('active')) {
-            showScreen('menu');
-        }
-    }, 5000);
+    // FIX: Сразу показываем меню, не ждем checkGameState
+    // checkGameState будет выполняться в фоне и при необходимости восстановит состояние
+    showScreen('menu');
+    console.log('Menu shown immediately');
     
     // WEBSOCKETS: Ініціалізуємо WebSocket з'єднання (з затримкою, щоб Socket.IO встиг завантажитися)
     // Перевіряємо, чи Socket.IO завантажився
@@ -185,47 +179,18 @@ document.addEventListener('DOMContentLoaded', async () => {
         }, 500);
     }
     
-    // Проверяем состояние игры при загрузке (з timeout для избежания зависания)
-    let statusRestored = false;
-    
-    try {
-        const statusCheckPromise = checkGameState();
-        const timeoutPromise = new Promise((resolve) => setTimeout(() => resolve(false), 3000)); // 3 секунди timeout
-        
-        const result = await Promise.race([statusCheckPromise, timeoutPromise]);
-        statusRestored = result === true; // Гарантируем boolean
-        
-        console.log('Game status check result:', statusRestored);
-    } catch (error) {
-        console.error('Error during initialization:', error);
-        statusRestored = false;
-    }
-    
-    // Скасовуємо резервний таймер, якщо все пройшло успішно
-    clearTimeout(fallbackTimeout);
-    
-    // ОБОВ'ЯЗКОВО показуємо меню, якщо статус не відновлено
-    if (!statusRestored) {
-        console.log('Status not restored, showing menu (current gameState:', gameState, ')');
-        // Примусово приховуємо екран завантаження та показуємо меню
-        const loadingScreen = document.getElementById('loading-screen');
-        const menuScreen = document.getElementById('menu-screen');
-        
-        if (loadingScreen) {
-            loadingScreen.classList.remove('active');
-            console.log('Loading screen hidden');
-        }
-        
-        if (menuScreen) {
-            menuScreen.classList.add('active');
-            gameState = 'menu';
-            console.log('Menu screen shown');
+    // FIX: Проверяем состояние игры в фоне (не блокируем UI)
+    // Если есть сохраненное состояние, оно восстановится
+    checkGameState().then(statusRestored => {
+        if (statusRestored) {
+            console.log('Game status restored in background');
         } else {
-            console.error('Menu screen element not found!');
+            console.log('No saved game state, menu already shown');
         }
-    } else {
-        console.log('Status restored, current screen:', gameState);
-    }
+    }).catch(error => {
+        console.error('Error checking game state (non-blocking):', error);
+        // Игнорируем ошибку - меню уже показано
+    });
 });
 
 // Инициализация обработчиков событий
