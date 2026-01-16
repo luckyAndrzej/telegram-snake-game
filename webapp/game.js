@@ -31,14 +31,14 @@ class SnakeGame {
     }
 
     reset() {
-        // Изначальная длина змейки - 5 квадратов
+        // СИНХРОНИЗАЦИЯ: Используем такую же длину, как на сервере (3 сегмента)
+        // Начальные позиции будут синхронизированы с сервером через /api/game/status
+        const centerY = Math.floor(this.gridSize / 2);
         this.player1 = {
             body: [
-                {x: 5, y: 10},
-                {x: 4, y: 10},
-                {x: 3, y: 10},
-                {x: 2, y: 10},
-                {x: 1, y: 10}
+                {x: 5, y: centerY},
+                {x: 4, y: centerY},
+                {x: 3, y: centerY}
             ],
             direction: {x: 1, y: 0},
             nextDirection: {x: 1, y: 0},
@@ -48,17 +48,43 @@ class SnakeGame {
         
         this.player2 = {
             body: [
-                {x: 15, y: 10},
-                {x: 16, y: 10},
-                {x: 17, y: 10},
-                {x: 18, y: 10},
-                {x: 19, y: 10}
+                {x: 15, y: centerY},
+                {x: 16, y: centerY},
+                {x: 17, y: centerY}
             ],
             direction: {x: -1, y: 0},
             nextDirection: {x: -1, y: 0},
             color: '#3b82f6',
             alive: true
         };
+    }
+    
+    // СИНХРОНИЗАЦИЯ: Обновление змеек с серверными данными (позиции и размеры)
+    updateSnakesFromServer(snake1Data, snake2Data) {
+        if (snake1Data && snake1Data.body) {
+            this.player1.body = snake1Data.body.map(pos => ({x: pos[0], y: pos[1]}));
+            this.player1.alive = snake1Data.alive !== false;
+            // Синхронизируем направление, если оно есть
+            if (snake1Data.direction) {
+                if (Array.isArray(snake1Data.direction)) {
+                    this.player1.direction = {x: snake1Data.direction[0], y: snake1Data.direction[1]};
+                } else if (snake1Data.direction.x !== undefined) {
+                    this.player1.direction = snake1Data.direction;
+                }
+            }
+        }
+        if (snake2Data && snake2Data.body) {
+            this.player2.body = snake2Data.body.map(pos => ({x: pos[0], y: pos[1]}));
+            this.player2.alive = snake2Data.alive !== false;
+            // Синхронизируем направление, если оно есть
+            if (snake2Data.direction) {
+                if (Array.isArray(snake2Data.direction)) {
+                    this.player2.direction = {x: snake2Data.direction[0], y: snake2Data.direction[1]};
+                } else if (snake2Data.direction.x !== undefined) {
+                    this.player2.direction = snake2Data.direction;
+                }
+            }
+        }
     }
 
     setDirection(player, direction) {

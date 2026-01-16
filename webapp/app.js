@@ -480,9 +480,9 @@ function startGamePlay() {
     // POST REQUEST #1: Отправляем сигнал готовности на сервер (при старте игры)
     sendReadySignal();
     
-    // SYNCHRONIZATION: Редкая синхронизация оппонента (не в draw loop, отдельный интервал)
-    // Синхронизируем позицию оппонента каждые 2 секунды для коррекции рассинхронизации
-    startOpponentSyncRare();
+    // SYNCHRONIZATION: Частая синхронизация оппонента (не в draw loop, отдельный интервал)
+    // Синхронизируем позицию оппонента каждые 500ms для плавного движения без лагов
+    startOpponentSyncFrequent();
     
     // LOCAL VISUALS: Игровой цикл полностью на клиенте (client-side prediction)
     // Змейка двигается немедленно без ожидания сервера (нет fetch в draw loop)
@@ -561,16 +561,16 @@ async function sendReadySignal() {
     }
 }
 
-// SYNCHRONIZATION: Редкая синхронизация оппонента (не в draw loop, отдельный интервал)
+// SYNCHRONIZATION: Частая синхронизация оппонента (не в draw loop, отдельный интервал)
 // Синхронизация оппонента происходит:
 // 1. При изменении направления (через sendDirection - мгновенная синхронизация)
-// 2. Каждые 2 секунды для коррекции рассинхронизации (отдельный интервал, НЕ в draw loop)
-function startOpponentSyncRare() {
+// 2. Каждые 500ms для плавного движения без лагов (отдельный интервал, НЕ в draw loop)
+function startOpponentSyncFrequent() {
     if (gameStateSyncInterval) {
         clearInterval(gameStateSyncInterval);
     }
     
-    // Редкая синхронизация - каждые 2 секунды (НЕ в draw loop)
+    // Частая синхронизация - каждые 500ms (НЕ в draw loop, для плавного движения)
     gameStateSyncInterval = setInterval(async () => {
         // Проверяем, что игра запущена
         if (gameState !== 'playing' || !game || !userId) {
@@ -635,7 +635,7 @@ function startOpponentSyncRare() {
                 // Продолжаем движение оппонента на основе последней известной позиции
             }
         }
-    }, 2000); // Синхронизация каждые 2 секунды (НЕ в draw loop, отдельный интервал)
+    }, 500); // Синхронизация каждые 500ms (НЕ в draw loop, для плавного движения без лагов)
 }
 
 // Завершение игры на основе данных сервера
