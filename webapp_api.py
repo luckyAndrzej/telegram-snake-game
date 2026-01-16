@@ -48,13 +48,10 @@ def create_game_match(player1_id: int, player2_id: int):
             log_info(f"Cannot create match: one or both players already in a game. Player1: {player1_id in game_main.player_to_game}, Player2: {player2_id in game_main.player_to_game}")
             return None
         
-        # Проверяем, что оба игрока оплатили
+        # PAYMENT DISABLED: Проверка оплаты отключена временно
+        # Игроки сразу добавляются в матчмейкинг без оплаты
         player1_data = game_main.waiting_players[player1_id]
         player2_data = game_main.waiting_players[player2_id]
-        
-        if not player1_data.get("paid") or not player2_data.get("paid"):
-            log_info(f"Cannot create match: one or both players not paid. Player1: {player1_data.get('paid')}, Player2: {player2_data.get('paid')}")
-            return None
         
         # Создаем игру
         game = Game(player1_id, player2_id)
@@ -163,85 +160,48 @@ def api_game_status():
                 })
         
         # Проверяем, есть ли ожидающий игрок (включая текущего)
+        # PAYMENT DISABLED: Проверка оплаты отключена временно
         if user_id in game_main.waiting_players:
             player_data = game_main.waiting_players[user_id]
-            invoice_id = player_data.get("invoice_id")
-            invoice_data = player_data.get("invoice_data", {})
             
-            # Если статус оплаты не установлен, проверяем инвойс
-            if not player_data.get("paid") and invoice_id:
-                invoice_status = crypto_pay.check_invoice(invoice_id)
-                if invoice_status:
-                    invoice_status_str = invoice_status.get("status", "")
-                    invoice_status_lower = invoice_status_str.lower() if invoice_status_str else ""
-                    log_info(f"Checking invoice {invoice_id} status for user {user_id}: {invoice_status_str} (full data: {invoice_status})")
-                    # Проверяем статус оплаты (может быть "paid", "PAID", "active" и т.д.)
-                    if invoice_status_lower in ["paid", "active"]:
-                        # Инвойс оплачен, обновляем статус
-                        game_main.waiting_players[user_id]["paid"] = True
-                        player_data["paid"] = True
-                        log_info(f"User {user_id} invoice {invoice_id} is paid, status updated")
-                    else:
-                        log_info(f"User {user_id} invoice {invoice_id} status is {invoice_status_str}, not paid yet")
-            
-            # Проверяем статус оплаты
-            if player_data.get("paid"):
-                # Игрок оплатил - проверяем, есть ли второй игрок
-                other_waiting = [uid for uid in game_main.waiting_players.keys() if uid != user_id]
-                if other_waiting:
-                    opponent_id = other_waiting[0]
-                    opponent_data = game_main.waiting_players[opponent_id]
-                    if opponent_data.get("paid"):
-                        # Оба игрока оплатили - создаем игру автоматически
-                        game_id = create_game_match(user_id, opponent_id)
-                        if game_id:
-                            log_info(f"Game {game_id} created automatically when both players paid")
+            # Проверяем, есть ли второй игрок
+            other_waiting = [uid for uid in game_main.waiting_players.keys() if uid != user_id]
+            if other_waiting:
+                opponent_id = other_waiting[0]
+                # Оба игрока в очереди - создаем игру автоматически
+                game_id = create_game_match(user_id, opponent_id)
+                if game_id:
+                    log_info(f"Game {game_id} created automatically when both players in queue")
+                    return jsonify({
+                        'status': 'ready_to_start',
+                        'paid': True,
+                        'game_starting': True,
+                        'countdown': GAME_START_DELAY,
+                        'message': 'Оба игрока готовы, игра скоро начнется'
+                    })
+                else:
+                    # Игра не создана (возможно, уже создана или игроки в другой игре)
+                    # Проверяем, может быть игрок уже в игре
+                    if user_id in game_main.player_to_game:
+                        game_id = game_main.player_to_game[user_id]
+                        if game_id in game_main.active_games:
                             return jsonify({
                                 'status': 'ready_to_start',
                                 'paid': True,
                                 'game_starting': True,
                                 'countdown': GAME_START_DELAY,
-                                'message': 'Оба игрока готовы, игра скоро начнется'
+                                'message': 'Игра создана, готовимся к старту'
                             })
-                        else:
-                            # Игра не создана (возможно, уже создана или игроки в другой игре)
-                            # Проверяем, может быть игрок уже в игре
-                            if user_id in game_main.player_to_game:
-                                game_id = game_main.player_to_game[user_id]
-                                if game_id in game_main.active_games:
-                                    return jsonify({
-                                        'status': 'ready_to_start',
-                                        'paid': True,
-                                        'game_starting': True,
-                                        'countdown': GAME_START_DELAY,
-                                        'message': 'Игра создана, готовимся к старту'
-                                    })
-                            return jsonify({
-                                'status': 'ready_to_start',
-                                'paid': True,
-                                'message': 'Оба игрока готовы, игра скоро начнется'
-                            })
-                    else:
-                        return jsonify({
-                            'status': 'waiting_opponent_payment',
-                            'paid': True,
-                            'message': 'Ожидание оплаты соперника'
-                        })
-                else:
                     return jsonify({
-                        'status': 'waiting_opponent',
+                        'status': 'ready_to_start',
                         'paid': True,
-                        'message': 'Ожидание второго игрока'
+                        'message': 'Оба игрока готовы, игра скоро начнется'
                     })
             else:
-                # Игрок не оплатил - возвращаем информацию об инвойсе
-                invoice_url = invoice_data.get("pay_url") or invoice_data.get("url") or invoice_data.get("payUrl")
                 return jsonify({
-                    'status': 'payment_required',
-                    'paid': False,
-                    'invoice_url': invoice_url,
-                    'invoice_id': invoice_id,
-                    'message': 'Требуется оплата'
+                    'status': 'waiting_opponent',
+                    'paid': True,
+                    'message': 'Ожидание второго игрока'
                 })
         
         return jsonify({
@@ -290,146 +250,76 @@ def api_start_game():
                         'game_running': True
                     })
         
+        # PAYMENT DISABLED: Оплата отключена временно
+        # Игрок сразу добавляется в матчмейкинг без оплаты
+        
         # Проверяем, есть ли уже ожидающий игрок с этим user_id
         if user_id in game_main.waiting_players:
-            player_data = game_main.waiting_players[user_id]
-            invoice_data = player_data.get("invoice_data", {})
-            invoice_url = invoice_data.get("pay_url") or invoice_data.get("url") or invoice_data.get("payUrl")
-            
-            if player_data.get("paid"):
-                # Игрок уже оплатил - проверяем статус
-                other_waiting = [uid for uid in game_main.waiting_players.keys() if uid != user_id]
-                if other_waiting:
-                    opponent_id = other_waiting[0]
-                    opponent_data = game_main.waiting_players[opponent_id]
-                    if opponent_data.get("paid"):
-                        # Оба игрока оплатили - начинаем игру
-                        return jsonify({
-                            'game_starting': True,
-                            'countdown': GAME_START_DELAY
-                        })
-                    else:
-                        return jsonify({
-                            'waiting': True,
-                            'paid': True,
-                            'message': 'Ожидание оплаты соперника'
-                        })
-                else:
+            # Игрок уже в очереди - проверяем, есть ли соперник
+            other_waiting = [uid for uid in game_main.waiting_players.keys() if uid != user_id]
+            if other_waiting:
+                opponent_id = other_waiting[0]
+                # Оба игрока в очереди - создаем игру автоматически
+                game_id = create_game_match(user_id, opponent_id)
+                if game_id:
+                    log_info(f"Game {game_id} created automatically when both players in queue")
                     return jsonify({
-                        'waiting': True,
+                        'status': 'ready_to_start',
                         'paid': True,
-                        'message': 'Ожидание второго игрока'
+                        'game_starting': True,
+                        'countdown': GAME_START_DELAY,
+                        'message': 'Оба игрока готовы, игра скоро начнется'
                     })
-            else:
-                # Игрок не оплатил - возвращаем существующий инвойс
-                log_info(f"User {user_id} already has invoice, returning existing invoice")
-                if invoice_url:
-                    return jsonify({
-                        'requires_payment': True,
-                        'invoice_url': invoice_url,
-                        'invoice_id': player_data.get("invoice_id"),
-                        'existing': True
-                    })
-                else:
-                    # URL не найден, создаем новый
-                    log_info(f"Invoice URL not found, creating new invoice")
+            return jsonify({
+                'status': 'waiting_opponent',
+                'paid': True,
+                'message': 'Ожидание второго игрока'
+            })
         
         # Проверяем, есть ли ожидающие игроки (другие, не текущий)
         other_waiting = [uid for uid in game_main.waiting_players.keys() if uid != user_id]
         if other_waiting:
-            # Случайно выбираем одного из ожидающих игроков для подключения
+            # Найден соперник - подключаем к существующей игре или создаем новую
             opponent_id = random.choice(other_waiting)
-            opponent_data = game_main.waiting_players[opponent_id]
             log_info(f"User {user_id} connecting to existing waiting player {opponent_id}")
             
-            # Если соперник уже оплатил, создаем инвойс для текущего игрока
-            if opponent_data.get("paid"):
-                # Создаем счет для текущего игрока
-                try:
-                    invoice = crypto_pay.create_invoice(user_id)
-                    if not invoice:
-                        log_error("api_start_game", Exception("Invoice creation returned None for second player (opponent paid)"), user_id)
-                        return jsonify({'error': 'Failed to create invoice. Please try again later.'}), 500
-                except Exception as e:
-                    log_error("api_start_game", e, user_id)
-                    return jsonify({'error': f'Failed to create invoice: {str(e)}'}), 500
-                
-                invoice_url = invoice.get("pay_url") or invoice.get("url") or invoice.get("payUrl") or invoice.get("invoice_url")
-                
-                if not invoice_url or invoice_url == "#":
-                    log_error("api_start_game", Exception(f"No payment URL in invoice: {invoice}"), user_id)
-                    return jsonify({'error': 'Failed to get payment URL from invoice'}), 500
-                
-                # Сохраняем информацию об ожидающем игроке
-                game_main.waiting_players[user_id] = {
-                    "invoice_id": invoice.get("invoice_id"),
-                    "invoice_data": invoice,
-                    "paid": False
-                }
-                
+            # Добавляем текущего игрока в очередь с paid=True (оплата отключена)
+            game_main.waiting_players[user_id] = {
+                "paid": True,
+                "created_at": time.time()
+            }
+            
+            # Оба игрока в очереди - создаем игру автоматически
+            game_id = create_game_match(user_id, opponent_id)
+            if game_id:
+                log_info(f"Game {game_id} created automatically when both players in queue")
                 return jsonify({
-                    'requires_payment': True,
-                    'invoice_url': invoice_url
+                    'status': 'ready_to_start',
+                    'paid': True,
+                    'game_starting': True,
+                    'countdown': GAME_START_DELAY,
+                    'message': 'Оба игрока готовы, игра скоро начнется'
                 })
             else:
-                # Соперник еще не оплатил - создаем инвойс для текущего игрока
-                try:
-                    invoice = crypto_pay.create_invoice(user_id)
-                    if not invoice:
-                        log_error("api_start_game", Exception("Invoice creation returned None for waiting player (opponent not paid)"), user_id)
-                        return jsonify({'error': 'Failed to create invoice. Please try again later.'}), 500
-                except Exception as e:
-                    log_error("api_start_game", e, user_id)
-                    return jsonify({'error': f'Failed to create invoice: {str(e)}'}), 500
-                
-                invoice_url = invoice.get("pay_url") or invoice.get("url") or invoice.get("payUrl") or invoice.get("invoice_url")
-                
-                if not invoice_url or invoice_url == "#":
-                    log_error("api_start_game", Exception(f"No payment URL in invoice: {invoice}"), user_id)
-                    return jsonify({'error': 'Failed to get payment URL from invoice'}), 500
-                
-                # Сохраняем информацию об ожидающем игроке
-                game_main.waiting_players[user_id] = {
-                    "invoice_id": invoice.get("invoice_id"),
-                    "invoice_data": invoice,
-                    "paid": False
-                }
-                
+                # Игра не создана (возможно, уже создана или игроки в другой игре)
                 return jsonify({
-                    'requires_payment': True,
-                    'invoice_url': invoice_url
+                    'status': 'waiting_opponent',
+                    'paid': True,
+                    'message': 'Ожидание второго игрока'
                 })
         
-        # Создаем счет для текущего игрока (первый игрок)
-        try:
-            invoice = crypto_pay.create_invoice(user_id)
-            if not invoice:
-                log_error("api_start_game", Exception("Invoice creation returned None for first player"), user_id)
-                return jsonify({'error': 'Failed to create invoice. Please try again later.'}), 500
-        except Exception as e:
-            log_error("api_start_game", e, user_id)
-            return jsonify({'error': f'Failed to create invoice: {str(e)}'}), 500
-        
-        # Получаем URL для оплаты из инвойса (пробуем разные варианты)
-        invoice_url = invoice.get("pay_url") or invoice.get("url") or invoice.get("payUrl") or invoice.get("invoice_url")
-        
-        log_info(f"Invoice created for user {user_id}: invoice={invoice}, url={invoice_url}")
-        
-        if not invoice_url or invoice_url == "#":
-            log_error("api_start_game", Exception(f"No payment URL in invoice: {invoice}"), user_id)
-            return jsonify({'error': 'Failed to get payment URL from invoice'}), 500
-        
-        # Сохраняем информацию об ожидающем игроке
+        # Первый игрок - добавляем в очередь с paid=True (оплата отключена)
         game_main.waiting_players[user_id] = {
-            "invoice_id": invoice.get("invoice_id"),
-            "invoice_data": invoice,
-            "paid": False
+            "paid": True,
+            "created_at": time.time()
         }
         
+        log_info(f"User {user_id} added to matchmaking queue (payment disabled)")
+        
         return jsonify({
-            'requires_payment': True,
-            'invoice_url': invoice_url,
-            'invoice_id': invoice.get("invoice_id")
+            'status': 'waiting_opponent',
+            'paid': True,
+            'message': 'Ожидание второго игрока'
         })
         
     except Exception as e:
