@@ -125,6 +125,11 @@ class Game:
         self.winner_id: Optional[int] = None
         self.prize_paid: bool = False  # Флаг для отслеживания выплаты приза (защита от двойной выплаты)
         
+        # Система готовности игроков (для синхронизации старта)
+        self.player1_ready: bool = False
+        self.player2_ready: bool = False
+        self.game_start_timestamp: Optional[float] = None  # Timestamp когда игра началась (для синхронизации)
+        
         # Создаем змейки в разных углах
         start_pos1 = (self.height // 4, self.width // 4)
         start_pos2 = (self.height * 3 // 4, self.width * 3 // 4)

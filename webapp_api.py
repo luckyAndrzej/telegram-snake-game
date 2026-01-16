@@ -16,6 +16,7 @@ from game import Game, Direction
 from payment import crypto_pay
 from logger import log_info, log_error
 import threading
+import time
 
 # Импортируем глобальные переменные из main.py
 # В реальном проекте лучше использовать Redis или базу данных
@@ -512,6 +513,108 @@ def api_check_payment():
             
     except Exception as e:
         log_error("api_check_payment", e)
+        return jsonify({'error': 'Internal server error'}), 500
+
+
+@app.route('/api/game/ready', methods=['POST'])
+def api_game_ready():
+    """API для сигнала готовности игрока (для синхронизации старта)"""
+    try:
+        data = request.json
+        user_id = data.get('user_id')
+        
+        if not user_id:
+            return jsonify({'error': 'User ID required'}), 400
+        
+        if user_id not in game_main.player_to_game:
+            return jsonify({'error': 'Not in game'}), 400
+        
+        game_id = game_main.player_to_game[user_id]
+        if game_id not in game_main.active_games:
+            return jsonify({'error': 'Game not found'}), 404
+        
+        game = game_main.active_games[game_id]
+        
+        # Устанавливаем готовность игрока
+        if user_id == game.player1_id:
+            game.player1_ready = True
+            log_info(f"Player 1 ({user_id}) is ready for game {game_id}")
+        elif user_id == game.player2_id:
+            game.player2_ready = True
+            log_info(f"Player 2 ({user_id}) is ready for game {game_id}")
+        else:
+            return jsonify({'error': 'Invalid player'}), 400
+        
+        # Проверяем, готовы ли оба игрока
+        both_ready = game.player1_ready and game.player2_ready
+        
+        if both_ready and not game.is_running:
+            # Оба игрока готовы - устанавливаем timestamp для синхронизации
+            game.game_start_timestamp = time.time() + GAME_START_DELAY
+            game.is_running = True
+            log_info(f"Both players ready! Game {game_id} starting at timestamp {game.game_start_timestamp}")
+        
+        return jsonify({
+            'ready': True,
+            'both_ready': both_ready,
+            'game_start_timestamp': game.game_start_timestamp,
+            'player1_ready': game.player1_ready,
+            'player2_ready': game.player2_ready,
+            'message': 'Готовность подтверждена' if not both_ready else 'Оба игрока готовы! Игра начинается...'
+        })
+        
+    except Exception as e:
+        log_error("api_game_ready", e)
+        return jsonify({'error': 'Internal server error'}), 500
+
+
+@app.route('/api/game/state', methods=['POST'])
+def api_game_state():
+    """API для получения текущего состояния игры (для синхронизации)"""
+    try:
+        data = request.json
+        user_id = data.get('user_id')
+        
+        if not user_id:
+            return jsonify({'error': 'User ID required'}), 400
+        
+        if user_id not in game_main.player_to_game:
+            return jsonify({'error': 'Not in game'}), 400
+        
+        game_id = game_main.player_to_game[user_id]
+        if game_id not in game_main.active_games:
+            return jsonify({'error': 'Game not found'}), 404
+        
+        game = game_main.active_games[game_id]
+        
+        # Определяем, какой игрок запрашивает состояние
+        is_player1 = (user_id == game.player1_id)
+        my_snake = game.snake1 if is_player1 else game.snake2
+        opponent_snake = game.snake2 if is_player1 else game.snake1
+        
+        # Преобразуем тело змейки в список координат
+        def snake_to_dict(snake):
+            return {
+                'body': [(pos[0], pos[1]) for pos in snake.body],
+                'alive': snake.alive,
+                'direction': snake.direction.value if hasattr(snake.direction, 'value') else (snake.direction[0], snake.direction[1]) if isinstance(snake.direction, tuple) else snake.direction
+            }
+        
+        return jsonify({
+            'game_running': game.is_running,
+            'game_finished': game.is_finished,
+            'game_start_timestamp': game.game_start_timestamp,
+            'both_ready': game.player1_ready and game.player2_ready,
+            'player1_ready': game.player1_ready,
+            'player2_ready': game.player2_ready,
+            'my_snake': snake_to_dict(my_snake),
+            'opponent_snake': snake_to_dict(opponent_snake),
+            'server_timestamp': time.time(),
+            'winner_id': game.winner_id
+        })
+        
+    except Exception as e:
+        log_error("api_game_state", e)
         return jsonify({'error': 'Internal server error'}), 500
 
 

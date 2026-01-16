@@ -364,7 +364,7 @@ function showWaitingScreen() {
     }, 3000);
 }
 
-// Обратный отсчет
+// Обратный отсчет (синхронизированный с сервером)
 function startCountdown(seconds = 5) {
     showScreen('countdown');
     // Рисуем превью игрового поля после небольшой задержки
@@ -372,21 +372,64 @@ function startCountdown(seconds = 5) {
         renderFieldPreview('countdown-field');
     }, 100);
     
+    // Создаем игру заранее для предварительной отрисовки
+    if (!game) {
+        game = new SnakeGame('game-canvas');
+    }
+    
     const countdownEl = document.getElementById('countdown-number');
     let count = seconds;
     
     countdownEl.textContent = count;
     
-    const countdownInterval = setInterval(() => {
+    // Периодически проверяем статус готовности на сервере
+    const countdownInterval = setInterval(async () => {
         count--;
         if (count > 0) {
             countdownEl.textContent = count;
         } else {
             clearInterval(countdownInterval);
-            startGamePlay();
+            // Проверяем статус на сервере перед стартом
+            await checkServerStartStatus();
         }
     }, 1000);
 }
+
+// Проверка статуса старта на сервере (для синхронизации)
+async function checkServerStartStatus() {
+    try {
+        const baseUrl = window.location.origin;
+        const response = await fetch(`${baseUrl}/api/game/state`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                user_id: userData?.id,
+                init_data: tg.initData
+            })
+        });
+        
+        const data = await response.json();
+        
+        if (data.both_ready && data.game_start_timestamp) {
+            gameStartTimestamp = data.game_start_timestamp;
+            console.log(`Game start synchronized: ${gameStartTimestamp}`);
+        }
+        
+        // Начинаем игру (даже если timestamp еще не установлен)
+        startGamePlay();
+    } catch (error) {
+        console.error('Error checking server start status:', error);
+        // Начинаем игру в любом случае
+        startGamePlay();
+    }
+}
+
+// Переменные для синхронизации
+let gameSyncInterval = null;
+let gameStateSyncInterval = null;
+let gameStartTimestamp = null;
 
 // Начало игрового процесса
 function startGamePlay() {
@@ -396,9 +439,25 @@ function startGamePlay() {
     // Создаем игру
     game = new SnakeGame('game-canvas');
     
+    // Отправляем сигнал готовности на сервер
+    sendReadySignal();
+    
+    // Запускаем синхронизацию состояния игры с сервером
+    startGameStateSync();
+    
     // Запускаем игровой цикл
     gameLoop = setInterval(() => {
         if (gameState === 'playing' && game) {
+            // Проверяем, не наступило ли время старта (если есть timestamp)
+            if (gameStartTimestamp) {
+                const now = Date.now() / 1000;
+                if (now < gameStartTimestamp) {
+                    // Еще не время старта, только отрисовываем
+                    game.draw();
+                    return;
+                }
+            }
+            
             game.update();
             game.draw();
             
@@ -421,6 +480,119 @@ function startGamePlay() {
     if (game) {
         game.draw();
     }
+}
+
+// Отправка сигнала готовности
+async function sendReadySignal() {
+    try {
+        const baseUrl = window.location.origin;
+        const response = await fetch(`${baseUrl}/api/game/ready`, {
+            method: 'POST',
+            headers: {
+                'Content-Type': 'application/json',
+            },
+            body: JSON.stringify({
+                user_id: userData?.id,
+                init_data: tg.initData
+            })
+        });
+        
+        const data = await response.json();
+        console.log('Ready signal response:', data);
+        
+        if (data.both_ready && data.game_start_timestamp) {
+            gameStartTimestamp = data.game_start_timestamp;
+            console.log(`Both players ready! Game starts at ${gameStartTimestamp}`);
+        }
+    } catch (error) {
+        console.error('Error sending ready signal:', error);
+    }
+}
+
+// Синхронизация состояния игры с сервером
+function startGameStateSync() {
+    if (gameStateSyncInterval) {
+        clearInterval(gameStateSyncInterval);
+    }
+    
+    gameStateSyncInterval = setInterval(async () => {
+        try {
+            const baseUrl = window.location.origin;
+            const response = await fetch(`${baseUrl}/api/game/state`, {
+                method: 'POST',
+                headers: {
+                    'Content-Type': 'application/json',
+                },
+                body: JSON.stringify({
+                    user_id: userData?.id,
+                    init_data: tg.initData
+                })
+            });
+            
+            const data = await response.json();
+            
+            if (data.error) {
+                console.error('Game state sync error:', data.error);
+                return;
+            }
+            
+            // Обновляем timestamp старта игры
+            if (data.game_start_timestamp && !gameStartTimestamp) {
+                gameStartTimestamp = data.game_start_timestamp;
+            }
+            
+            // Синхронизируем позиции змеек с сервера
+            if (game && data.my_snake && data.opponent_snake) {
+                // Обновляем позицию оппонента из данных сервера
+                if (data.opponent_snake.body) {
+                    game.player2.body = data.opponent_snake.body.map(pos => ({x: pos[0], y: pos[1]}));
+                    game.player2.alive = data.opponent_snake.alive;
+                }
+                
+                // Обновляем свою позицию (если сервер считает иначе)
+                if (data.my_snake.body) {
+                    // Можно синхронизировать, но обычно клиент управляет своей змейкой
+                    // game.player1.body = data.my_snake.body.map(pos => ({x: pos[0], y: pos[1]}));
+                    game.player1.alive = data.my_snake.alive;
+                }
+            }
+            
+            // Проверяем окончание игры
+            if (data.game_finished) {
+                if (gameStateSyncInterval) {
+                    clearInterval(gameStateSyncInterval);
+                    gameStateSyncInterval = null;
+                }
+                if (gameLoop) {
+                    clearInterval(gameLoop);
+                    gameLoop = null;
+                }
+                endGameFromServer(data);
+            }
+        } catch (error) {
+            console.error('Error syncing game state:', error);
+        }
+    }, 100); // Синхронизация каждые 100ms для плавности
+}
+
+// Завершение игры на основе данных сервера
+function endGameFromServer(serverData) {
+    if (gameStateSyncInterval) {
+        clearInterval(gameStateSyncInterval);
+        gameStateSyncInterval = null;
+    }
+    
+    if (gameLoop) {
+        clearInterval(gameLoop);
+        gameLoop = null;
+    }
+    
+    gameState = 'result';
+    
+    const isWinner = serverData.winner_id === userData?.id;
+    const prize = isWinner ? (GAME_PRICE_USD * 2 * 0.75) : 0;
+    
+    showResultScreen(isWinner ? 'player1' : 'player2', prize, false);
 }
 
 // Обработка направления
@@ -462,6 +634,12 @@ function updatePlayerStatus(state) {
 
 // Конец игры
 async function endGame() {
+    // Останавливаем синхронизацию состояния
+    if (gameStateSyncInterval) {
+        clearInterval(gameStateSyncInterval);
+        gameStateSyncInterval = null;
+    }
+    
     if (gameLoop) {
         clearInterval(gameLoop);
         gameLoop = null;
@@ -556,9 +734,14 @@ function playAgain() {
         clearInterval(gameLoop);
         gameLoop = null;
     }
+    if (gameStateSyncInterval) {
+        clearInterval(gameStateSyncInterval);
+        gameStateSyncInterval = null;
+    }
     game = null;
     gameState = 'menu';
     currentDirection = null;
+    gameStartTimestamp = null;
     
     // Игрок должен оплатить снова - показываем меню
     // При следующем нажатии "Играть" будет создан новый инвойс
