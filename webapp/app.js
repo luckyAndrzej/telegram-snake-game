@@ -198,18 +198,19 @@ async function startGame() {
                 tg.showAlert('Ошибка: не получен URL для оплаты');
                 showScreen('menu');
             }
-        } else if (data.in_game || data.game_running) {
-            // Игрок уже в игре - запускаем обратный отсчет (игра только что создана)
-            console.log('Player already in game, starting countdown');
-            startCountdown(data.countdown || GAME_START_DELAY || 5);
-        } else if (data.game_starting || data.status === 'ready_to_start') {
-            // Игра начинается - запускаем обратный отсчет
-            console.log('Game starting, status:', data.status, 'game_starting:', data.game_starting);
-            startCountdown(data.countdown || GAME_START_DELAY || 5);
         } else if (data.waiting || data.status === 'waiting_opponent') {
-            // Ожидание соперника
-            console.log('Game waiting, status:', data.status);
+            // Ожидание соперника - показываем экран ожидания и начинаем polling
+            console.log('Game waiting for opponent, status:', data.status);
             showWaitingScreen();
+        } else if (data.game_starting || data.status === 'ready_to_start') {
+            // Игра начинается - запускаем обратный отсчет (только когда оба игрока подключены)
+            console.log('Game starting (both players connected), status:', data.status, 'game_starting:', data.game_starting);
+            startCountdown(data.countdown || GAME_START_DELAY || 5);
+        } else if (data.in_game && data.game_running) {
+            // Игрок уже в активной игре (игра уже идет)
+            console.log('Player already in running game');
+            // Игра уже идет, переходим к игровому экрану
+            startGamePlay();
         } else {
             // Неизвестный статус - показываем ошибку
             console.error('Unknown game status:', data);
