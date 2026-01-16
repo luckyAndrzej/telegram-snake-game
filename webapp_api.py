@@ -244,7 +244,15 @@ def api_start_game():
             game_id = game_main.player_to_game[user_id]
             if game_id in game_main.active_games:
                 game = game_main.active_games[game_id]
-                if game.is_running and not game.is_finished:
+                # Если игра только создана (COUNTDOWN), возвращаем ready_to_start
+                if not game.is_running and not game.is_finished:
+                    return jsonify({
+                        'status': 'ready_to_start',
+                        'game_starting': True,
+                        'countdown': GAME_START_DELAY,
+                        'message': 'Игра создана, готовимся к старту'
+                    })
+                elif game.is_running and not game.is_finished:
                     return jsonify({
                         'in_game': True,
                         'game_running': True

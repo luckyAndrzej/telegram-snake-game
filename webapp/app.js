@@ -188,6 +188,7 @@ async function startGame() {
             return;
         }
         
+        // PAYMENT DISABLED: Оплата отключена, обрабатываем статусы без оплаты
         if (data.requires_payment) {
             if (data.invoice_url) {
                 console.log('Showing payment screen with URL:', data.invoice_url);
@@ -197,15 +198,23 @@ async function startGame() {
                 tg.showAlert('Ошибка: не получен URL для оплаты');
                 showScreen('menu');
             }
-        } else if (data.waiting) {
-            console.log('Game waiting');
+        } else if (data.in_game || data.game_running) {
+            // Игрок уже в игре - запускаем обратный отсчет (игра только что создана)
+            console.log('Player already in game, starting countdown');
+            startCountdown(data.countdown || GAME_START_DELAY || 5);
+        } else if (data.game_starting || data.status === 'ready_to_start') {
+            // Игра начинается - запускаем обратный отсчет
+            console.log('Game starting, status:', data.status, 'game_starting:', data.game_starting);
+            startCountdown(data.countdown || GAME_START_DELAY || 5);
+        } else if (data.waiting || data.status === 'waiting_opponent') {
+            // Ожидание соперника
+            console.log('Game waiting, status:', data.status);
             showWaitingScreen();
-        } else if (data.game_starting) {
-            console.log('Game starting');
-            startCountdown(data.countdown || 5);
         } else {
+            // Неизвестный статус - показываем ошибку
             console.error('Unknown game status:', data);
-            tg.showAlert('Неизвестный статус игры');
+            console.error('Status keys:', Object.keys(data));
+            tg.showAlert('Неизвестный статус игры: ' + (data.status || 'no status'));
             showScreen('menu');
         }
     } catch (error) {
