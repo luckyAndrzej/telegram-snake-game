@@ -622,24 +622,82 @@ def api_game_state():
 def api_game_direction():
     """API для отправки направления движения"""
     try:
+        # Логируем полученный запрос для отладки
+        log_info(f"Received /api/game/direction request. Content-Type: {request.content_type}")
+        
+        # Проверяем, что запрос содержит JSON
+        if not request.is_json:
+            log_error("api_game_direction", Exception(f"Request is not JSON. Content-Type: {request.content_type}, Data: {request.get_data(as_text=True)}"))
+            return jsonify({'error': 'Content-Type must be application/json'}), 400
+        
         data = request.json
+        
+        # Дополнительная проверка - если request.json вернул None
+        if data is None:
+            log_error("api_game_direction", Exception(f"request.json is None. Raw data: {request.get_data(as_text=True)}"))
+            return jsonify({'error': 'Invalid JSON in request body'}), 400
+        
+        # Логируем полученные данные
+        log_info(f"Received direction request data: {data}")
+        
         user_id = data.get('user_id')
         direction_str = data.get('direction')
         
-        if not user_id or not direction_str:
-            return jsonify({'error': 'User ID and direction required'}), 400
+        # Детальная проверка каждого поля с логированием
+        if not user_id:
+            log_error("api_game_direction", Exception(f"user_id is missing or None. Received data: {data}"), user_id)
+            return jsonify({
+                'error': 'User ID required',
+                'received_data': str(data),
+                'missing_field': 'user_id'
+            }), 400
+        
+        if not direction_str:
+            log_error("api_game_direction", Exception(f"direction is missing or None. Received data: {data}"), user_id)
+            return jsonify({
+                'error': 'Direction required',
+                'received_data': str(data),
+                'missing_field': 'direction'
+            }), 400
+        
+        # Проверяем тип direction_str (должен быть строка)
+        if not isinstance(direction_str, str):
+            log_error("api_game_direction", Exception(f"direction must be a string, got {type(direction_str)}: {direction_str}"), user_id)
+            return jsonify({
+                'error': f'Direction must be a string, got {type(direction_str).__name__}',
+                'received_direction': str(direction_str),
+                'direction_type': type(direction_str).__name__
+            }), 400
+        
+        # Нормализуем direction_str (приводим к нижнему регистру)
+        direction_str = direction_str.lower().strip()
         
         if user_id not in game_main.player_to_game:
-            return jsonify({'error': 'Not in game'}), 400
+            log_error("api_game_direction", Exception(f"User {user_id} not in player_to_game. Available players: {list(game_main.player_to_game.keys())}"), user_id)
+            return jsonify({
+                'error': 'Not in game',
+                'user_id': user_id,
+                'available_players': list(game_main.player_to_game.keys())
+            }), 400
         
         game_id = game_main.player_to_game[user_id]
         if game_id not in game_main.active_games:
-            return jsonify({'error': 'Game not found'}), 404
+            log_error("api_game_direction", Exception(f"Game {game_id} not found in active_games. Available games: {list(game_main.active_games.keys())}"), user_id)
+            return jsonify({
+                'error': 'Game not found',
+                'game_id': game_id,
+                'available_games': list(game_main.active_games.keys())
+            }), 404
         
         game = game_main.active_games[game_id]
         
         if not game.is_running or game.is_finished:
-            return jsonify({'error': 'Game not running'}), 400
+            log_error("api_game_direction", Exception(f"Game {game_id} is not running. is_running={game.is_running}, is_finished={game.is_finished}"), user_id)
+            return jsonify({
+                'error': 'Game not running',
+                'is_running': game.is_running,
+                'is_finished': game.is_finished
+            }), 400
         
         # Преобразуем строку в Direction
         direction_map = {
@@ -650,15 +708,29 @@ def api_game_direction():
         }
         
         direction = direction_map.get(direction_str)
-        if direction:
-            game.set_direction(user_id, direction)
-            return jsonify({'success': True})
+        if not direction:
+            log_error("api_game_direction", Exception(f"Invalid direction string: '{direction_str}'. Valid values: {list(direction_map.keys())}"), user_id)
+            return jsonify({
+                'error': 'Invalid direction',
+                'received_direction': direction_str,
+                'valid_directions': list(direction_map.keys())
+            }), 400
         
-        return jsonify({'error': 'Invalid direction'}), 400
+        # Устанавливаем направление
+        game.set_direction(user_id, direction)
+        log_info(f"Direction updated for user {user_id} in game {game_id}: {direction_str}")
+        return jsonify({'success': True})
         
     except Exception as e:
+        import traceback
+        error_details = traceback.format_exc()
         log_error("api_game_direction", e)
-        return jsonify({'error': 'Internal server error'}), 500
+        log_info(f"Full traceback: {error_details}")
+        log_info(f"Request data: {request.get_data(as_text=True)}")
+        return jsonify({
+            'error': 'Internal server error',
+            'details': str(e) if app.debug else None
+        }), 500
 
 
 @app.route('/api/game/end', methods=['POST'])

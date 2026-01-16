@@ -606,21 +606,68 @@ function handleDirection(direction) {
 
 // Отправка направления на сервер
 async function sendDirection(direction) {
+    // Валидация перед отправкой
+    if (!userData || !userData.id) {
+        console.error('Cannot send direction: userData or userData.id is missing', userData);
+        return;
+    }
+    
+    if (!direction || typeof direction !== 'string') {
+        console.error('Cannot send direction: direction is missing or not a string', direction);
+        return;
+    }
+    
+    // Проверяем, что direction - это допустимое значение
+    const validDirections = ['up', 'down', 'left', 'right'];
+    const directionLower = direction.toLowerCase().trim();
+    if (!validDirections.includes(directionLower)) {
+        console.error('Cannot send direction: invalid direction value', direction, 'Valid values:', validDirections);
+        return;
+    }
+    
     try {
         const baseUrl = window.location.origin;
-        await fetch(`${baseUrl}/api/game/direction`, {
+        const requestBody = {
+            user_id: userData.id,
+            direction: directionLower  // Используем нормализованное значение
+        };
+        
+        console.log('Sending direction request:', {
+            url: `${baseUrl}/api/game/direction`,
+            method: 'POST',
+            body: requestBody
+        });
+        
+        const response = await fetch(`${baseUrl}/api/game/direction`, {
             method: 'POST',
             headers: {
                 'Content-Type': 'application/json',
             },
-            body: JSON.stringify({
-                user_id: userData?.id,
-                direction: direction,
-                init_data: tg.initData
-            })
+            body: JSON.stringify(requestBody)
         });
+        
+        // Проверяем статус ответа
+        if (!response.ok) {
+            const errorText = await response.text();
+            console.error(`Direction request failed with status ${response.status}:`, errorText);
+            try {
+                const errorData = JSON.parse(errorText);
+                console.error('Error details:', errorData);
+            } catch (e) {
+                // Если не удалось распарсить как JSON, выводим как текст
+                console.error('Error response (not JSON):', errorText);
+            }
+        } else {
+            const responseData = await response.json();
+            console.log('Direction request successful:', responseData);
+        }
     } catch (error) {
         console.error('Error sending direction:', error);
+        console.error('Error details:', {
+            name: error.name,
+            message: error.message,
+            stack: error.stack
+        });
     }
 }
 
