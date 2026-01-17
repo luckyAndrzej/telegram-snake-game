@@ -29,6 +29,7 @@ body {
     z-index: 1;
     padding: 20px;
     overflow-y: auto;
+    overflow-x: hidden; /* Предотвращаем горизонтальную прокрутку */
 }
 
 .screen.active {
@@ -81,26 +82,34 @@ body {
 .menu-container {
     background: white;
     border-radius: 20px;
-    padding: 30px;
+    padding: 25px 30px 30px 30px; /* Добавлен padding-top для предотвращения обрезки заголовка */
     max-width: 400px;
     width: 100%;
     box-shadow: 0 10px 40px rgba(0, 0, 0, 0.2);
     position: relative;
+    overflow: visible; /* Убираем обрезку содержимого */
 }
 
 .game-title {
     text-align: center;
-    margin-bottom: 30px;
+    margin-bottom: 25px;
+    padding-top: 5px; /* Дополнительный отступ сверху для заголовка */
+    min-height: auto; /* Убираем фиксированную высоту если есть */
 }
 
 .game-title h1 {
     font-size: 36px;
-    margin-bottom: 10px;
+    margin-bottom: 8px;
+    line-height: 1.2; /* Улучшаем межстрочный интервал */
+    white-space: normal; /* Позволяем перенос текста */
+    word-wrap: break-word; /* Перенос длинных слов */
 }
 
 .subtitle {
     color: #666;
     font-size: 14px;
+    line-height: 1.4;
+    white-space: normal;
 }
 
 /* Балансы */
