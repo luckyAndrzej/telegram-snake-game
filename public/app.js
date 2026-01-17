@@ -176,8 +176,12 @@ function initSocket() {
     currentGame.gameId = data.gameId;
     currentGame.startTime = data.start_time || Date.now();
     
-    // Устанавливаем gameState = 'playing'
+    // Принудительная установка gameState = 'playing'
     gameState = 'playing';
+    console.log('✅ gameState установлен в:', gameState);
+    
+    // Очищаем старое начальное состояние (больше не нужно для countdown)
+    currentGame.initialState = null;
     
     // Скрываем countdown overlay
     const countdownOverlay = document.getElementById('countdown-overlay');
@@ -518,6 +522,11 @@ function updateGameState(data) {
     return;
   }
   
+  // Проверка координат змеек для отладки
+  if (data.my_snake && data.my_snake.body && data.my_snake.body.length > 0) {
+    console.log('Snake pos:', data.my_snake.body[0]);
+  }
+  
   // Очищаем canvas
   gameCtx.clearRect(0, 0, gameCanvas.width, gameCanvas.height);
   
@@ -577,14 +586,28 @@ function drawSnake(snake, color1, color2) {
   
   // Определяем направление змейки для глаз
   let direction = snake.direction;
-  if (!direction && snake.body.length > 1) {
-    // Если direction отсутствует, вычисляем из первых двух сегментов
-    const head = snake.body[0];
-    const next = snake.body[1];
-    direction = {
-      dx: head.x - next.x,
-      dy: head.y - next.y
-    };
+  
+  // Если direction отсутствует, используем жестко заданное направление на основе цвета змейки
+  if (!direction) {
+    // Красная змейка (игрок 1) смотрит вправо, синяя (игрок 2) - влево
+    if (color1 === '#ff4444' || currentGame?.playerNumber === 1) {
+      // Игрок 1 - красная змейка, смотрит вправо
+      direction = { dx: 1, dy: 0 };
+    } else if (color1 === '#4444ff' || currentGame?.playerNumber === 2) {
+      // Игрок 2 - синяя змейка, смотрит влево
+      direction = { dx: -1, dy: 0 };
+    } else if (snake.body.length > 1) {
+      // Если цвет не определен, вычисляем из первых двух сегментов
+      const head = snake.body[0];
+      const next = snake.body[1];
+      direction = {
+        dx: head.x - next.x,
+        dy: head.y - next.y
+      };
+    } else {
+      // По умолчанию вправо
+      direction = { dx: 1, dy: 0 };
+    }
   }
   
   // Градиент для змейки (переливание от яркого к темному)
