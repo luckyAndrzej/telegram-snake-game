@@ -319,18 +319,21 @@ function initEventListeners() {
   // Кнопки результатов
   // Кнопка "Играть снова" - ищем новую игру
   document.getElementById('play-again-btn')?.addEventListener('click', () => {
+    // Удаляем класс active с экрана результатов
+    const resultScreen = document.getElementById('result-screen');
+    if (resultScreen) {
+      resultScreen.classList.remove('active');
+    }
+    
     // Очищаем состояние игры
     currentGame = null;
     gameState = 'lobby';
     
-    // Переключаемся на экран лобби и ищем новую игру
+    // Переключаемся на экран лобби
     showScreen('lobby');
     
+    // Вызываем socket.emit('find_match')
     if (socket && socket.connected) {
-      socket.emit('find_match');
-    }
-    if (socket && socket.connected) {
-      showScreen('lobby');
       socket.emit('find_match');
     }
   });
@@ -903,12 +906,17 @@ function renderGamePreviewOnCanvas(gameState, canvas, ctx) {
  * Завершение игры
  */
 function endGame(data) {
+  // Принудительная остановка игрового состояния
+  gameState = 'result';
+  
   // Мгновенно переключаемся на экран результатов
   currentGame = null;
-  gameState = 'result';
   showScreen('result');
   
-  const isWinner = data.winnerId === userId;
+  // Проверяем наличие данных из события game_end, используем значения по умолчанию
+  const isWinner = data && data.winnerId ? data.winnerId === userId : false;
+  const prize = data && data.prize ? data.prize : 0;
+  
   const resultIcon = document.getElementById('result-icon');
   const resultTitle = document.getElementById('result-title');
   const resultMessage = document.getElementById('result-message');
@@ -919,19 +927,29 @@ function endGame(data) {
   }
   
   // Четкий текст: "ПОБЕДА!" (зеленым) или "ПОРАЖЕНИЕ" (красным)
+  // Если данных нет, используем текст по умолчанию: "Игра окончена"
   if (resultTitle) {
-    resultTitle.textContent = isWinner ? 'ПОБЕДА!' : 'ПОРАЖЕНИЕ';
-    resultTitle.style.color = isWinner ? '#10b981' : '#ef4444';
+    if (data && data.winnerId) {
+      resultTitle.textContent = isWinner ? 'ПОБЕДА!' : 'ПОРАЖЕНИЕ';
+      resultTitle.style.color = isWinner ? '#10b981' : '#ef4444';
+    } else {
+      resultTitle.textContent = 'Игра окончена';
+      resultTitle.style.color = '#666';
+    }
   }
   
   if (resultMessage) {
-    resultMessage.textContent = isWinner 
-      ? `Вы выиграли ${data.prize.toFixed(2)} USDT!` 
-      : 'Вы проиграли';
+    if (data && data.winnerId) {
+      resultMessage.textContent = isWinner 
+        ? `Вы выиграли ${prize.toFixed(2)} USDT!` 
+        : 'Вы проиграли';
+    } else {
+      resultMessage.textContent = 'Игра завершена';
+    }
   }
   
   if (resultPrize) {
-    resultPrize.textContent = isWinner ? `💰 +${data.prize.toFixed(2)} USDT` : '💰 0 USDT';
+    resultPrize.textContent = isWinner ? `💰 +${prize.toFixed(2)} USDT` : '💰 0 USDT';
   }
   
   // Обновляем балансы

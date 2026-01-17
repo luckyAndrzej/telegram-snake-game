@@ -446,6 +446,19 @@ body {
 }
 
 /* Результаты */
+#result-screen.active {
+    display: flex !important;
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 9999; /* Поверх всего */
+    background: rgba(0, 0, 0, 0.85); /* Затемнение фона игры */
+    justify-content: center;
+    align-items: center;
+}
+
 .result-container {
     background: white;
     border-radius: 20px;
