@@ -82,7 +82,11 @@
                     <div class="status-animation">
                         <div class="pulse-dot"></div>
                     </div>
-                    <h3>Ожидание соперника...</h3>
+                    <h3 id="waiting-text">Ожидание соперника...</h3>
+                </div>
+                <!-- Canvas для отображения preview игры во время ожидания -->
+                <div class="game-container" style="margin-top: 20px; max-width: 600px;">
+                    <canvas id="waiting-canvas"></canvas>
                 </div>
             </div>
         </div>

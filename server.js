@@ -249,9 +249,21 @@ async function createGame(player1Id, player2Id, socket1Id, socket2Id) {
     socket2.playerNumber = 2; // Сохраняем номер игрока
   }
   
-  // Уведомляем игроков
-  socket1?.emit('game_created', { gameId, playerNumber: 1 });
-  socket2?.emit('game_created', { gameId, playerNumber: 2 });
+  // Отправляем начальное состояние игры обоим игрокам
+  const snapshot1 = gameLogic.getGameSnapshot(gameState, player1Id);
+  const snapshot2 = gameLogic.getGameSnapshot(gameState, player2Id);
+  
+  // Уведомляем игроков с начальным состоянием игры
+  socket1?.emit('game_created', { 
+    gameId, 
+    playerNumber: 1,
+    initial_state: snapshot1 // Показываем свою змейку и пустую змейку соперника
+  });
+  socket2?.emit('game_created', { 
+    gameId, 
+    playerNumber: 2,
+    initial_state: snapshot2 // Показываем обе змейки
+  });
   
   console.log(`🎮 Игра ${gameId} создана: ${player1Id} vs ${player2Id}`);
 }

@@ -95,14 +95,44 @@ function initSocket() {
   });
   
   socket.on('game_created', (data) => {
-    console.log('Игра создана:', data);
+    console.log('🎮 Игра создана (клиент):', data);
     // Сохраняем данные игры
-    currentGame = {
-      gameId: data.gameId,
-      playerNumber: data.playerNumber
-    };
+    if (!currentGame) {
+      currentGame = {};
+    }
+    currentGame.gameId = data.gameId;
+    currentGame.playerNumber = data.playerNumber;
+    
+    // Если есть начальное состояние - показываем preview игры
+    if (data.initial_state) {
+      currentGame.initialState = data.initial_state;
+      console.log('✅ Начальное состояние игры получено');
+      
+      // Показываем экран ожидания с preview игры (пока только для первого игрока)
+      showScreen('waiting');
+      // Рисуем preview игры на canvas во время ожидания
+      // Используем waiting-canvas если доступен, иначе основной canvas
+      const waitingCanvasEl = document.getElementById('waiting-canvas');
+      const canvas = window.waitingCanvas || waitingCanvasEl || gameCanvas;
+      const ctx = window.waitingCtx || gameCtx;
+      
+      if (canvas && ctx) {
+        // Инициализируем waiting canvas если нужно
+        if (waitingCanvasEl && !window.waitingCanvas) {
+          const size = Math.min(waitingCanvasEl.parentElement.clientWidth - 20, 600);
+          waitingCanvasEl.width = size;
+          waitingCanvasEl.height = size;
+          window.waitingCanvas = waitingCanvasEl;
+          window.waitingCtx = waitingCanvasEl.getContext('2d');
+        }
+        
+        renderGamePreviewOnCanvas(data.initial_state, canvas, ctx);
+      }
+    }
+    
     // Автоматически отправляем сигнал готовности после создания игры
     if (socket && socket.connected) {
+      console.log('✅ Отправляем ready сигнал');
       socket.emit('ready');
     }
   });
@@ -119,9 +149,16 @@ function initSocket() {
     currentGame.gameId = data.gameId;
     currentGame.startTime = data.start_time || Date.now();
     
+    // Обновляем начальное состояние (если его еще не было или если обновилось)
     if (data.initial_state) {
       currentGame.initialState = data.initial_state;
       console.log('✅ Начальное состояние сохранено');
+      
+      // Обновляем текст ожидания - теперь оба игрока подключены
+      const waitingText = document.getElementById('waiting-text');
+      if (waitingText) {
+        waitingText.textContent = 'Оба игрока готовы!';
+      }
     } else {
       console.warn('⚠️ initial_state отсутствует в game_start');
     }
@@ -292,6 +329,18 @@ function initCanvas() {
     window.countdownCanvas = countdownCanvas;
     window.countdownCtx = countdownCtx;
   }
+  
+  // Инициализируем canvas для waiting (если есть)
+  const waitingCanvas = document.getElementById('waiting-canvas');
+  if (waitingCanvas) {
+    const waitingCtx = waitingCanvas.getContext('2d');
+    waitingCanvas.width = size;
+    waitingCanvas.height = size;
+    
+    // Используем waiting canvas для отрисовки во время ожидания
+    window.waitingCanvas = waitingCanvas;
+    window.waitingCtx = waitingCtx;
+  }
 }
 
 /**
@@ -367,7 +416,11 @@ function startCountdown(callback) {
   
   // Если есть начальное состояние игры - показываем его во время countdown
   if (currentGame && currentGame.initialState) {
-    renderGamePreview(currentGame.initialState);
+    const canvas = window.countdownCanvas || gameCanvas;
+    const ctx = window.countdownCtx || gameCtx;
+    if (canvas && ctx) {
+      renderGamePreviewOnCanvas(currentGame.initialState, canvas, ctx);
+    }
   }
   
   let count = 3;
@@ -380,7 +433,11 @@ function startCountdown(callback) {
     
     // Обновляем preview во время countdown
     if (currentGame && currentGame.initialState) {
-      renderGamePreview(currentGame.initialState);
+      const canvas = window.countdownCanvas || gameCanvas;
+      const ctx = window.countdownCtx || gameCtx;
+      if (canvas && ctx) {
+        renderGamePreviewOnCanvas(currentGame.initialState, canvas, ctx);
+      }
     }
     
     count--;
@@ -526,13 +583,9 @@ function drawSnake(snake, color1, color2) {
 }
 
 /**
- * Отображение preview игры во время countdown
+ * Отображение preview игры на указанном canvas
  */
-function renderGamePreview(gameState) {
-  // Используем countdown canvas если доступен, иначе основной canvas
-  const canvas = window.countdownCanvas || gameCanvas;
-  const ctx = window.countdownCtx || gameCtx;
-  
+function renderGamePreviewOnCanvas(gameState, canvas, ctx) {
   if (!canvas || !ctx || !gameState) return;
   
   // Очищаем canvas
