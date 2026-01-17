@@ -206,8 +206,15 @@ function initEventListeners() {
   // Кнопка "Найти игру"
   document.getElementById('start-game-btn')?.addEventListener('click', () => {
     if (socket && socket.connected) {
-      // Сразу показываем экран ожидания
-      showScreen('waiting');
+      // Показываем игровой экран с оверлеем ожидания
+      showGameScreenWithOverlay('waiting');
+      // Инициализируем игровой canvas
+      if (gameCanvas && gameCtx) {
+        // Очищаем canvas и рисуем темный фон
+        gameCtx.fillStyle = '#1a1a2e';
+        gameCtx.fillRect(0, 0, gameCanvas.width, gameCanvas.height);
+        drawGrid();
+      }
       // Затем отправляем запрос на поиск соперника
       socket.emit('find_match');
     }
