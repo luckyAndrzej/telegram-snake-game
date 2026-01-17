@@ -75,24 +75,30 @@
             </div>
         </div>
 
-        <!-- Игровой экран (используется для ожидания, countdown и игры) -->
-        <div id="game-screen" class="screen">
-            <!-- Оверлей для ожидания/countdown (показывается поверх игрового поля) -->
-            <div id="game-overlay" class="game-overlay" style="display: none;">
-                <div class="overlay-content">
-                    <div id="waiting-status" class="waiting-status" style="display: none;">
-                        <div class="status-animation">
-                            <div class="pulse-dot"></div>
-                        </div>
-                        <h3 id="waiting-text">Ожидание соперника...</h3>
-                    </div>
-                    <div id="countdown-display" class="countdown-display" style="display: none;">
-                        <div id="countdown-number">3</div>
-                        <p>Игра начинается</p>
-                    </div>
+        <!-- Экран 2: Лобби (ожидание соперника) -->
+        <div id="lobby-screen" class="screen">
+            <div class="lobby-container">
+                <div class="status-animation">
+                    <div class="pulse-dot"></div>
+                </div>
+                <h2>Поиск оппонента...</h2>
+                <p>Ожидание второго игрока</p>
+            </div>
+        </div>
+
+        <!-- Экран 3: Обратный отсчет -->
+        <div id="countdown-screen" class="screen">
+            <div class="countdown-container">
+                <canvas id="countdown-canvas"></canvas>
+                <div class="countdown-overlay">
+                    <div id="countdown-number" class="countdown-number">3</div>
+                    <p class="countdown-text">Игра начинается</p>
                 </div>
             </div>
-            
+        </div>
+
+        <!-- Экран 4: Игровое поле (только во время игры) -->
+        <div id="game-screen" class="screen">
             <div class="game-header">
                 <div class="player-info">
                     <div class="player-item">

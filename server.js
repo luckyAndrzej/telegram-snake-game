@@ -253,23 +253,54 @@ async function createGame(player1Id, player2Id, socket1Id, socket2Id) {
   const snapshot1 = gameLogic.getGameSnapshot(gameState, player1Id);
   const snapshot2 = gameLogic.getGameSnapshot(gameState, player2Id);
   
-  // Уведомляем игроков с начальным состоянием игры
-  socket1?.emit('game_created', { 
+  // Уведомляем игроков о найденном сопернике (match_found)
+  socket1?.emit('match_found', { 
     gameId, 
     playerNumber: 1,
-    initial_state: snapshot1 // Показываем свою змейку и пустую змейку соперника
+    initial_state: snapshot1 // Начальное состояние для отображения во время countdown
   });
-  socket2?.emit('game_created', { 
+  socket2?.emit('match_found', { 
     gameId, 
     playerNumber: 2,
-    initial_state: snapshot2 // Показываем обе змейки
+    initial_state: snapshot2 // Начальное состояние для отображения во время countdown
   });
   
   console.log(`🎮 Игра ${gameId} создана: ${player1Id} vs ${player2Id}`);
+  
+  // Запускаем countdown на сервере (3 секунды)
+  startCountdown(gameId);
 }
 
 /**
- * Запуск игры (после готовности обоих)
+ * Countdown перед началом игры (3 секунды на сервере)
+ */
+function startCountdown(gameId) {
+  const game = activeGames.get(gameId);
+  if (!game) return;
+  
+  // Змейки уже отрисованы в начальных позициях, но не двигаются
+  game.is_running = false; // Игра еще не началась
+  
+  let count = 3;
+  const countdownInterval = setInterval(() => {
+    // Отправляем событие countdown всем игрокам в комнате
+    io.to(`game_${gameId}`).emit('countdown', {
+      number: count,
+      gameId
+    });
+    
+    count--;
+    
+    if (count < 0) {
+      clearInterval(countdownInterval);
+      // Countdown завершен - начинаем игру
+      startGame(gameId);
+    }
+  }, 1000);
+}
+
+/**
+ * Запуск игры (после countdown)
  */
 async function startGame(gameId) {
   const game = activeGames.get(gameId);
@@ -278,24 +309,11 @@ async function startGame(gameId) {
   game.is_running = true;
   game.start_time = Date.now();
   
-  // Отправляем начальное состояние игры каждому игроку
-  const room = io.sockets.adapter.rooms.get(`game_${gameId}`);
-  if (room) {
-    room.forEach(socketId => {
-      const socket = io.sockets.sockets.get(socketId);
-      if (socket) {
-        const playerNumber = socket.playerNumber;
-        const userId = socketToUser.get(socketId);
-        const snapshot = gameLogic.getGameSnapshot(game, userId);
-        
-        socket.emit('game_start', {
-          gameId,
-          start_time: game.start_time,
-          initial_state: snapshot // Начальное состояние для отображения во время countdown
-        });
-      }
-    });
-  }
+  // Уведомляем игроков о начале игры
+  io.to(`game_${gameId}`).emit('game_start', {
+    gameId,
+    start_time: game.start_time
+  });
   
   console.log(`🚀 Игра ${gameId} началась!`);
 }
