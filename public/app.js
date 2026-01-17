@@ -338,24 +338,16 @@ function initEventListeners() {
     }
   });
   
-  // Кнопка "В меню" - возврат в главное меню
+  // Кнопка "В меню" - возврат в главное меню (показывает первое окно при входе)
   document.getElementById('menu-btn')?.addEventListener('click', () => {
+    console.log('🔄 Возврат в главное меню');
+    
     // Полная очистка состояния: сбрасываем Socket.io состояние
     currentGame = null;
     gameState = 'menu';
     
-    // Переключаемся на главное меню
+    // Переключаемся на главное меню (первое окно при входе в игру)
     showScreen('menu');
-    
-    // Если сокет подключен, можно отправить событие очистки (опционально)
-    // socket.emit('leave_game');
-    
-    // Переключаемся на меню
-    showScreen('menu');
-    
-    // Переподключаем сокет для полной очистки (опционально)
-    // socket.disconnect();
-    // initSocket();
   });
 }
 
@@ -434,7 +426,7 @@ function sendDirection(direction) {
  * Показ экрана
  */
 function showScreen(screenName) {
-  console.log('Переключение на экран:', screenName);
+  console.log('🖥️ Переключение на экран:', screenName);
   
   // Находим все элементы с классом screen и принудительно скрываем их
   const screens = document.querySelectorAll('.screen');
@@ -444,13 +436,20 @@ function showScreen(screenName) {
   });
 
   // Ищем целевой экран по id (screenName + '-screen')
-  const target = document.getElementById(`${screenName}-screen`);
+  const targetId = `${screenName}-screen`;
+  const target = document.getElementById(targetId);
   if (target) {
-    target.style.display = ''; // Сбрасываем inline display для использования CSS
+    // Для экрана результатов используем display: flex, для остальных - CSS класс
+    if (screenName === 'result') {
+      target.style.display = 'flex';
+    } else {
+      target.style.display = ''; // Сбрасываем inline display для использования CSS
+    }
     target.classList.add('active');
     gameState = screenName;
+    console.log(`✅ Экран "${targetId}" показан`);
   } else {
-    console.warn(`Экран "${screenName}-screen" не найден!`);
+    console.warn(`❌ Экран "${targetId}" не найден!`);
   }
 }
 
@@ -914,21 +913,8 @@ function endGame(data) {
   // Мгновенно переключаемся на экран результатов
   currentGame = null;
   
-  // Принудительно показываем экран результатов
-  const resultScreen = document.getElementById('result-screen');
-  if (resultScreen) {
-    // Убираем active у всех экранов
-    document.querySelectorAll('.screen').forEach(s => {
-      s.classList.remove('active');
-      s.style.display = 'none';
-    });
-    // Показываем экран результатов
-    resultScreen.classList.add('active');
-    resultScreen.style.display = 'flex';
-    console.log('✅ Экран результатов показан');
-  } else {
-    console.error('❌ Элемент #result-screen не найден!');
-  }
+  // Используем showScreen для консистентного переключения экранов
+  showScreen('result');
   
   // Проверяем наличие данных из события game_end, используем значения по умолчанию
   const isWinner = data && data.winnerId ? data.winnerId === userId : false;

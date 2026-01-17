@@ -49,7 +49,7 @@ const socketToUser = new Map(); // socketId -> userId
 const GAME_CONFIG = {
   FIELD_WIDTH: 20,
   FIELD_HEIGHT: 20,
-  TICK_RATE: 7, // тиков в секунду (замедлено в 2.25 раза: было 15, стало 7)
+  TICK_RATE: 6, // тиков в секунду (замедлено в 2.5 раза: было 15, стало 6)
   ENTRY_PRICE: 1, // стоимость входа (в играх)
   WINNER_PERCENTAGE: 0.75 // процент выигрыша победителя (75%)
 };
