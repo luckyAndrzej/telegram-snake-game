@@ -228,6 +228,7 @@ function initSocket() {
   });
   
   socket.on('game_end', (data) => {
+    console.log('📨 Событие game_end получено!', data);
     endGame(data);
   });
   
@@ -910,9 +911,7 @@ function endGame(data) {
   
   // Принудительная остановка игрового состояния
   gameState = 'result';
-  
-  // Мгновенно переключаемся на экран результатов
-  currentGame = null;
+  currentGame = null; // Это остановит обновление через game_state
   
   // Проверяем наличие данных из события game_end, используем значения по умолчанию
   // Если data пришла пустая, функция всё равно должна сработать
@@ -924,6 +923,7 @@ function endGame(data) {
   const resultMessage = document.getElementById('result-message');
   const resultPrize = document.getElementById('result-prize');
   
+  // Обновляем все элементы ДО показа экрана
   if (resultIcon) {
     resultIcon.textContent = isWinner ? '🏆' : '💀';
   }
@@ -958,9 +958,28 @@ function endGame(data) {
   // Обновляем балансы
   updateBalance();
   
-  // Переносим showScreen('result') в самый конец, после обновления всех текстов
-  // Это исключит ситуацию, когда показывается пустой экран
-  showScreen('result');
-  console.log('✅ Экран результатов должен быть показан');
+  // ПРИНУДИТЕЛЬНО показываем экран результатов
+  const resultScreen = document.getElementById('result-screen');
+  if (!resultScreen) {
+    console.error('❌ Элемент #result-screen не найден в DOM!');
+    return;
+  }
+  
+  // Скрываем ВСЕ экраны
+  document.querySelectorAll('.screen').forEach(s => {
+    s.classList.remove('active');
+    s.style.display = 'none';
+  });
+  
+  // Показываем экран результатов
+  resultScreen.classList.add('active');
+  resultScreen.style.display = 'flex';
+  resultScreen.style.zIndex = '9999';
+  
+  console.log('✅ Экран результатов показан. Проверка:', {
+    display: resultScreen.style.display,
+    classList: resultScreen.classList.toString(),
+    zIndex: resultScreen.style.zIndex
+  });
 }
 

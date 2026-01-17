@@ -341,8 +341,18 @@ function handleDirection(socket, userId, direction) {
  * Завершение игры и начисление призов
  */
 async function endGame(gameId, winnerId, loserId) {
+  console.log(`🔔 endGame вызвана: gameId=${gameId}, winner=${winnerId}, loser=${loserId}`);
+  
   const game = activeGames.get(gameId);
-  if (!game || game.finished) return;
+  if (!game) {
+    console.log(`❌ Игра ${gameId} не найдена в activeGames`);
+    return;
+  }
+  
+  if (game.finished) {
+    console.log(`⚠️ Игра ${gameId} уже завершена`);
+    return;
+  }
   
   game.finished = true;
   game.end_time = Date.now();
@@ -351,18 +361,29 @@ async function endGame(gameId, winnerId, loserId) {
   const pool = GAME_CONFIG.ENTRY_PRICE * 2; // Два входа
   const prize = pool * GAME_CONFIG.WINNER_PERCENTAGE; // 75% победителю
   
+  console.log(`💰 Приз: ${prize} USDT для победителя ${winnerId}`);
+  
   // Начисляем приз победителю
   if (winnerId) {
-    const winner = await getUser(winnerId);
-    await updateUser(winnerId, {
-      winnings_usdt: winner.winnings_usdt + prize
-    });
-    
-    console.log(`🏆 Игра ${gameId} завершена. Победитель: ${winnerId}, приз: ${prize}`);
+    try {
+      const winner = await getUser(winnerId);
+      await updateUser(winnerId, {
+        winnings_usdt: winner.winnings_usdt + prize
+      });
+      
+      console.log(`🏆 Игра ${gameId} завершена. Победитель: ${winnerId}, приз: ${prize}`);
+    } catch (error) {
+      console.error(`❌ Ошибка при начислении приза:`, error);
+    }
+  } else {
+    console.log(`🏁 Игра ${gameId} завершена ничьей`);
   }
   
   // Уведомляем игроков
-  io.to(`game_${gameId}`).emit('game_end', {
+  const roomName = `game_${gameId}`;
+  console.log(`📤 Отправка game_end в комнату: ${roomName}`);
+  
+  io.to(roomName).emit('game_end', {
     winnerId,
     prize: winnerId ? prize : 0,
     game_stats: {
@@ -370,6 +391,8 @@ async function endGame(gameId, winnerId, loserId) {
       pool
     }
   });
+  
+  console.log(`✅ game_end отправлено игрокам в комнате ${roomName}`);
   
   // Очищаем из активных игр
   playerToGame.delete(game.player1_id);
@@ -395,13 +418,19 @@ function handleDisconnect(socket, userId) {
   
   // Если игрок в игре - завершаем игру
   const gameId = playerToGame.get(userId);
+  console.log(`🔍 Отключение: игрок ${userId}, gameId: ${gameId}`);
+  
   if (gameId && activeGames.has(gameId)) {
     const game = activeGames.get(gameId);
+    console.log(`🎮 Игра найдена: ${gameId}, игроки: ${game.player1_id}, ${game.player2_id}`);
     const isPlayer1 = game.player1_id === userId;
     const opponentId = isPlayer1 ? game.player2_id : game.player1_id;
     
     // Завершаем игру, противник побеждает
+    console.log(`🏁 Завершение игры ${gameId}: победитель ${opponentId}, проигравший ${userId}`);
     endGame(gameId, opponentId, userId);
+  } else {
+    console.log(`⚠️ Игра не найдена для игрока ${userId} (gameId: ${gameId}, active: ${activeGames.has(gameId || '')})`);
   }
   
   playerToGame.delete(userId);
