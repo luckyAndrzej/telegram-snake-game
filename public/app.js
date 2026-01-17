@@ -91,7 +91,13 @@ function initSocket() {
   
   socket.on('waiting_opponent', () => {
     console.log('⏳ Ожидание соперника...');
-    showGameScreenWithOverlay('waiting');
+    // Экран уже показан при клике на кнопку, просто убеждаемся что оверлей виден
+    const overlay = document.getElementById('game-overlay');
+    const waitingStatus = document.getElementById('waiting-status');
+    if (overlay && waitingStatus) {
+      overlay.style.display = 'flex';
+      waitingStatus.style.display = 'block';
+    }
   });
   
   socket.on('game_created', (data) => {
@@ -108,10 +114,13 @@ function initSocket() {
       currentGame.initialState = data.initial_state;
       console.log('✅ Начальное состояние игры получено');
       
-      // Показываем игровой экран с оверлеем ожидания и preview игры
-      showGameScreenWithOverlay('waiting');
+      // Убеждаемся что игровой экран показан (уже показан при клике на кнопку)
+      // Но если по какой-то причине не показан - показываем
+      if (gameState !== 'playing') {
+        showGameScreenWithOverlay('waiting');
+      }
       
-      // Рисуем preview на игровом canvas
+      // Рисуем preview на игровом canvas (показываем свою змейку)
       setTimeout(() => {
         if (gameCanvas && gameCtx) {
           console.log('🎨 Рисуем preview игры на game-canvas');
