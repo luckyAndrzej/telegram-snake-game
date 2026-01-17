@@ -349,9 +349,18 @@ async function endGame(gameId, winnerId, loserId) {
     return;
   }
   
+  // Флаг для проверки, было ли уже отправлено событие game_end
+  const shouldSendEvent = !game.finished;
+  
   if (game.finished) {
-    console.log(`⚠️ Игра ${gameId} уже завершена`);
-    return;
+    console.log(`⚠️ Игра ${gameId} уже завершена, пропускаем повторную обработку`);
+    // НЕ выходим сразу - возможно событие не было отправлено в первый раз
+    // Но если уже отправлено - не отправляем повторно
+    if (game.end_event_sent) {
+      console.log(`✅ Событие game_end уже было отправлено ранее`);
+      return;
+    }
+    console.log(`⚠️ Игра завершена, но событие game_end не отправлено! Отправляем сейчас...`);
   }
   
   game.finished = true;
@@ -363,8 +372,8 @@ async function endGame(gameId, winnerId, loserId) {
   
   console.log(`💰 Приз: ${prize} USDT для победителя ${winnerId}`);
   
-  // Начисляем приз победителю
-  if (winnerId) {
+  // Начисляем приз победителю (только если еще не начисляли)
+  if (winnerId && shouldSendEvent) {
     try {
       const winner = await getUser(winnerId);
       await updateUser(winnerId, {
@@ -375,24 +384,31 @@ async function endGame(gameId, winnerId, loserId) {
     } catch (error) {
       console.error(`❌ Ошибка при начислении приза:`, error);
     }
-  } else {
+  } else if (!winnerId && shouldSendEvent) {
     console.log(`🏁 Игра ${gameId} завершена ничьей`);
   }
   
-  // Уведомляем игроков
-  const roomName = `game_${gameId}`;
-  console.log(`📤 Отправка game_end в комнату: ${roomName}`);
-  
-  io.to(roomName).emit('game_end', {
-    winnerId,
-    prize: winnerId ? prize : 0,
-    game_stats: {
-      duration: game.end_time - game.start_time,
-      pool
-    }
-  });
-  
-  console.log(`✅ game_end отправлено игрокам в комнате ${roomName}`);
+  // Уведомляем игроков (ОБЯЗАТЕЛЬНО отправляем событие, даже если игра уже завершена)
+  if (!game.end_event_sent) {
+    const roomName = `game_${gameId}`;
+    console.log(`📤 Отправка game_end в комнату: ${roomName}`);
+    
+    const eventData = {
+      winnerId,
+      prize: winnerId ? prize : 0,
+      game_stats: {
+        duration: game.end_time - game.start_time,
+        pool
+      }
+    };
+    
+    io.to(roomName).emit('game_end', eventData);
+    game.end_event_sent = true; // Помечаем, что событие отправлено
+    
+    console.log(`✅ game_end отправлено игрокам в комнате ${roomName}:`, eventData);
+  } else {
+    console.log(`⚠️ Событие game_end уже было отправлено ранее, пропускаем`);
+  }
   
   // Очищаем из активных игр
   playerToGame.delete(game.player1_id);
