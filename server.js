@@ -158,26 +158,39 @@ async function handleFindMatch(socket, userId) {
  * Готовность игрока
  */
 async function handleReady(socket, userId) {
-  if (!waitingPlayers.has(userId)) {
-    socket.emit('error', { message: 'Вы не в очереди!' });
+  // Проверяем, находится ли игрок в игре
+  const gameId = playerToGame.get(userId);
+  if (!gameId || !activeGames.has(gameId)) {
+    // Если не в игре, возможно он еще в очереди ожидания
+    if (!waitingPlayers.has(userId)) {
+      socket.emit('error', { message: 'Вы не в игре и не в очереди!' });
+      return;
+    }
+    
+    // Игрок в очереди ожидания
+    const waitingData = waitingPlayers.get(userId);
+    waitingData.ready = true;
+    waitingPlayers.set(userId, waitingData);
+    socket.emit('ready_confirmed');
     return;
   }
   
-  const waitingData = waitingPlayers.get(userId);
-  waitingData.ready = true;
-  waitingPlayers.set(userId, waitingData);
+  // Игрок в активной игре - помечаем как готового
+  const game = activeGames.get(gameId);
+  const isPlayer1 = game.player1_id === userId;
   
-  // Проверяем, готов ли соперник (если он есть)
-  const gameId = playerToGame.get(userId);
-  if (gameId && activeGames.has(gameId)) {
-    const game = activeGames.get(gameId);
-    const isPlayer1 = game.player1_id === userId;
-    const opponentReady = isPlayer1 ? game.player2_ready : game.player1_ready;
-    
-    if (opponentReady) {
-      // Оба готовы - начинаем игру
-      await startGame(gameId);
-    }
+  if (isPlayer1) {
+    game.player1_ready = true;
+  } else {
+    game.player2_ready = true;
+  }
+  
+  // Проверяем, готов ли соперник
+  const opponentReady = isPlayer1 ? game.player2_ready : game.player1_ready;
+  
+  if (opponentReady) {
+    // Оба готовы - начинаем игру
+    await startGame(gameId);
   }
   
   socket.emit('ready_confirmed');

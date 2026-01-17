@@ -78,7 +78,10 @@ function initSocket() {
   
   socket.on('game_created', (data) => {
     console.log('Игра создана:', data);
-    // Ожидаем готовности обоих игроков
+    // Автоматически отправляем сигнал готовности после создания игры
+    if (socket && socket.connected) {
+      socket.emit('ready');
+    }
   });
   
   socket.on('game_start', (data) => {
