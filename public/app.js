@@ -93,7 +93,7 @@ function initSocket() {
     showScreen('lobby');
   });
   
-  // Экран 3: Соперник найден (Match Found)
+  // Экран 3: Соперник найден (Match Found) - сразу переключаемся на game-screen
   socket.on('match_found', (data) => {
     console.log('🎮 Соперник найден (клиент):', data);
     
@@ -109,25 +109,37 @@ function initSocket() {
       currentGame.initialState = data.initial_state;
       console.log('✅ Начальное состояние игры получено');
       
-      // Переключаемся на экран countdown и показываем начальное состояние
-      showScreen('countdown');
+      // Сразу переключаемся на игровой экран
+      gameState = 'playing';
+      showScreen('game');
       
-      // Инициализируем countdown-canvas и рисуем начальное состояние
-      const countdownCanvas = document.getElementById('countdown-canvas');
-      if (countdownCanvas) {
-        const countdownCtx = countdownCanvas.getContext('2d');
-        const container = countdownCanvas.parentElement;
-        const size = Math.min(container.clientWidth, container.clientHeight, 600);
-        countdownCanvas.width = size;
-        countdownCanvas.height = size;
-        
-        // Рисуем начальное состояние игры (обе змейки видны, но не двигаются)
-        renderGamePreviewOnCanvas(data.initial_state, countdownCanvas, countdownCtx);
+      // Инициализируем game-canvas один раз
+      if (!gameCanvas || !gameCtx) {
+        gameCanvas = document.getElementById('game-canvas');
+        if (gameCanvas) {
+          gameCtx = gameCanvas.getContext('2d');
+          // Устанавливаем размер canvas адаптивно
+          const container = gameCanvas.parentElement;
+          const maxSize = Math.min(container.clientWidth - 40, 600);
+          gameCanvas.width = maxSize;
+          gameCanvas.height = maxSize;
+        }
+      }
+      
+      // Показываем countdown overlay
+      const countdownOverlay = document.getElementById('countdown-overlay');
+      if (countdownOverlay) {
+        countdownOverlay.style.display = 'flex';
+      }
+      
+      // Рисуем начальное состояние игры на game-canvas (обе змейки видны, но не двигаются)
+      if (gameCanvas && gameCtx) {
+        renderGamePreviewOnCanvas(data.initial_state, gameCanvas, gameCtx);
       }
     }
   });
   
-  // Обновление countdown (сервер отправляет числа: 3, 2, 1)
+  // Обновление countdown (сервер отправляет числа: 3, 2, 1) - overlay поверх game-canvas
   socket.on('countdown', (data) => {
     console.log('⏰ Countdown:', data.number);
     const countdownNumber = document.getElementById('countdown-number');
@@ -135,15 +147,13 @@ function initSocket() {
       countdownNumber.textContent = data.number;
     }
     
-    // Обновляем canvas во время countdown (если нужно)
-    const countdownCanvas = document.getElementById('countdown-canvas');
-    if (countdownCanvas && currentGame && currentGame.initialState) {
-      const countdownCtx = countdownCanvas.getContext('2d');
-      renderGamePreviewOnCanvas(currentGame.initialState, countdownCanvas, countdownCtx);
+    // Обновляем game-canvas во время countdown (рисуем начальное состояние)
+    if (gameCanvas && gameCtx && currentGame && currentGame.initialState) {
+      renderGamePreviewOnCanvas(currentGame.initialState, gameCanvas, gameCtx);
     }
   });
   
-  // Экран 4: Игра начинается (после countdown)
+  // Экран 4: Игра начинается (после countdown) - скрываем overlay
   socket.on('game_start', (data) => {
     console.log('🎮 Игра началась (клиент):', data);
     
@@ -154,8 +164,36 @@ function initSocket() {
     currentGame.gameId = data.gameId;
     currentGame.startTime = data.start_time || Date.now();
     
-    // Переключаемся на игровой экран
-    startGame(data);
+    // Скрываем countdown overlay
+    const countdownOverlay = document.getElementById('countdown-overlay');
+    if (countdownOverlay) {
+      countdownOverlay.style.display = 'none';
+    }
+    
+    // Убеждаемся что gameState = 'playing'
+    gameState = 'playing';
+    
+    // Инициализируем canvas если нужно
+    if (!gameCanvas || !gameCtx) {
+      gameCanvas = document.getElementById('game-canvas');
+      if (gameCanvas) {
+        gameCtx = gameCanvas.getContext('2d');
+        const container = gameCanvas.parentElement;
+        const maxSize = Math.min(container.clientWidth - 40, 600);
+        gameCanvas.width = maxSize;
+        gameCanvas.height = maxSize;
+      }
+    }
+    
+    // Очищаем canvas и готовимся к игре
+    if (gameCanvas && gameCtx) {
+      gameCtx.clearRect(0, 0, gameCanvas.width, gameCanvas.height);
+      gameCtx.fillStyle = '#1a1a2e';
+      gameCtx.fillRect(0, 0, gameCanvas.width, gameCanvas.height);
+      drawGrid();
+    }
+    
+    console.log('✅ Игра началась, ожидаем game_state события...');
   });
   
   socket.on('game_state', (data) => {
@@ -524,57 +562,118 @@ function drawGrid() {
 }
 
 /**
- * Рисование змейки (современный дизайн с градиентами и тенями)
+ * Рисование змейки (современный дизайн с градиентами, neon эффектом и глазами по направлению)
  */
 function drawSnake(snake, color1, color2) {
   if (!snake || !snake.body || snake.body.length === 0) return;
   
   const tileSize = gameCanvas.width / 20;
   
-  // Градиент для змейки
+  // Определяем направление змейки для глаз
+  let direction = snake.direction;
+  if (!direction && snake.body.length > 1) {
+    // Если direction отсутствует, вычисляем из первых двух сегментов
+    const head = snake.body[0];
+    const next = snake.body[1];
+    direction = {
+      dx: head.x - next.x,
+      dy: head.y - next.y
+    };
+  }
+  
+  // Градиент для змейки (переливание от яркого к темному)
   const gradient = gameCtx.createLinearGradient(0, 0, gameCanvas.width, gameCanvas.height);
-  gradient.addColorStop(0, color1);
-  gradient.addColorStop(1, color2);
+  gradient.addColorStop(0, color1); // Яркий цвет
+  gradient.addColorStop(0.5, color2); // Средний цвет
+  gradient.addColorStop(1, color1); // Темный оттенок для объема
   
   snake.body.forEach((segment, index) => {
     const x = segment.x * tileSize;
     const y = segment.y * tileSize;
     const size = tileSize - 2;
     const offset = 1;
+    const radius = size * (index === 0 ? 0.2 : 0.15);
     
-    // Тень для сегмента
-    gameCtx.shadowColor = 'rgba(0, 0, 0, 0.3)';
-    gameCtx.shadowBlur = 4;
-    gameCtx.shadowOffsetX = 2;
-    gameCtx.shadowOffsetY = 2;
+    // Neon эффект (свечение цвета змейки)
+    gameCtx.shadowColor = color1;
+    gameCtx.shadowBlur = 8;
+    gameCtx.shadowOffsetX = 0;
+    gameCtx.shadowOffsetY = 0;
     
     if (index === 0) {
-      // Голова - рисуем с градиентом и больше
+      // Голова - рисуем с градиентом и скруглениями
       gameCtx.fillStyle = gradient;
       gameCtx.beginPath();
-      gameCtx.roundRect(x + offset, y + offset, size, size, size * 0.2);
+      gameCtx.roundRect(x + offset, y + offset, size, size, radius);
       gameCtx.fill();
       
-      // Глаза на голове
+      // Сбрасываем свечение для глаз
       gameCtx.shadowBlur = 0;
+      gameCtx.shadowColor = 'transparent';
+      
+      // Глаза на голове с учетом направления
+      let eyeX1, eyeY1, eyeX2, eyeY2;
+      const centerX = x + offset + size / 2;
+      const centerY = y + offset + size / 2;
+      const eyeOffset = size * 0.2;
+      const eyeSize = size * 0.12;
+      
+      if (direction) {
+        // Вычисляем позицию глаз в зависимости от направления
+        if (direction.dx > 0) {
+          // Движется вправо - глаза справа
+          eyeX1 = centerX + eyeOffset * 0.5;
+          eyeY1 = centerY - eyeOffset * 0.5;
+          eyeX2 = centerX + eyeOffset * 0.5;
+          eyeY2 = centerY + eyeOffset * 0.5;
+        } else if (direction.dx < 0) {
+          // Движется влево - глаза слева
+          eyeX1 = centerX - eyeOffset * 0.5;
+          eyeY1 = centerY - eyeOffset * 0.5;
+          eyeX2 = centerX - eyeOffset * 0.5;
+          eyeY2 = centerY + eyeOffset * 0.5;
+        } else if (direction.dy > 0) {
+          // Движется вниз - глаза внизу
+          eyeX1 = centerX - eyeOffset * 0.5;
+          eyeY1 = centerY + eyeOffset * 0.5;
+          eyeX2 = centerX + eyeOffset * 0.5;
+          eyeY2 = centerY + eyeOffset * 0.5;
+        } else {
+          // Движется вверх - глаза вверху (по умолчанию)
+          eyeX1 = centerX - eyeOffset * 0.5;
+          eyeY1 = centerY - eyeOffset * 0.5;
+          eyeX2 = centerX + eyeOffset * 0.5;
+          eyeY2 = centerY - eyeOffset * 0.5;
+        }
+      } else {
+        // По умолчанию глаза вверху
+        eyeX1 = centerX - eyeOffset * 0.5;
+        eyeY1 = centerY - eyeOffset * 0.5;
+        eyeX2 = centerX + eyeOffset * 0.5;
+        eyeY2 = centerY - eyeOffset * 0.5;
+      }
+      
+      // Рисуем глаза (белые круги с небольшим свечением)
+      gameCtx.shadowColor = 'rgba(255, 255, 255, 0.5)';
+      gameCtx.shadowBlur = 3;
       gameCtx.fillStyle = '#ffffff';
       gameCtx.beginPath();
-      gameCtx.arc(x + size * 0.3, y + size * 0.3, size * 0.1, 0, Math.PI * 2);
+      gameCtx.arc(eyeX1, eyeY1, eyeSize, 0, Math.PI * 2);
       gameCtx.fill();
       gameCtx.beginPath();
-      gameCtx.arc(x + size * 0.7, y + size * 0.3, size * 0.1, 0, Math.PI * 2);
+      gameCtx.arc(eyeX2, eyeY2, eyeSize, 0, Math.PI * 2);
       gameCtx.fill();
     } else {
-      // Тело - закругленные сегменты
+      // Тело - закругленные сегменты с neon эффектом
       gameCtx.fillStyle = gradient;
       gameCtx.beginPath();
-      gameCtx.roundRect(x + offset + 1, y + offset + 1, size - 2, size - 2, size * 0.15);
+      gameCtx.roundRect(x + offset + 1, y + offset + 1, size - 2, size - 2, radius);
       gameCtx.fill();
     }
     
+    // Сбрасываем свечение для следующего сегмента
     gameCtx.shadowBlur = 0;
-    gameCtx.shadowOffsetX = 0;
-    gameCtx.shadowOffsetY = 0;
+    gameCtx.shadowColor = 'transparent';
   });
 }
 

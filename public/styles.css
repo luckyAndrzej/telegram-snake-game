@@ -272,6 +272,7 @@ body {
     padding: 15px;
     flex-direction: column;
     justify-content: space-between;
+    height: 100vh;
 }
 
 #game-screen.active {
@@ -323,10 +324,9 @@ body {
 
 #game-canvas {
     display: block;
-    max-width: 95vw;
-    max-height: 50vh;
-    width: auto;
-    height: auto;
+    max-height: 60vh;
+    width: 100%;
+    object-fit: contain;
     aspect-ratio: 1; /* Делаем квадратным */
     border: 3px solid rgba(255, 255, 255, 0.1);
     border-radius: 15px;
@@ -349,6 +349,7 @@ body {
     justify-content: center;
     z-index: 101;
     position: relative;
+    flex-shrink: 0; /* Не сжимается, фиксирован внизу */
 }
 
 .controls-grid {
