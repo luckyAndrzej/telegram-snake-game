@@ -100,7 +100,15 @@ function initSocket() {
   });
   
   socket.on('game_state', (data) => {
-    if (currentGame && gameState === 'playing') {
+    console.log('Получено game_state:', data, 'gameState:', gameState);
+    // Обновляем состояние игры если игра активна или если мы только начали
+    if (currentGame && (gameState === 'playing' || gameState === 'countdown')) {
+      // Если мы еще на countdown, но получили game_state - значит игра уже началась
+      if (gameState === 'countdown') {
+        // Переходим в playing режим
+        gameState = 'playing';
+        showScreen('playing');
+      }
       updateGameState(data);
     }
   });
@@ -207,6 +215,23 @@ function initEventListeners() {
  * Инициализация canvas
  */
 function initCanvas() {
+  // Добавляем поддержку roundRect для старых браузеров
+  if (!CanvasRenderingContext2D.prototype.roundRect) {
+    CanvasRenderingContext2D.prototype.roundRect = function(x, y, width, height, radius) {
+      this.beginPath();
+      this.moveTo(x + radius, y);
+      this.lineTo(x + width - radius, y);
+      this.quadraticCurveTo(x + width, y, x + width, y + radius);
+      this.lineTo(x + width, y + height - radius);
+      this.quadraticCurveTo(x + width, y + height, x + width - radius, y + height);
+      this.lineTo(x + radius, y + height);
+      this.quadraticCurveTo(x, y + height, x, y + height - radius);
+      this.lineTo(x, y + radius);
+      this.quadraticCurveTo(x, y, x + radius, y);
+      this.closePath();
+    };
+  }
+  
   gameCanvas = document.getElementById('game-canvas');
   if (!gameCanvas) return;
   
@@ -217,6 +242,18 @@ function initCanvas() {
   const size = Math.min(container.clientWidth - 20, 600);
   gameCanvas.width = size;
   gameCanvas.height = size;
+  
+  // Инициализируем canvas для countdown (если есть)
+  const countdownCanvas = document.getElementById('countdown-canvas');
+  if (countdownCanvas) {
+    const countdownCtx = countdownCanvas.getContext('2d');
+    countdownCanvas.width = size;
+    countdownCanvas.height = size;
+    
+    // Временно используем countdown canvas для отрисовки во время countdown
+    window.countdownCanvas = countdownCanvas;
+    window.countdownCtx = countdownCtx;
+  }
 }
 
 /**
@@ -321,14 +358,23 @@ function startCountdown(callback) {
  * Начало игры
  */
 function startGame(data) {
+  console.log('Начало игры:', data);
   showScreen('playing');
-  currentGame = {
-    gameId: data.gameId,
-    startTime: data.start_time
-  };
   
-  // Игра уже запущена сервером, не нужно отправлять ready
-  // Сервер уже начал отправлять game_state события
+  // Обновляем currentGame с данными из data
+  if (data.gameId) {
+    currentGame = {
+      gameId: data.gameId,
+      startTime: data.start_time || Date.now()
+    };
+  } else if (currentGame) {
+    // Если gameId уже есть в currentGame (из game_start), сохраняем его
+    currentGame.startTime = data.start_time || Date.now();
+  }
+  
+  // Игра уже запущена сервером, он отправляет game_state события
+  // Ждем первое обновление состояния игры
+  console.log('Игра началась, ожидаем game_state события...');
 }
 
 /**
@@ -340,12 +386,16 @@ function updateGameState(data) {
   // Очищаем canvas
   gameCtx.clearRect(0, 0, gameCanvas.width, gameCanvas.height);
   
+  // Фон для игрового поля
+  gameCtx.fillStyle = '#1a1a2e';
+  gameCtx.fillRect(0, 0, gameCanvas.width, gameCanvas.height);
+  
   // Рисуем сетку
   drawGrid();
   
-  // Рисуем змейки
-  drawSnake(data.my_snake, '#ff4444'); // Красная
-  drawSnake(data.opponent_snake, '#4444ff'); // Синяя
+  // Рисуем змейки с современным дизайном
+  drawSnake(data.my_snake, '#ff4444', '#ff6666'); // Красная с градиентом
+  drawSnake(data.opponent_snake, '#4444ff', '#6666ff'); // Синяя с градиентом
   
   // Обновляем статусы игроков
   const player1Status = document.getElementById('player1-status');
@@ -356,15 +406,16 @@ function updateGameState(data) {
 }
 
 /**
- * Рисование сетки
+ * Рисование сетки (современный дизайн)
  */
 function drawGrid() {
   const tileSize = gameCanvas.width / 20; // 20 клеток по ширине
   const width = gameCanvas.width;
   const height = gameCanvas.height;
   
-  gameCtx.strokeStyle = '#333333';
-  gameCtx.lineWidth = 1;
+  // Более тонкие и прозрачные линии сетки
+  gameCtx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+  gameCtx.lineWidth = 0.5;
   
   for (let i = 0; i <= 20; i++) {
     // Вертикальные линии
@@ -382,26 +433,57 @@ function drawGrid() {
 }
 
 /**
- * Рисование змейки
+ * Рисование змейки (современный дизайн с градиентами и тенями)
  */
-function drawSnake(snake, color) {
+function drawSnake(snake, color1, color2) {
   if (!snake || !snake.body || snake.body.length === 0) return;
   
   const tileSize = gameCanvas.width / 20;
   
-  gameCtx.fillStyle = color;
+  // Градиент для змейки
+  const gradient = gameCtx.createLinearGradient(0, 0, gameCanvas.width, gameCanvas.height);
+  gradient.addColorStop(0, color1);
+  gradient.addColorStop(1, color2);
   
   snake.body.forEach((segment, index) => {
     const x = segment.x * tileSize;
     const y = segment.y * tileSize;
+    const size = tileSize - 2;
+    const offset = 1;
+    
+    // Тень для сегмента
+    gameCtx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+    gameCtx.shadowBlur = 4;
+    gameCtx.shadowOffsetX = 2;
+    gameCtx.shadowOffsetY = 2;
     
     if (index === 0) {
-      // Голова - рисуем больше
-      gameCtx.fillRect(x + 1, y + 1, tileSize - 2, tileSize - 2);
+      // Голова - рисуем с градиентом и больше
+      gameCtx.fillStyle = gradient;
+      gameCtx.beginPath();
+      gameCtx.roundRect(x + offset, y + offset, size, size, size * 0.2);
+      gameCtx.fill();
+      
+      // Глаза на голове
+      gameCtx.shadowBlur = 0;
+      gameCtx.fillStyle = '#ffffff';
+      gameCtx.beginPath();
+      gameCtx.arc(x + size * 0.3, y + size * 0.3, size * 0.1, 0, Math.PI * 2);
+      gameCtx.fill();
+      gameCtx.beginPath();
+      gameCtx.arc(x + size * 0.7, y + size * 0.3, size * 0.1, 0, Math.PI * 2);
+      gameCtx.fill();
     } else {
-      // Тело
-      gameCtx.fillRect(x + 2, y + 2, tileSize - 4, tileSize - 4);
+      // Тело - закругленные сегменты
+      gameCtx.fillStyle = gradient;
+      gameCtx.beginPath();
+      gameCtx.roundRect(x + offset + 1, y + offset + 1, size - 2, size - 2, size * 0.15);
+      gameCtx.fill();
     }
+    
+    gameCtx.shadowBlur = 0;
+    gameCtx.shadowOffsetX = 0;
+    gameCtx.shadowOffsetY = 0;
   });
 }
 
@@ -437,48 +519,87 @@ function renderGamePreview(gameState) {
     ctx.stroke();
   }
   
-  // Рисуем змейки с подписями
-  if (gameState.my_snake && gameState.my_snake.body) {
-    ctx.fillStyle = '#ff4444';
-    gameState.my_snake.body.forEach((segment, index) => {
-      const x = segment.x * tileSize;
-      const y = segment.y * tileSize;
-      
-      if (index === 0) {
-        // Голова - рисуем больше
-        ctx.fillRect(x + 1, y + 1, tileSize - 2, tileSize - 2);
-        // Подпись для вашей змейки
-        ctx.fillStyle = '#ffffff';
-        ctx.font = 'bold 12px Arial';
-        ctx.fillText('Вы (🔴)', x - 20, y - 5);
-        ctx.fillStyle = '#ff4444';
-      } else {
-        // Тело
-        ctx.fillRect(x + 2, y + 2, tileSize - 4, tileSize - 4);
-      }
-    });
+  // Фон для countdown canvas
+  ctx.fillStyle = '#1a1a2e';
+  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  
+  // Рисуем сетку для countdown (прозрачную)
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+  ctx.lineWidth = 0.5;
+  
+  for (let i = 0; i <= 20; i++) {
+    // Вертикальные линии
+    ctx.beginPath();
+    ctx.moveTo(i * tileSize, 0);
+    ctx.lineTo(i * tileSize, canvas.height);
+    ctx.stroke();
+    
+    // Горизонтальные линии
+    ctx.beginPath();
+    ctx.moveTo(0, i * tileSize);
+    ctx.lineTo(canvas.width, i * tileSize);
+    ctx.stroke();
   }
   
-  if (gameState.opponent_snake && gameState.opponent_snake.body) {
-    ctx.fillStyle = '#4444ff';
-    gameState.opponent_snake.body.forEach((segment, index) => {
+  // Функция для рисования красивой змейки
+  const drawSnakePreview = (snake, color1, color2, label) => {
+    if (!snake || !snake.body) return;
+    
+    const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+    gradient.addColorStop(0, color1);
+    gradient.addColorStop(1, color2);
+    
+    snake.body.forEach((segment, index) => {
       const x = segment.x * tileSize;
       const y = segment.y * tileSize;
+      const size = tileSize - 2;
+      
+      // Тень
+      ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
+      ctx.shadowBlur = 4;
+      ctx.shadowOffsetX = 2;
+      ctx.shadowOffsetY = 2;
       
       if (index === 0) {
-        // Голова - рисуем больше
-        ctx.fillRect(x + 1, y + 1, tileSize - 2, tileSize - 2);
-        // Подпись для змейки соперника
+        // Голова
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.roundRect(x + 1, y + 1, size, size, size * 0.2);
+        ctx.fill();
+        
+        // Глаза на голове
+        ctx.shadowBlur = 0;
+        ctx.fillStyle = '#ffffff';
+        ctx.beginPath();
+        ctx.arc(x + size * 0.3, y + size * 0.3, size * 0.1, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.beginPath();
+        ctx.arc(x + size * 0.7, y + size * 0.3, size * 0.1, 0, Math.PI * 2);
+        ctx.fill();
+        
+        // Подпись
+        ctx.shadowBlur = 6;
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.8)';
         ctx.fillStyle = '#ffffff';
         ctx.font = 'bold 12px Arial';
-        ctx.fillText('Соперник (🔵)', x - 35, y - 5);
-        ctx.fillStyle = '#4444ff';
+        ctx.fillText(label, x - 30, y - 5);
       } else {
         // Тело
-        ctx.fillRect(x + 2, y + 2, tileSize - 4, tileSize - 4);
+        ctx.fillStyle = gradient;
+        ctx.beginPath();
+        ctx.roundRect(x + 2, y + 2, size - 2, size - 2, size * 0.15);
+        ctx.fill();
       }
+      
+      ctx.shadowBlur = 0;
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 0;
     });
-  }
+  };
+  
+  // Рисуем змейки с современным дизайном
+  drawSnakePreview(gameState.my_snake, '#ff4444', '#ff6666', 'Вы (🔴)');
+  drawSnakePreview(gameState.opponent_snake, '#4444ff', '#6666ff', 'Соперник (🔵)');
 }
 
 /**
