@@ -294,6 +294,17 @@ function initEventListeners() {
     handleWithdraw();
   });
   
+  // Rules toggle (collapsible)
+  const rulesToggle = document.getElementById('rules-toggle');
+  const rulesContent = document.getElementById('rules-content');
+  if (rulesToggle && rulesContent) {
+    rulesToggle.addEventListener('click', () => {
+      const isHidden = rulesContent.style.display === 'none';
+      rulesContent.style.display = isHidden ? 'block' : 'none';
+      rulesToggle.classList.toggle('active', isHidden);
+    });
+  }
+  
   // Игровые кнопки управления
   ['up', 'down', 'left', 'right'].forEach(direction => {
     document.getElementById(`btn-${direction}`)?.addEventListener('click', () => {

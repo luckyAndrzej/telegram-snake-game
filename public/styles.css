@@ -210,16 +210,83 @@ body {
 .rules {
     margin-top: 30px;
     text-align: left;
+    border: 1px solid rgba(0, 0, 0, 0.1);
+    border-radius: 10px;
+    overflow: hidden;
+    background: #f8f9fa;
 }
 
-.rules h3 {
-    margin-bottom: 10px;
+.rules-toggle {
+    width: 100%;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    padding: 12px 15px;
+    background: transparent;
+    border: none;
+    cursor: pointer;
+    text-align: left;
+    transition: background 0.2s ease;
+}
+
+.rules-toggle:hover {
+    background: rgba(0, 0, 0, 0.05);
+}
+
+.rules-toggle h3 {
+    margin: 0;
     font-size: 18px;
+    color: #333;
+    font-weight: 600;
+}
+
+.rules-icon {
+    font-size: 14px;
+    color: #667eea;
+    transition: transform 0.3s ease;
+    margin-left: 10px;
+}
+
+.rules-toggle.active .rules-icon {
+    transform: rotate(180deg);
+}
+
+.rules-content {
+    padding: 0 15px 15px 15px;
+    animation: slideDown 0.3s ease-out;
+}
+
+.rules-content[style*="display: none"] {
+    animation: slideUp 0.3s ease-out;
+}
+
+@keyframes slideDown {
+    from {
+        opacity: 0;
+        max-height: 0;
+    }
+    to {
+        opacity: 1;
+        max-height: 500px;
+    }
+}
+
+@keyframes slideUp {
+    from {
+        opacity: 1;
+        max-height: 500px;
+    }
+    to {
+        opacity: 0;
+        max-height: 0;
+    }
 }
 
 .rules ul {
     list-style: none;
     padding-left: 0;
+    margin: 0;
+    padding-top: 10px;
 }
 
 .rules li {

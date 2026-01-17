@@ -74,15 +74,20 @@
                     </button>
 
                     <div class="rules">
-                        <h3>Rules:</h3>
-                        <ul>
-                            <li>Control: arrows or swipes</li>
-                            <li>Loss on collision with wall or other snake</li>
-                            <li>Head-to-head collision: both players lose</li>
-                            <li>Your snake: <span class="snake-color red">🔴</span></li>
-                            <li>Opponent: <span class="snake-color blue">🔵</span></li>
-                            <li><strong>If you leave during the game or during matchmaking, funds are not refunded.</strong></li>
-                        </ul>
+                        <button class="rules-toggle" id="rules-toggle">
+                            <h3>Rules:</h3>
+                            <span class="rules-icon">▼</span>
+                        </button>
+                        <div class="rules-content" id="rules-content" style="display: none;">
+                            <ul>
+                                <li>Control: arrows or swipes</li>
+                                <li>Loss on collision with wall or other snake</li>
+                                <li>Head-to-head collision: both players lose</li>
+                                <li>Your snake: <span class="snake-color red">🔴</span></li>
+                                <li>Opponent: <span class="snake-color blue">🔵</span></li>
+                                <li><strong>If you leave during the game or during matchmaking, funds are not refunded.</strong></li>
+                            </ul>
+                        </div>
                     </div>
                 </div>
             </div>
