@@ -1,0 +1,12 @@
+# Railway ignore file - explicitly tell Railway this is Node.js project
+# Ignore any Python files that might confuse Railway
+
+requirements.txt
+runtime.txt
+*.py
+__pycache__/
+.python-version
+pip.log
+setup.py
+Pipfile
+Pipfile.lock

@@ -1,12 +1,16 @@
+# Nixpacks configuration for Node.js project
+# This explicitly tells Railway/Nixpacks to use Node.js, NOT Python
+
 [phases.setup]
-nixPkgs = ["nodejs-18.x"]
+nixPkgs = ["nodejs-18"]
 
 [phases.install]
-cmds = ["npm install"]
+cmds = ["npm ci"]
 
 [phases.build]
-cmds = ["npm install --production"]
+# NO Python commands here! Only Node.js
+# Explicitly override any auto-detected Python build commands
+cmds = []
 
 [start]
 cmd = "node server.js"
-
