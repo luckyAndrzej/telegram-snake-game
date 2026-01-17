@@ -1,15 +1,15 @@
 <!DOCTYPE html>
-<html lang="ru">
+<html lang="en">
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="theme-color" content="#6366f1">
-    <title>Змейка - Мультиплеер</title>
+    <title>Snake - Multiplayer</title>
     <script src="https://telegram.org/js/telegram-web-app.js"></script>
     <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
     <link rel="stylesheet" href="styles.css">
     
-    <!-- Инициализация Telegram WebApp сразу для остановки loading spinner -->
+    <!-- Initialize Telegram WebApp immediately to stop loading spinner -->
     <script>
         if (window.Telegram && window.Telegram.WebApp) {
             window.Telegram.WebApp.ready();
@@ -19,15 +19,15 @@
 </head>
 <body>
     <div id="app">
-        <!-- Экран загрузки -->
+        <!-- Loading Screen -->
         <div id="loading-screen" class="screen active">
             <div class="loader">
                 <div class="snake-loader"></div>
-                <p>Загрузка...</p>
+                <p>Loading...</p>
             </div>
         </div>
 
-        <!-- Главное меню -->
+        <!-- Main Menu -->
         <div id="menu-screen" class="screen">
             <div class="menu-container">
                 <!-- TEST MODE Badge -->
@@ -36,78 +36,80 @@
                 </div>
                 
                 <div class="game-title">
-                    <h1>🐍 Змейка</h1>
-                    <p class="subtitle">Мультиплеер 1v1</p>
+                    <h1>🐍 Snake</h1>
+                    <p class="subtitle">Multiplayer 1v1</p>
                 </div>
                 
-                <!-- Балансы -->
+                <!-- Balances -->
                 <div class="balance-container">
                     <div class="balance-item">
-                        <span class="balance-label">🎮 Игры:</span>
+                        <span class="balance-label">🎮 Games:</span>
                         <span id="games-balance" class="balance-value">0</span>
                     </div>
                     <div class="balance-item">
-                        <span class="balance-label">💰 Доступно к выводу:</span>
+                        <span class="balance-label">💰 Available for withdrawal:</span>
                         <span id="winnings-balance" class="balance-value">0 USDT</span>
                     </div>
                 </div>
                 
                 <div class="menu-content">
-                    <!-- Пополнение баланса (DEBUG_MODE) -->
+                    <!-- Add Balance (DEBUG_MODE) -->
                     <button id="add-games-btn" class="btn btn-secondary" style="display: none;">
-                        💰 Пополнить баланс (TEST)
+                        💰 Add Balance (TEST)
                     </button>
                     
                     <button id="start-game-btn" class="btn btn-primary">
-                        <span>🎮 Найти игру</span>
+                        <span>🎮 Find Match</span>
                     </button>
 
                     <div class="rules">
-                        <h3>Правила:</h3>
+                        <h3>Rules:</h3>
                         <ul>
-                            <li>Управление: стрелки или свайпы</li>
-                            <li>Проигрыш при столкновении со стеной или другой змейкой</li>
-                            <li>Ваша змейка: <span class="snake-color red">🔴</span></li>
-                            <li>Соперник: <span class="snake-color blue">🔵</span></li>
+                            <li>Control: arrows or swipes</li>
+                            <li>Loss on collision with wall or other snake</li>
+                            <li>Head-to-head collision: both players lose</li>
+                            <li>Your snake: <span class="snake-color red">🔴</span></li>
+                            <li>Opponent: <span class="snake-color blue">🔵</span></li>
+                            <li><strong>If you leave during the game or during matchmaking, funds are not refunded.</strong></li>
                         </ul>
                     </div>
                 </div>
             </div>
         </div>
 
-        <!-- Экран 2: Лобби (ожидание соперника) -->
+        <!-- Screen 2: Lobby (waiting for opponent) -->
         <div id="lobby-screen" class="screen">
             <div class="lobby-container">
                 <div class="status-animation">
                     <div class="pulse-dot"></div>
                 </div>
-                <h2>Поиск оппонента...</h2>
-                <p>Ожидание второго игрока</p>
+                <h2>Finding opponent...</h2>
+                <p>Waiting for second player</p>
             </div>
         </div>
 
-        <!-- Экран 3: Игровое поле (с countdown overlay) -->
+        <!-- Screen 3: Game Field (with countdown overlay) -->
         <div id="game-screen" class="screen">
             <div class="game-header">
                 <div class="player-info">
                     <div class="player-item">
                         <span class="player-color red">🔴</span>
-                        <span id="player1-status">Вы: Живы</span>
+                        <span id="player1-status">You: Alive</span>
                     </div>
                     <div class="player-item">
                         <span class="player-color blue">🔵</span>
-                        <span id="player2-status">Соперник: Живы</span>
+                        <span id="player2-status">Opponent: Alive</span>
                     </div>
                 </div>
             </div>
 
             <div class="game-container">
                 <canvas id="game-canvas"></canvas>
-                <!-- Countdown Overlay поверх игрового поля -->
+                <!-- Countdown Overlay over game field -->
                 <div id="countdown-overlay" class="countdown-overlay-screen" style="display: none;">
                     <div class="countdown-overlay-content">
                         <div id="countdown-number" class="countdown-number">3</div>
-                        <p class="countdown-text">Игра начинается</p>
+                        <p class="countdown-text">Game starting</p>
                     </div>
                 </div>
             </div>
@@ -122,20 +124,20 @@
             </div>
         </div>
 
-        <!-- Экран результатов -->
+        <!-- Results Screen -->
         <div id="result-screen" class="screen">
             <div class="result-container">
                 <div id="result-icon" class="result-icon">🏆</div>
-                <h2 id="result-title">Победа!</h2>
-                <p id="result-message">Вы выиграли!</p>
+                <h2 id="result-title">Victory!</h2>
+                <p id="result-message">You won!</p>
                 <div id="result-prize" class="prize-amount">💰 +0 USDT</div>
                 
                 <div class="result-buttons">
                     <button id="play-again-btn" class="btn btn-primary">
-                        🎮 Играть снова
+                        🎮 Play Again
                     </button>
                     <button id="menu-btn" class="btn btn-secondary">
-                        📋 Меню
+                        📋 Menu
                     </button>
                 </div>
             </div>
@@ -145,4 +147,3 @@
     <script src="app.js"></script>
 </body>
 </html>
-

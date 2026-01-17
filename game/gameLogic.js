@@ -18,10 +18,10 @@ function createGame(player1Id, player2Id, config) {
   
   // Начальные позиции змеек (лицом друг к другу, прижаты к стенам)
   const centerY = Math.floor(config.FIELD_HEIGHT / 2);
-  // Змейка 1: голова x: 4, хвост влево до x: 0, длина 5, смотрит вправо
-  const snake1Start = { x: 4, y: centerY };
-  // Змейка 2: голова x: 15, хвост вправо до x: 19, длина 5, смотрит влево
-  const snake2Start = { x: 15, y: centerY };
+  // Змейка 1: голова x: 6, хвост влево до x: 0, длина 5, смотрит вправо (для поля 30x30)
+  const snake1Start = { x: 6, y: centerY };
+  // Змейка 2: голова x: 23, хвост вправо до x: 29, длина 5, смотрит влево (для поля 30x30)
+  const snake2Start = { x: 23, y: centerY };
   
   const game = {
     gameId,

@@ -219,7 +219,7 @@ body {
 
 /* Экран 3: Обратный отсчет */
 #countdown-screen {
-    background: #1a1a2e;
+    background: #0a0e27; /* Более современный темно-синий фон */
     padding: 0;
 }
 
@@ -310,6 +310,8 @@ body {
 
 .player-item {
     font-weight: bold;
+    margin: 0 15px; /* Добавлены отступы слева и справа для разделения статусов */
+    white-space: nowrap; /* Предотвращает перенос текста */
 }
 
 .game-container {
@@ -333,7 +335,7 @@ body {
     margin: 0 auto;
     border: 3px solid rgba(255, 255, 255, 0.1);
     border-radius: 15px;
-    background: #1a1a2e;
+    background: #0a0e27; /* Более современный темно-синий фон */
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
 }
 
@@ -400,7 +402,7 @@ body {
     padding: 0;
     font-size: 26px;
     cursor: pointer;
-    transition: all 0.2s ease;
+    transition: all 0.1s ease; /* Faster response (0.2s -> 0.1s) */
     box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
     color: white;
     width: 65px;

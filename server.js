@@ -47,8 +47,8 @@ const socketToUser = new Map(); // socketId -> userId
 
 // Конфигурация игры
 const GAME_CONFIG = {
-  FIELD_WIDTH: 20,
-  FIELD_HEIGHT: 20,
+  FIELD_WIDTH: 30, // Увеличено с 20 до 30 (больше клеток для передвижения)
+  FIELD_HEIGHT: 30, // Увеличено с 20 до 30
   TICK_RATE: 6, // тиков в секунду (замедлено в 2.5 раза: было 15, стало 6)
   ENTRY_PRICE: 1, // стоимость входа (в играх)
   WINNER_PERCENTAGE: 0.75 // процент выигрыша победителя (75%)

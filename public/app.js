@@ -34,7 +34,7 @@ document.addEventListener('DOMContentLoaded', () => {
     initSocket();
   } catch (error) {
     console.error('❌ Ошибка инициализации Socket:', error);
-    tg.showAlert('Предупреждение: не удалось подключиться к серверу');
+    tg.showAlert('Warning: Could not connect to server');
   }
   
   console.log('✅ Приложение инициализировано');
@@ -51,7 +51,7 @@ function initSocket() {
   
   if (!userId) {
     console.error('User ID not found');
-    tg.showAlert('Ошибка: не удалось определить пользователя');
+    tg.showAlert('Error: Could not identify user');
     return;
   }
   
@@ -95,15 +95,15 @@ function initSocket() {
     }
   });
   
-  // Экран 2: Ожидание соперника (Lobby)
+  // Screen 2: Waiting for opponent (Lobby)
   socket.on('waiting_opponent', () => {
-    console.log('⏳ Ожидание соперника...');
+    console.log('⏳ Waiting for opponent...');
     showScreen('lobby');
   });
   
-  // Экран 3: Соперник найден (Match Found) - сразу переключаемся на game-screen
+  // Screen 3: Opponent found (Match Found) - immediately switch to game-screen
   socket.on('match_found', (data) => {
-    console.log('🎮 Соперник найден (клиент):', data);
+    console.log('🎮 Opponent found (client):', data);
     
     // Сохраняем данные игры
     if (!currentGame) {
@@ -115,7 +115,7 @@ function initSocket() {
     // Сохраняем начальное состояние для отображения во время countdown
     if (data.initial_state) {
       currentGame.initialState = data.initial_state;
-      console.log('✅ Начальное состояние игры получено');
+      console.log('✅ Initial game state received');
       
       // Сразу переключаемся на игровой экран
       gameState = 'playing';
@@ -167,7 +167,7 @@ function initSocket() {
   
   // Экран 4: Игра начинается (после countdown) - скрываем overlay
   socket.on('game_start', (data) => {
-    console.log('🎮 Игра началась (клиент):', data);
+    console.log('🎮 Game started (client):', data);
     
     // Сохраняем данные игры
     if (!currentGame) {
@@ -195,7 +195,7 @@ function initSocket() {
     // Очищаем canvas и готовимся к игре
     if (gameCanvas && gameCtx) {
       gameCtx.clearRect(0, 0, gameCanvas.width, gameCanvas.height);
-      gameCtx.fillStyle = '#1a1a2e';
+      gameCtx.fillStyle = '#0a0e27'; // Modern dark blue background
       gameCtx.fillRect(0, 0, gameCanvas.width, gameCanvas.height);
       drawGrid();
     }
@@ -205,7 +205,7 @@ function initSocket() {
     const timeoutId = setTimeout(() => {
       if (!gameStateReceived) {
         console.error('⚠️ game_state не получен в течение 1 секунды после game_start');
-        tg.showAlert('Предупреждение: игра может не запуститься. Проверьте подключение.');
+        tg.showAlert('Warning: Game may not start. Check your connection.');
       }
     }, 1000);
     
@@ -234,7 +234,7 @@ function initSocket() {
   
   socket.on('error', (error) => {
     console.error('Socket error:', error);
-    tg.showAlert(error.message || 'Произошла ошибка');
+    tg.showAlert(error.message || 'An error occurred');
   });
   
   socket.on('ready_confirmed', () => {
@@ -246,10 +246,10 @@ function initSocket() {
  * Инициализация обработчиков событий
  */
 function initEventListeners() {
-  // Кнопка "Найти игру" - переключаемся на экран лобби
+  // "Find Match" button - switch to lobby screen
   document.getElementById('start-game-btn')?.addEventListener('click', () => {
     if (socket && socket.connected) {
-      // Переключаемся на экран лобби (ожидание)
+      // Switch to lobby screen (waiting)
       showScreen('lobby');
       // Отправляем запрос на поиск соперника
       socket.emit('find_match');
@@ -318,7 +318,7 @@ function initEventListeners() {
   }, { passive: false });
   
   // Кнопки результатов
-  // Кнопка "Играть снова" - ищем новую игру
+  // "Play Again" button - find new game
   document.getElementById('play-again-btn')?.addEventListener('click', () => {
     // Удаляем класс active с экрана результатов
     const resultScreen = document.getElementById('result-screen');
@@ -339,9 +339,9 @@ function initEventListeners() {
     }
   });
   
-  // Кнопка "В меню" - возврат в главное меню (показывает первое окно при входе)
+  // "Menu" button - return to main menu (shows first screen on entry)
   document.getElementById('menu-btn')?.addEventListener('click', () => {
-    console.log('🔄 Возврат в главное меню');
+    console.log('🔄 Returning to main menu');
     
     // Полная очистка состояния: сбрасываем Socket.io состояние
     currentGame = null;
@@ -427,7 +427,7 @@ function sendDirection(direction) {
  * Показ экрана
  */
 function showScreen(screenName) {
-  console.log('🖥️ Переключение на экран:', screenName);
+  console.log('🖥️ Switching to screen:', screenName);
   
   // Находим все элементы с классом screen и принудительно скрываем их
   const screens = document.querySelectorAll('.screen');
@@ -448,9 +448,9 @@ function showScreen(screenName) {
     }
     target.classList.add('active');
     gameState = screenName;
-    console.log(`✅ Экран "${targetId}" показан`);
+    console.log(`✅ Screen "${targetId}" shown`);
   } else {
-    console.warn(`❌ Экран "${targetId}" не найден!`);
+    console.warn(`❌ Screen "${targetId}" not found!`);
   }
 }
 
@@ -503,7 +503,7 @@ function startGame(data) {
   currentGame.startTime = data.start_time || Date.now();
   
   // Переключаемся на игровой экран (ID в HTML: game-screen)
-  console.log('📺 Переключаемся на игровой экран');
+  console.log('📺 Switching to game screen');
   gameState = 'playing'; // Используем 'playing' для проверки в game_state
   showScreen('game'); // ID экрана в HTML: game-screen
   
@@ -525,7 +525,7 @@ function startGame(data) {
     gameCtx.clearRect(0, 0, gameCanvas.width, gameCanvas.height);
     
     // Очищаем canvas и рисуем начальный фон
-    gameCtx.fillStyle = '#1a1a2e';
+    gameCtx.fillStyle = '#0a0e27'; // Modern dark blue background
     gameCtx.fillRect(0, 0, gameCanvas.width, gameCanvas.height);
     drawGrid();
   }
@@ -561,7 +561,7 @@ function updateGameState(data) {
   gameCtx.clearRect(0, 0, gameCanvas.width, gameCanvas.height);
   
   // Фон для игрового поля
-  gameCtx.fillStyle = '#1a1a2e';
+  gameCtx.fillStyle = '#0a0e27'; // Modern dark blue background
   gameCtx.fillRect(0, 0, gameCanvas.width, gameCanvas.height);
   
   // Рисуем сетку
@@ -575,15 +575,15 @@ function updateGameState(data) {
   const player1Status = document.getElementById('player1-status');
   const player2Status = document.getElementById('player2-status');
   
-  if (player1Status) player1Status.textContent = `Вы: ${data.my_snake.alive ? 'Живы' : 'Мертвы'}`;
-  if (player2Status) player2Status.textContent = `Соперник: ${data.opponent_snake.alive ? 'Живы' : 'Мертвы'}`;
+  if (player1Status) player1Status.textContent = `You: ${data.my_snake.alive ? 'Alive' : 'Dead'}`;
+  if (player2Status) player2Status.textContent = `Opponent: ${data.opponent_snake.alive ? 'Alive' : 'Dead'}`;
 }
 
 /**
  * Рисование сетки (современный дизайн)
  */
 function drawGrid() {
-  const tileSize = gameCanvas.width / 20; // 20 клеток по ширине
+  const tileSize = gameCanvas.width / 30; // 30 клеток по ширине (обновлено для большего поля)
   const width = gameCanvas.width;
   const height = gameCanvas.height;
   
@@ -591,14 +591,14 @@ function drawGrid() {
   gameCtx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
   gameCtx.lineWidth = 0.5;
   
-  for (let i = 0; i <= 20; i++) {
-    // Вертикальные линии
+  for (let i = 0; i <= 30; i++) { // Updated for 30x30 field
+    // Vertical lines
     gameCtx.beginPath();
     gameCtx.moveTo(i * tileSize, 0);
     gameCtx.lineTo(i * tileSize, height);
     gameCtx.stroke();
     
-    // Горизонтальные линии
+    // Horizontal lines
     gameCtx.beginPath();
     gameCtx.moveTo(0, i * tileSize);
     gameCtx.lineTo(width, i * tileSize);
@@ -612,7 +612,7 @@ function drawGrid() {
 function drawSnake(snake, color1, color2) {
   if (!snake || !snake.body || snake.body.length === 0) return;
   
-  const tileSize = gameCanvas.width / 20;
+  const tileSize = gameCanvas.width / 30; // 30 клеток по ширине (обновлено для большего поля)
   
   // Определяем направление змейки для глаз
   let direction = snake.direction;
@@ -758,11 +758,11 @@ function renderGamePreviewOnCanvas(gameState, canvas, ctx) {
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   
   // СНАЧАЛА рисуем фон (темный)
-  ctx.fillStyle = '#1a1a2e';
+  ctx.fillStyle = '#0a0e27'; // Modern dark blue background
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   
   // Затем рисуем сетку (более яркую для лучшей видимости)
-  const tileSize = canvas.width / 20;
+  const tileSize = canvas.width / 30; // 30 клеток по ширине (обновлено для большего поля)
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
   ctx.lineWidth = 0.5;
   
@@ -897,24 +897,24 @@ function renderGamePreviewOnCanvas(gameState, canvas, ctx) {
     });
   };
   
-  // Рисуем змейки с современным дизайном
-  drawSnakePreview(gameState.my_snake, '#ff4444', '#ff6666', 'Вы (🔴)');
-  drawSnakePreview(gameState.opponent_snake, '#4444ff', '#6666ff', 'Соперник (🔵)');
+  // Draw snakes with modern design
+  drawSnakePreview(gameState.my_snake, '#ff4444', '#ff6666', 'You (🔴)');
+  drawSnakePreview(gameState.opponent_snake, '#4444ff', '#6666ff', 'Opponent (🔵)');
 }
 
 /**
  * Завершение игры
  */
 function endGame(data) {
-  console.log('🎯 endGame вызвана, данные:', data);
-  console.log('Попытка показать экран результатов...');
+  console.log('🎯 endGame called, data:', data);
+  console.log('Attempting to show results screen...');
   
   // Принудительная остановка игрового состояния
   gameState = 'result';
-  currentGame = null; // Это остановит обновление через game_state
+  currentGame = null; // This will stop updates via game_state
   
-  // Проверяем наличие данных из события game_end, используем значения по умолчанию
-  // Если data пришла пустая, функция всё равно должна сработать
+  // Check for data from game_end event, use default values
+  // If data is empty, function should still work
   const isWinner = data && data.winnerId ? data.winnerId === userId : false;
   const prize = data && data.prize ? data.prize : 0;
   
@@ -923,19 +923,19 @@ function endGame(data) {
   const resultMessage = document.getElementById('result-message');
   const resultPrize = document.getElementById('result-prize');
   
-  // Обновляем все элементы ДО показа экрана
+  // Update all elements BEFORE showing screen
   if (resultIcon) {
     resultIcon.textContent = isWinner ? '🏆' : '💀';
   }
   
-  // Четкий текст: "ПОБЕДА!" (зеленым) или "ПОРАЖЕНИЕ" (красным)
-  // Если данных нет, используем текст по умолчанию: "Связь прервана" или "Матч окончен"
+  // Clear text: "VICTORY!" (green) or "DEFEAT" (red)
+  // If no data, use default text: "Connection lost" or "Match ended"
   if (resultTitle) {
     if (data && data.winnerId) {
-      resultTitle.textContent = isWinner ? 'ПОБЕДА!' : 'ПОРАЖЕНИЕ';
+      resultTitle.textContent = isWinner ? 'VICTORY!' : 'DEFEAT';
       resultTitle.style.color = isWinner ? '#10b981' : '#ef4444';
     } else {
-      resultTitle.textContent = 'Матч окончен';
+      resultTitle.textContent = 'Match Ended';
       resultTitle.style.color = '#666';
     }
   }
@@ -943,11 +943,11 @@ function endGame(data) {
   if (resultMessage) {
     if (data && data.winnerId) {
       resultMessage.textContent = isWinner 
-        ? `Вы выиграли ${prize.toFixed(2)} USDT!` 
-        : 'Вы проиграли';
+        ? `You won ${prize.toFixed(2)} USDT!` 
+        : 'You lost';
     } else {
-      // Если связь прервана или данные не пришли
-      resultMessage.textContent = data ? 'Связь прервана' : 'Матч окончен';
+      // If connection lost or data didn't arrive
+      resultMessage.textContent = data ? 'Connection lost' : 'Match ended';
     }
   }
   
@@ -955,28 +955,28 @@ function endGame(data) {
     resultPrize.textContent = isWinner ? `💰 +${prize.toFixed(2)} USDT` : '💰 0 USDT';
   }
   
-  // Обновляем балансы
+  // Update balances
   updateBalance();
   
-  // ПРИНУДИТЕЛЬНО показываем экран результатов
+  // FORCE show results screen
   const resultScreen = document.getElementById('result-screen');
   if (!resultScreen) {
-    console.error('❌ Элемент #result-screen не найден в DOM!');
+    console.error('❌ Element #result-screen not found in DOM!');
     return;
   }
   
-  // Скрываем ВСЕ экраны
+  // Hide ALL screens
   document.querySelectorAll('.screen').forEach(s => {
     s.classList.remove('active');
     s.style.display = 'none';
   });
   
-  // Показываем экран результатов
+  // Show results screen
   resultScreen.classList.add('active');
   resultScreen.style.display = 'flex';
   resultScreen.style.zIndex = '9999';
   
-  console.log('✅ Экран результатов показан. Проверка:', {
+  console.log('✅ Results screen shown. Check:', {
     display: resultScreen.style.display,
     classList: resultScreen.classList.toString(),
     zIndex: resultScreen.style.zIndex
