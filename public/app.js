@@ -347,7 +347,7 @@ async function createPayment(packageId) {
       if (paymentModal && addressEl && amountUsdEl && amountTonEl && commentEl) {
         addressEl.textContent = data.walletAddress;
         // Отображаем сумму в долларах (1 TON = 1$)
-        amountUsdEl.textContent = `$${data.amountTon}`;
+        amountUsdEl.textContent = data.amountTon; // Только число, $ уже есть в HTML
         amountTonEl.textContent = data.amountTon;
         commentEl.textContent = data.comment;
         
@@ -434,24 +434,90 @@ function initEventListeners() {
       
       console.log('Opening Tonkeeper URL:', tonkeeperUrl);
       
-      // В Telegram Mini App используем tg.openLink() или window.location.href
-      if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.openLink) {
-        // Используем Telegram WebApp API для открытия ссылки
-        window.Telegram.WebApp.openLink(tonkeeperUrl);
-      } else {
-        // Fallback для других окружений
-        window.location.href = tonkeeperUrl;
-      }
+      // В Telegram Mini App для Deep Links ton:// лучше использовать временную ссылку
+      // Создаем временный <a> элемент и кликаем по нему
+      const link = document.createElement('a');
+      link.href = tonkeeperUrl;
+      link.style.display = 'none';
+      document.body.appendChild(link);
       
-      // Обновляем статус
-      const statusEl = document.getElementById('payment-status');
-      if (statusEl) {
-        statusEl.textContent = '⏳ Waiting for payment...';
-        statusEl.style.color = '#667eea';
+      // Пытаемся открыть через клик на ссылке
+      try {
+        link.click();
+        console.log('Clicked Tonkeeper link');
+        
+        // Удаляем ссылку после клика
+        setTimeout(() => {
+          document.body.removeChild(link);
+        }, 100);
+        
+        // Обновляем статус
+        const statusEl = document.getElementById('payment-status');
+        if (statusEl) {
+          statusEl.textContent = '⏳ Waiting for payment...';
+          statusEl.style.color = '#667eea';
+        }
+      } catch (linkError) {
+        // Если клик не сработал, пробуем tg.openLink()
+        console.warn('Link click failed, trying tg.openLink():', linkError);
+        document.body.removeChild(link);
+        
+        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.openLink) {
+          try {
+            window.Telegram.WebApp.openLink(tonkeeperUrl, { try_instant_view: false });
+            console.log('Opened Tonkeeper via tg.openLink()');
+            
+            const statusEl = document.getElementById('payment-status');
+            if (statusEl) {
+              statusEl.textContent = '⏳ Waiting for payment...';
+              statusEl.style.color = '#667eea';
+            }
+          } catch (tgError) {
+            // Если tg.openLink() тоже не сработал, пробуем window.location
+            console.warn('tg.openLink() failed, trying window.location:', tgError);
+            try {
+              window.location.href = tonkeeperUrl;
+              const statusEl = document.getElementById('payment-status');
+              if (statusEl) {
+                statusEl.textContent = '⏳ Waiting for payment...';
+                statusEl.style.color = '#667eea';
+              }
+            } catch (locationError) {
+              console.error('All methods to open Tonkeeper failed:', locationError);
+              const statusEl = document.getElementById('payment-status');
+              if (statusEl) {
+                statusEl.innerHTML = '⚠️ Please copy the address and comment, then send the payment manually in Tonkeeper app.';
+                statusEl.style.color = '#ef4444';
+              }
+              tg.showAlert('Please open Tonkeeper app manually and send the payment using the address and comment shown above.');
+            }
+          }
+        } else {
+          // Fallback: используем window.location
+          try {
+            window.location.href = tonkeeperUrl;
+            const statusEl = document.getElementById('payment-status');
+            if (statusEl) {
+              statusEl.textContent = '⏳ Waiting for payment...';
+              statusEl.style.color = '#667eea';
+            }
+          } catch (locationError) {
+            console.error('Failed to open Tonkeeper:', locationError);
+            const statusEl = document.getElementById('payment-status');
+            if (statusEl) {
+              statusEl.innerHTML = '⚠️ Please copy the address and comment, then send the payment manually in Tonkeeper app.';
+              statusEl.style.color = '#ef4444';
+            }
+          }
+        }
       }
     } catch (error) {
       console.error('Error opening Tonkeeper:', error);
-      tg.showAlert('Error opening Tonkeeper. Please check if Tonkeeper is installed.');
+      const statusEl = document.getElementById('payment-status');
+      if (statusEl) {
+        statusEl.innerHTML = '⚠️ Error opening Tonkeeper. Please send the payment manually using the address and comment above.';
+        statusEl.style.color = '#ef4444';
+      }
     }
   });
   
