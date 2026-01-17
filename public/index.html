@@ -1,0 +1,154 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="theme-color" content="#6366f1">
+    <title>Змейка - Мультиплеер</title>
+    <script src="https://telegram.org/js/telegram-web-app.js"></script>
+    <script src="https://cdn.socket.io/4.5.4/socket.io.min.js"></script>
+    <link rel="stylesheet" href="styles.css">
+    
+    <!-- Инициализация Telegram WebApp сразу для остановки loading spinner -->
+    <script>
+        if (window.Telegram && window.Telegram.WebApp) {
+            window.Telegram.WebApp.ready();
+            window.Telegram.WebApp.expand();
+        }
+    </script>
+</head>
+<body>
+    <div id="app">
+        <!-- Экран загрузки -->
+        <div id="loading-screen" class="screen active">
+            <div class="loader">
+                <div class="snake-loader"></div>
+                <p>Загрузка...</p>
+            </div>
+        </div>
+
+        <!-- Главное меню -->
+        <div id="menu-screen" class="screen">
+            <div class="menu-container">
+                <!-- TEST MODE Badge -->
+                <div id="test-mode-badge" class="test-mode-badge" style="display: none;">
+                    🧪 TEST MODE
+                </div>
+                
+                <div class="game-title">
+                    <h1>🐍 Змейка</h1>
+                    <p class="subtitle">Мультиплеер 1v1</p>
+                </div>
+                
+                <!-- Балансы -->
+                <div class="balance-container">
+                    <div class="balance-item">
+                        <span class="balance-label">🎮 Игры:</span>
+                        <span id="games-balance" class="balance-value">0</span>
+                    </div>
+                    <div class="balance-item">
+                        <span class="balance-label">💰 Доступно к выводу:</span>
+                        <span id="winnings-balance" class="balance-value">0 USDT</span>
+                    </div>
+                </div>
+                
+                <div class="menu-content">
+                    <!-- Пополнение баланса (DEBUG_MODE) -->
+                    <button id="add-games-btn" class="btn btn-secondary" style="display: none;">
+                        💰 Пополнить баланс (TEST)
+                    </button>
+                    
+                    <button id="start-game-btn" class="btn btn-primary">
+                        <span>🎮 Найти игру</span>
+                    </button>
+
+                    <div class="rules">
+                        <h3>Правила:</h3>
+                        <ul>
+                            <li>Управление: стрелки или свайпы</li>
+                            <li>Проигрыш при столкновении со стеной или другой змейкой</li>
+                            <li>Ваша змейка: <span class="snake-color red">🔴</span></li>
+                            <li>Соперник: <span class="snake-color blue">🔵</span></li>
+                        </ul>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Экран ожидания соперника -->
+        <div id="waiting-screen" class="screen">
+            <div class="waiting-container">
+                <div class="waiting-status">
+                    <div class="status-animation">
+                        <div class="pulse-dot"></div>
+                    </div>
+                    <h3>Ожидание соперника...</h3>
+                </div>
+            </div>
+        </div>
+
+        <!-- Экран обратного отсчета -->
+        <div id="countdown-screen" class="screen">
+            <div class="countdown-container">
+                <div class="countdown-display">
+                    <div id="countdown-number">3</div>
+                    <p>Игра начинается</p>
+                </div>
+            </div>
+        </div>
+
+        <!-- Игровой экран -->
+        <div id="game-screen" class="screen">
+            <div class="game-header">
+                <div class="player-info">
+                    <div class="player-item">
+                        <span class="player-color red">🔴</span>
+                        <span id="player1-status">Вы: Живы</span>
+                    </div>
+                    <div class="player-item">
+                        <span class="player-color blue">🔵</span>
+                        <span id="player2-status">Соперник: Живы</span>
+                    </div>
+                </div>
+            </div>
+
+            <div class="game-container">
+                <canvas id="game-canvas"></canvas>
+            </div>
+
+            <div class="game-controls">
+                <div class="controls-grid">
+                    <button id="btn-up" class="control-btn">⬆️</button>
+                    <div class="controls-row">
+                        <button id="btn-left" class="control-btn">⬅️</button>
+                        <button id="btn-right" class="control-btn">➡️</button>
+                    </div>
+                    <button id="btn-down" class="control-btn">⬇️</button>
+                </div>
+            </div>
+        </div>
+
+        <!-- Экран результатов -->
+        <div id="result-screen" class="screen">
+            <div class="result-container">
+                <div id="result-icon" class="result-icon">🏆</div>
+                <h2 id="result-title">Победа!</h2>
+                <p id="result-message">Вы выиграли!</p>
+                <div id="result-prize" class="prize-amount">💰 +0 USDT</div>
+                
+                <div class="result-buttons">
+                    <button id="play-again-btn" class="btn btn-primary">
+                        🎮 Играть снова
+                    </button>
+                    <button id="menu-btn" class="btn btn-secondary">
+                        📋 Меню
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>
+

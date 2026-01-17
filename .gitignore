@@ -1,37 +1,6 @@
-# Python
-__pycache__/
-*.py[cod]
-*$py.class
-*.so
-.Python
-env/
-venv/
-ENV/
-.venv
-
-# Логи
-*.log
-bot.log
-
-# IDE
-.vscode/
-.idea/
-*.swp
-*.swo
-*~
-
-# OS
-.DS_Store
-Thumbs.db
-
-# Переменные окружения (ВАЖНО!)
+node_modules/
+db/db.json
 .env
-.env.local
-config_local.py
-
-# Railway
-.railway/
-
-# Временные файлы
-*.tmp
-*.bak
+*.log
+.DS_Store
+.vscode/
