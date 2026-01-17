@@ -311,13 +311,11 @@ body {
 }
 
 .game-container {
-    flex: 1;
+    flex-grow: 1;
     display: flex;
     align-items: center;
     justify-content: center;
     width: 100%;
-    max-width: 90vw;
-    margin: 0 auto;
     position: relative;
     padding: 10px;
     min-height: 0; /* Позволяет flex-элементу сжиматься */
@@ -325,8 +323,11 @@ body {
 
 #game-canvas {
     display: block;
-    width: 100%;
+    max-width: 95vw;
+    max-height: 50vh;
+    width: auto;
     height: auto;
+    aspect-ratio: 1; /* Делаем квадратным */
     border: 3px solid rgba(255, 255, 255, 0.1);
     border-radius: 15px;
     background: #1a1a2e;

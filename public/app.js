@@ -12,7 +12,7 @@ tg.expand();
 let socket = null;
 let userId = null;
 let username = null;
-let gameState = 'loading'; // loading, menu, lobby, countdown, game, result
+let gameState = 'loading'; // loading, menu, lobby, countdown, playing, result
 let currentGame = null;
 let gameCanvas = null;
 let gameCtx = null;
@@ -160,7 +160,7 @@ function initSocket() {
   
   socket.on('game_state', (data) => {
     // Обновляем состояние игры только если игра активна (после countdown)
-    if (currentGame && gameState === 'game') {
+    if (currentGame && gameState === 'playing') {
       updateGameState(data);
     }
   });
@@ -210,7 +210,7 @@ function initEventListeners() {
   
   // Клавиатурное управление
   document.addEventListener('keydown', (e) => {
-    if (gameState !== 'game') return;
+    if (gameState !== 'playing') return;
     
     const keyMap = {
       'ArrowUp': 'up',
@@ -352,7 +352,7 @@ function initWaitingCanvas() {
  * Отправка команды направления
  */
 function sendDirection(direction) {
-  if (socket && socket.connected && gameState === 'game') {
+  if (socket && socket.connected && gameState === 'playing') {
     socket.emit('direction', direction);
   }
 }
@@ -427,11 +427,26 @@ function startGame(data) {
   
   // Переключаемся на игровой экран (ID в HTML: game-screen)
   console.log('📺 Переключаемся на игровой экран');
-  gameState = 'game';
-  showScreen('game');
+  gameState = 'playing'; // Используем 'playing' для проверки в game_state
+  showScreen('game'); // ID экрана в HTML: game-screen
   
   // Инициализируем игровой canvas если нужно
+  if (!gameCanvas || !gameCtx) {
+    gameCanvas = document.getElementById('game-canvas');
+    if (gameCanvas) {
+      gameCtx = gameCanvas.getContext('2d');
+      // Устанавливаем размер canvas
+      const container = gameCanvas.parentElement;
+      const size = Math.min(container.clientWidth - 20, 600);
+      gameCanvas.width = size;
+      gameCanvas.height = size;
+    }
+  }
+  
   if (gameCanvas && gameCtx) {
+    // Принудительная очистка canvas
+    gameCtx.clearRect(0, 0, gameCanvas.width, gameCanvas.height);
+    
     // Очищаем canvas и рисуем начальный фон
     gameCtx.fillStyle = '#1a1a2e';
     gameCtx.fillRect(0, 0, gameCanvas.width, gameCanvas.height);
@@ -447,7 +462,17 @@ function startGame(data) {
  * Обновление состояния игры
  */
 function updateGameState(data) {
-  if (!gameCanvas || !gameCtx || !data.my_snake || !data.opponent_snake) return;
+  console.log('Данные игры:', data); // Логирование для отладки
+  
+  if (!gameCanvas || !gameCtx) {
+    console.warn('Canvas не инициализирован!');
+    return;
+  }
+  
+  if (!data || !data.my_snake || !data.opponent_snake) {
+    console.warn('Неполные данные игры:', data);
+    return;
+  }
   
   // Очищаем canvas
   gameCtx.clearRect(0, 0, gameCanvas.width, gameCanvas.height);
