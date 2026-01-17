@@ -91,11 +91,7 @@ function initSocket() {
   
   socket.on('waiting_opponent', () => {
     console.log('⏳ Ожидание соперника...');
-    showScreen('waiting');
-    // Инициализируем waiting-canvas при показе экрана ожидания
-    setTimeout(() => {
-      initWaitingCanvas();
-    }, 100);
+    showGameScreenWithOverlay('waiting');
   });
   
   socket.on('game_created', (data) => {
@@ -112,20 +108,16 @@ function initSocket() {
       currentGame.initialState = data.initial_state;
       console.log('✅ Начальное состояние игры получено');
       
-      // Показываем экран ожидания с preview игры
-      showScreen('waiting');
+      // Показываем игровой экран с оверлеем ожидания и preview игры
+      showGameScreenWithOverlay('waiting');
       
-      // Инициализируем waiting-canvas и рисуем preview
+      // Рисуем preview на игровом canvas
       setTimeout(() => {
-        initWaitingCanvas();
-        const canvas = window.waitingCanvas;
-        const ctx = window.waitingCtx;
-        
-        if (canvas && ctx) {
-          console.log('🎨 Рисуем preview игры на waiting-canvas');
-          renderGamePreviewOnCanvas(data.initial_state, canvas, ctx);
+        if (gameCanvas && gameCtx) {
+          console.log('🎨 Рисуем preview игры на game-canvas');
+          renderGamePreviewOnCanvas(data.initial_state, gameCanvas, gameCtx);
         } else {
-          console.error('❌ waiting-canvas не инициализирован');
+          console.error('❌ game-canvas не инициализирован');
         }
       }, 100);
     }
@@ -160,21 +152,20 @@ function initSocket() {
         waitingText.textContent = 'Оба игрока готовы!';
       }
       
-      // Обновляем preview на экране ожидания (чтобы показать обе змейки)
-      const waitingCanvas = window.waitingCanvas || document.getElementById('waiting-canvas');
-      const waitingCtx = window.waitingCtx;
-      
-      if (waitingCanvas && waitingCtx) {
-        console.log('🎨 Обновляем preview игры на waiting-canvas');
-        renderGamePreviewOnCanvas(data.initial_state, waitingCanvas, waitingCtx);
+      // Обновляем preview на игровом canvas (чтобы показать обе змейки)
+      if (gameCanvas && gameCtx) {
+        console.log('🎨 Обновляем preview игры на game-canvas');
+        renderGamePreviewOnCanvas(data.initial_state, gameCanvas, gameCtx);
       }
       
       // Небольшая задержка перед countdown, чтобы игрок увидел обновленное поле
       setTimeout(() => {
-        // Переходим к countdown
+        // Переходим к countdown (на том же экране)
         console.log('⏳ Начинаем countdown...');
         startCountdown(() => {
           console.log('✅ Countdown завершен, запускаем игру');
+          // Скрываем оверлей и начинаем игру
+          hideGameOverlay();
           startGame(data);
         });
       }, 1500); // 1.5 секунды чтобы увидеть обновленное поле
@@ -188,16 +179,9 @@ function initSocket() {
   });
   
   socket.on('game_state', (data) => {
-    // Обновляем состояние игры если игра активна
+    // Обновляем состояние игры только если игра активна (после countdown)
     if (currentGame && gameState === 'playing') {
       updateGameState(data);
-    } else if (currentGame && gameState === 'countdown') {
-      // Если мы еще на countdown, но получили game_state - обновляем countdown canvas
-      const canvas = window.countdownCanvas || gameCanvas;
-      const ctx = window.countdownCtx || gameCtx;
-      if (canvas && ctx) {
-        renderGamePreviewOnCanvas(data, canvas, ctx);
-      }
     }
   });
   
@@ -422,41 +406,52 @@ async function addGamesBalance(amount) {
 }
 
 /**
+ * Показ игрового экрана с оверлеем (ожидание или countdown)
+ */
+function showGameScreenWithOverlay(type) {
+  showScreen('playing');
+  
+  const overlay = document.getElementById('game-overlay');
+  const waitingStatus = document.getElementById('waiting-status');
+  const countdownDisplay = document.getElementById('countdown-display');
+  
+  if (overlay) {
+    overlay.style.display = 'flex';
+    
+    if (type === 'waiting') {
+      if (waitingStatus) waitingStatus.style.display = 'block';
+      if (countdownDisplay) countdownDisplay.style.display = 'none';
+    } else if (type === 'countdown') {
+      if (waitingStatus) waitingStatus.style.display = 'none';
+      if (countdownDisplay) countdownDisplay.style.display = 'block';
+    }
+  }
+}
+
+/**
+ * Скрытие оверлея игры
+ */
+function hideGameOverlay() {
+  const overlay = document.getElementById('game-overlay');
+  if (overlay) {
+    overlay.style.display = 'none';
+  }
+}
+
+/**
  * Countdown перед началом игры
  */
 function startCountdown(callback) {
-  showScreen('countdown');
-  
-  // Инициализируем countdown canvas если еще не инициализирован
-  const countdownCanvasEl = document.getElementById('countdown-canvas');
-  if (countdownCanvasEl && !window.countdownCanvas) {
-    window.countdownCanvas = countdownCanvasEl;
-    window.countdownCtx = countdownCanvasEl.getContext('2d');
-    const size = Math.min(countdownCanvasEl.parentElement.clientWidth - 20, 600);
-    countdownCanvasEl.width = size;
-    countdownCanvasEl.height = size;
-  }
+  // Показываем countdown оверлей на том же экране
+  showGameScreenWithOverlay('countdown');
   
   // Если есть начальное состояние игры - показываем его во время countdown
-  if (currentGame && currentGame.initialState) {
-    const canvas = window.countdownCanvas || gameCanvas;
-    const ctx = window.countdownCtx || gameCtx;
-    if (canvas && ctx) {
-      renderGamePreviewOnCanvas(currentGame.initialState, canvas, ctx);
-    }
+  if (currentGame && currentGame.initialState && gameCanvas && gameCtx) {
+    renderGamePreviewOnCanvas(currentGame.initialState, gameCanvas, gameCtx);
   }
   
   let count = 3;
   const countdownEl = document.getElementById('countdown-number');
-  
-  // Сразу рисуем preview при начале countdown
-  if (currentGame && currentGame.initialState) {
-    const canvas = window.countdownCanvas || gameCanvas;
-    const ctx = window.countdownCtx || gameCtx;
-    if (canvas && ctx) {
-      renderGamePreviewOnCanvas(currentGame.initialState, canvas, ctx);
-    }
-  }
   
   const interval = setInterval(() => {
     if (countdownEl) {
@@ -464,12 +459,8 @@ function startCountdown(callback) {
     }
     
     // Обновляем preview во время countdown каждую секунду
-    if (currentGame && currentGame.initialState) {
-      const canvas = window.countdownCanvas || gameCanvas;
-      const ctx = window.countdownCtx || gameCtx;
-      if (canvas && ctx) {
-        renderGamePreviewOnCanvas(currentGame.initialState, canvas, ctx);
-      }
+    if (currentGame && currentGame.initialState && gameCanvas && gameCtx) {
+      renderGamePreviewOnCanvas(currentGame.initialState, gameCanvas, gameCtx);
     }
     
     count--;

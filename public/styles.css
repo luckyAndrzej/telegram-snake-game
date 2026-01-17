@@ -177,10 +177,30 @@ body {
     color: #666;
 }
 
-/* Ожидание */
-.waiting-container {
+/* Оверлей для ожидания/countdown поверх игрового поля */
+.game-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background: rgba(0, 0, 0, 0.7);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+    border-radius: 0;
+}
+
+.overlay-content {
     text-align: center;
     color: white;
+}
+
+.waiting-status {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
 }
 
 .pulse-dot {
@@ -197,20 +217,25 @@ body {
     50% { transform: scale(1.2); opacity: 0.7; }
 }
 
-/* Countdown */
-.countdown-container {
-    text-align: center;
-    color: white;
+.countdown-display {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
 }
 
-.countdown-display {
-    font-size: 72px;
+.countdown-display #countdown-number {
+    font-size: 80px;
     font-weight: bold;
+    margin-bottom: 10px;
+    text-shadow: 0 4px 20px rgba(255, 255, 255, 0.5);
 }
 
 /* Игра */
 #game-screen {
     padding: 10px;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
 }
 
 .game-header {
@@ -234,10 +259,15 @@ body {
 }
 
 .game-container {
-    background: white;
-    border-radius: 10px;
+    flex: 1;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 100%;
+    max-width: 90vw;
+    margin: 0 auto;
+    position: relative;
     padding: 10px;
-    box-shadow: 0 5px 20px rgba(0, 0, 0, 0.2);
 }
 
 #game-canvas,

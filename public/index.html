@@ -75,38 +75,24 @@
             </div>
         </div>
 
-        <!-- Экран ожидания соперника -->
-        <div id="waiting-screen" class="screen">
-            <div class="waiting-container">
-                <div class="waiting-status">
-                    <div class="status-animation">
-                        <div class="pulse-dot"></div>
-                    </div>
-                    <h3 id="waiting-text">Ожидание соперника...</h3>
-                </div>
-                <!-- Canvas для отображения preview игры во время ожидания -->
-                <div class="game-container" style="margin-top: 20px; max-width: 600px;">
-                    <canvas id="waiting-canvas"></canvas>
-                </div>
-            </div>
-        </div>
-
-        <!-- Экран обратного отсчета -->
-        <div id="countdown-screen" class="screen">
-            <div class="countdown-container">
-                <div class="countdown-display">
-                    <div id="countdown-number">3</div>
-                    <p>Игра начинается</p>
-                </div>
-                <!-- Canvas для отображения игрового поля во время countdown -->
-                <div class="game-container" style="margin-top: 20px;">
-                    <canvas id="countdown-canvas"></canvas>
-                </div>
-            </div>
-        </div>
-
-        <!-- Игровой экран -->
+        <!-- Игровой экран (используется для ожидания, countdown и игры) -->
         <div id="game-screen" class="screen">
+            <!-- Оверлей для ожидания/countdown (показывается поверх игрового поля) -->
+            <div id="game-overlay" class="game-overlay" style="display: none;">
+                <div class="overlay-content">
+                    <div id="waiting-status" class="waiting-status" style="display: none;">
+                        <div class="status-animation">
+                            <div class="pulse-dot"></div>
+                        </div>
+                        <h3 id="waiting-text">Ожидание соперника...</h3>
+                    </div>
+                    <div id="countdown-display" class="countdown-display" style="display: none;">
+                        <div id="countdown-number">3</div>
+                        <p>Игра начинается</p>
+                    </div>
+                </div>
+            </div>
+            
             <div class="game-header">
                 <div class="player-info">
                     <div class="player-item">
