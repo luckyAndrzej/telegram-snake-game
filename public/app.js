@@ -20,10 +20,18 @@ let debugMode = false;
 
 // Инициализация
 document.addEventListener('DOMContentLoaded', () => {
+  console.log('🚀 Инициализация приложения...');
+  // Сразу скрываем loading-screen
+  const loadingScreen = document.getElementById('loading-screen');
+  if (loadingScreen) {
+    loadingScreen.classList.remove('active');
+  }
+  
   initSocket();
   initEventListeners();
   initCanvas();
   showScreen('menu');
+  console.log('✅ Приложение инициализировано');
 });
 
 /**
@@ -53,6 +61,15 @@ function initSocket() {
   // Socket.io события
   socket.on('connect', () => {
     console.log('✅ WebSocket подключен');
+    console.log('Socket ID:', socket.id);
+  });
+  
+  socket.on('disconnect', (reason) => {
+    console.warn('⚠️ WebSocket отключен:', reason);
+  });
+  
+  socket.on('connect_error', (error) => {
+    console.error('❌ Ошибка подключения WebSocket:', error);
   });
   
   socket.on('user_data', (data) => {
@@ -73,6 +90,7 @@ function initSocket() {
   });
   
   socket.on('waiting_opponent', () => {
+    console.log('⏳ Ожидание соперника...');
     showScreen('waiting');
   });
   
@@ -90,18 +108,28 @@ function initSocket() {
   });
   
   socket.on('game_start', (data) => {
-    console.log('Игра началась:', data);
+    console.log('🎮 Игра началась (клиент):', data);
+    console.log('initial_state:', data.initial_state);
+    
     // Сохраняем начальное состояние для отображения во время countdown
-    if (data.initial_state) {
-      if (!currentGame) {
-        currentGame = {};
-      }
-      currentGame.gameId = data.gameId;
-      currentGame.startTime = data.start_time;
-      currentGame.initialState = data.initial_state;
+    if (!currentGame) {
+      currentGame = {};
     }
+    
+    currentGame.gameId = data.gameId;
+    currentGame.startTime = data.start_time || Date.now();
+    
+    if (data.initial_state) {
+      currentGame.initialState = data.initial_state;
+      console.log('✅ Начальное состояние сохранено');
+    } else {
+      console.warn('⚠️ initial_state отсутствует в game_start');
+    }
+    
     // Переходим к countdown
+    console.log('⏳ Начинаем countdown...');
     startCountdown(() => {
+      console.log('✅ Countdown завершен, запускаем игру');
       startGame(data);
     });
   });
