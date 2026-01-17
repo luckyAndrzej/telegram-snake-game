@@ -16,10 +16,12 @@ const DIRECTIONS = {
 function createGame(player1Id, player2Id, config) {
   const gameId = `game_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   
-  // Начальные позиции змеек
+  // Начальные позиции змеек (лицом друг к другу, прижаты к стенам)
   const centerY = Math.floor(config.FIELD_HEIGHT / 2);
-  const snake1Start = { x: 5, y: centerY };
-  const snake2Start = { x: config.FIELD_WIDTH - 6, y: centerY };
+  // Змейка 1: голова x: 4, хвост влево до x: 0, длина 5, смотрит вправо
+  const snake1Start = { x: 4, y: centerY };
+  // Змейка 2: голова x: 15, хвост вправо до x: 19, длина 5, смотрит влево
+  const snake2Start = { x: 15, y: centerY };
   
   const game = {
     gameId,
@@ -35,16 +37,16 @@ function createGame(player1Id, player2Id, config) {
     end_time: null,
     winner_id: null,
     
-    // Состояние змеек
+    // Состояние змеек (длина 5 сегментов)
     snake1: {
-      body: createSnakeBody(snake1Start, 3),
-      direction: DIRECTIONS.RIGHT,
+      body: createSnakeBody(snake1Start, 5), // Длина 5
+      direction: DIRECTIONS.RIGHT, // Смотрит вправо
       next_direction: DIRECTIONS.RIGHT,
       alive: true
     },
     snake2: {
-      body: createSnakeBody(snake2Start, 3),
-      direction: DIRECTIONS.LEFT,
+      body: createSnakeBodyRight(snake2Start, 5), // Длина 5, тело вправо
+      direction: DIRECTIONS.LEFT, // Смотрит влево
       next_direction: DIRECTIONS.LEFT,
       alive: true
     },
@@ -65,12 +67,23 @@ function createGame(player1Id, player2Id, config) {
 }
 
 /**
- * Создать тело змейки
+ * Создать тело змейки (хвост влево от головы)
  */
 function createSnakeBody(startPos, length) {
   const body = [{ ...startPos }];
   for (let i = 1; i < length; i++) {
     body.push({ x: startPos.x - i, y: startPos.y });
+  }
+  return body;
+}
+
+/**
+ * Создать тело змейки (хвост вправо от головы) - для змейки 2
+ */
+function createSnakeBodyRight(startPos, length) {
+  const body = [{ ...startPos }];
+  for (let i = 1; i < length; i++) {
+    body.push({ x: startPos.x + i, y: startPos.y });
   }
   return body;
 }

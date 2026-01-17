@@ -349,6 +349,7 @@ body {
     display: none;
     justify-content: center;
     align-items: center;
+    pointer-events: none; /* Не мешает кликам, если не исчезнет мгновенно */
 }
 
 .countdown-overlay-content {

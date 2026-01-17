@@ -180,7 +180,7 @@ function initSocket() {
     gameState = 'playing';
     console.log('✅ gameState установлен в:', gameState);
     
-    // Очищаем старое начальное состояние (больше не нужно для countdown)
+    // Очищаем старое начальное состояние сразу после скрытия overlay
     currentGame.initialState = null;
     
     // Скрываем countdown overlay
@@ -189,7 +189,7 @@ function initSocket() {
       countdownOverlay.style.display = 'none';
     }
     
-    // Вызываем initCanvas(), чтобы убедиться, что размеры холста актуальны
+    // Вызываем initCanvas(), чтобы убедиться, что размеры холста актуальны перед отрисовкой
     initCanvas();
     
     // Очищаем canvas и готовимся к игре
@@ -199,6 +199,23 @@ function initSocket() {
       gameCtx.fillRect(0, 0, gameCanvas.width, gameCanvas.height);
       drawGrid();
     }
+    
+    // Проверка: если game_state не приходит в течение 1 секунды, выводим предупреждение
+    let gameStateReceived = false;
+    const timeoutId = setTimeout(() => {
+      if (!gameStateReceived) {
+        console.error('⚠️ game_state не получен в течение 1 секунды после game_start');
+        tg.showAlert('Предупреждение: игра может не запуститься. Проверьте подключение.');
+      }
+    }, 1000);
+    
+    // Слушаем первое game_state событие, чтобы сбросить таймаут
+    const onGameState = () => {
+      gameStateReceived = true;
+      clearTimeout(timeoutId);
+      socket.off('game_state', onGameState);
+    };
+    socket.once('game_state', onGameState);
     
     console.log('✅ Игра началась, ожидаем game_state события...');
   });
@@ -590,11 +607,11 @@ function drawSnake(snake, color1, color2) {
   // Если direction отсутствует, используем жестко заданное направление на основе цвета змейки
   if (!direction) {
     // Красная змейка (игрок 1) смотрит вправо, синяя (игрок 2) - влево
-    if (color1 === '#ff4444' || currentGame?.playerNumber === 1) {
-      // Игрок 1 - красная змейка, смотрит вправо
+    if (color1 === '#ff4444') {
+      // Игрок 1 - красная змейка, смотрит вправо (лицом к сопернику)
       direction = { dx: 1, dy: 0 };
-    } else if (color1 === '#4444ff' || currentGame?.playerNumber === 2) {
-      // Игрок 2 - синяя змейка, смотрит влево
+    } else if (color1 === '#4444ff') {
+      // Игрок 2 - синяя змейка, смотрит влево (лицом к сопернику)
       direction = { dx: -1, dy: 0 };
     } else if (snake.body.length > 1) {
       // Если цвет не определен, вычисляем из первых двух сегментов
@@ -754,6 +771,17 @@ function renderGamePreviewOnCanvas(gameState, canvas, ctx) {
   const drawSnakePreview = (snake, color1, color2, label) => {
     if (!snake || !snake.body) return;
     
+    // Определяем направление змейки для глаз (лицом друг к другу)
+    let direction = snake.direction;
+    if (!direction) {
+      // Красная змейка смотрит вправо, синяя - влево
+      if (color1 === '#ff4444') {
+        direction = { dx: 1, dy: 0 }; // Вправо
+      } else if (color1 === '#4444ff') {
+        direction = { dx: -1, dy: 0 }; // Влево
+      }
+    }
+    
     const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
     gradient.addColorStop(0, color1);
     gradient.addColorStop(1, color2);
@@ -783,15 +811,57 @@ function renderGamePreviewOnCanvas(gameState, canvas, ctx) {
         ctx.roundRect(x + 1, y + 1, size, size, size * 0.2);
         ctx.stroke();
         
-        // Глаза на голове
+        // Глаза на голове с учетом направления (лицом друг к другу)
         ctx.shadowBlur = 0;
         ctx.shadowColor = 'transparent';
         ctx.fillStyle = '#ffffff';
+        
+        let eyeX1, eyeY1, eyeX2, eyeY2;
+        const centerX = x + 1 + size / 2;
+        const centerY = y + 1 + size / 2;
+        const eyeOffset = size * 0.2;
+        const eyeSize = size * 0.1;
+        
+        if (direction) {
+          // Вычисляем позицию глаз в зависимости от направления
+          if (direction.dx > 0) {
+            // Движется вправо - глаза справа
+            eyeX1 = centerX + eyeOffset * 0.5;
+            eyeY1 = centerY - eyeOffset * 0.5;
+            eyeX2 = centerX + eyeOffset * 0.5;
+            eyeY2 = centerY + eyeOffset * 0.5;
+          } else if (direction.dx < 0) {
+            // Движется влево - глаза слева
+            eyeX1 = centerX - eyeOffset * 0.5;
+            eyeY1 = centerY - eyeOffset * 0.5;
+            eyeX2 = centerX - eyeOffset * 0.5;
+            eyeY2 = centerY + eyeOffset * 0.5;
+          } else if (direction.dy > 0) {
+            // Движется вниз - глаза внизу
+            eyeX1 = centerX - eyeOffset * 0.5;
+            eyeY1 = centerY + eyeOffset * 0.5;
+            eyeX2 = centerX + eyeOffset * 0.5;
+            eyeY2 = centerY + eyeOffset * 0.5;
+          } else {
+            // Движется вверх - глаза вверху
+            eyeX1 = centerX - eyeOffset * 0.5;
+            eyeY1 = centerY - eyeOffset * 0.5;
+            eyeX2 = centerX + eyeOffset * 0.5;
+            eyeY2 = centerY - eyeOffset * 0.5;
+          }
+        } else {
+          // По умолчанию глаза вверху
+          eyeX1 = centerX - eyeOffset * 0.5;
+          eyeY1 = centerY - eyeOffset * 0.5;
+          eyeX2 = centerX + eyeOffset * 0.5;
+          eyeY2 = centerY - eyeOffset * 0.5;
+        }
+        
         ctx.beginPath();
-        ctx.arc(x + size * 0.3, y + size * 0.3, size * 0.1, 0, Math.PI * 2);
+        ctx.arc(eyeX1, eyeY1, eyeSize, 0, Math.PI * 2);
         ctx.fill();
         ctx.beginPath();
-        ctx.arc(x + size * 0.7, y + size * 0.3, size * 0.1, 0, Math.PI * 2);
+        ctx.arc(eyeX2, eyeY2, eyeSize, 0, Math.PI * 2);
         ctx.fill();
         
         // Подпись
