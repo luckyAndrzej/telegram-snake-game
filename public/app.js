@@ -78,6 +78,11 @@ function initSocket() {
   
   socket.on('game_created', (data) => {
     console.log('Игра создана:', data);
+    // Сохраняем данные игры
+    currentGame = {
+      gameId: data.gameId,
+      playerNumber: data.playerNumber
+    };
     // Автоматически отправляем сигнал готовности после создания игры
     if (socket && socket.connected) {
       socket.emit('ready');
@@ -88,12 +93,14 @@ function initSocket() {
     console.log('Игра началась:', data);
     // Сохраняем начальное состояние для отображения во время countdown
     if (data.initial_state) {
-      currentGame = {
-        gameId: data.gameId,
-        startTime: data.start_time,
-        initialState: data.initial_state
-      };
+      if (!currentGame) {
+        currentGame = {};
+      }
+      currentGame.gameId = data.gameId;
+      currentGame.startTime = data.start_time;
+      currentGame.initialState = data.initial_state;
     }
+    // Переходим к countdown
     startCountdown(() => {
       startGame(data);
     });
@@ -134,6 +141,9 @@ function initEventListeners() {
   // Кнопка "Найти игру"
   document.getElementById('start-game-btn')?.addEventListener('click', () => {
     if (socket && socket.connected) {
+      // Сразу показываем экран ожидания
+      showScreen('waiting');
+      // Затем отправляем запрос на поиск соперника
       socket.emit('find_match');
     }
   });
