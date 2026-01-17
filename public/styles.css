@@ -20,7 +20,7 @@ body {
 }
 
 .screen {
-    display: none !important;
+    display: none;
     position: fixed;
     top: 0;
     left: 0;
@@ -454,7 +454,7 @@ body {
     width: 100vw;
     height: 100vh;
     z-index: 9999; /* Поверх всего */
-    background: rgba(0, 0, 0, 0.85); /* Затемнение фона игры */
+    background: rgba(0, 0, 0, 0.9); /* Затемнение фона игры (увеличено для скрытия змеек) */
     justify-content: center;
     align-items: center;
 }
