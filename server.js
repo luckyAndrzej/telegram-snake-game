@@ -266,11 +266,24 @@ async function startGame(gameId) {
   game.is_running = true;
   game.start_time = Date.now();
   
-  // Уведомляем игроков о старте
-  io.to(`game_${gameId}`).emit('game_start', {
-    gameId,
-    start_time: game.start_time
-  });
+  // Отправляем начальное состояние игры каждому игроку
+  const room = io.sockets.adapter.rooms.get(`game_${gameId}`);
+  if (room) {
+    room.forEach(socketId => {
+      const socket = io.sockets.sockets.get(socketId);
+      if (socket) {
+        const playerNumber = socket.playerNumber;
+        const userId = socketToUser.get(socketId);
+        const snapshot = gameLogic.getGameSnapshot(game, userId);
+        
+        socket.emit('game_start', {
+          gameId,
+          start_time: game.start_time,
+          initial_state: snapshot // Начальное состояние для отображения во время countdown
+        });
+      }
+    });
+  }
   
   console.log(`🚀 Игра ${gameId} началась!`);
 }
