@@ -289,6 +289,11 @@ function initEventListeners() {
     }
   });
   
+  // "Withdraw Funds" button
+  document.getElementById('withdraw-btn')?.addEventListener('click', () => {
+    handleWithdraw();
+  });
+  
   // Игровые кнопки управления
   ['up', 'down', 'left', 'right'].forEach(direction => {
     document.getElementById(`btn-${direction}`)?.addEventListener('click', () => {
@@ -493,6 +498,60 @@ function showScreen(screenName) {
     console.log(`✅ Screen "${targetId}" shown`);
   } else {
     console.warn(`❌ Screen "${targetId}" not found!`);
+  }
+}
+
+/**
+ * Обработка вывода средств
+ */
+function handleWithdraw() {
+  const winningsEl = document.getElementById('winnings-balance');
+  const currentBalance = parseFloat(winningsEl?.textContent?.replace(' USDT', '') || '0');
+  
+  if (currentBalance <= 0) {
+    if (window.Telegram && window.Telegram.WebApp) {
+      window.Telegram.WebApp.showAlert('No funds available for withdrawal');
+    } else {
+      alert('No funds available for withdrawal');
+    }
+    return;
+  }
+  
+  const withdrawMessage = `Withdraw ${currentBalance.toFixed(2)} USDT?`;
+  
+  // Показываем подтверждение
+  if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.showConfirm) {
+    window.Telegram.WebApp.showConfirm(
+      withdrawMessage,
+      (confirmed) => {
+        if (confirmed) {
+          // TODO: Реализовать вывод средств (TON blockchain интеграция)
+          // В DEBUG_MODE просто показываем сообщение
+          const message = debugMode 
+            ? `DEBUG: Withdrawal of ${currentBalance.toFixed(2)} USDT would be processed`
+            : 'Withdrawal functionality coming soon';
+          
+          if (window.Telegram && window.Telegram.WebApp) {
+            window.Telegram.WebApp.showAlert(message);
+          } else {
+            alert(message);
+          }
+        }
+      }
+    );
+  } else {
+    // Fallback для случаев, когда showConfirm недоступен
+    if (confirm(withdrawMessage)) {
+      const message = debugMode 
+        ? `DEBUG: Withdrawal of ${currentBalance.toFixed(2)} USDT would be processed`
+        : 'Withdrawal functionality coming soon';
+      
+      if (window.Telegram && window.Telegram.WebApp) {
+        window.Telegram.WebApp.showAlert(message);
+      } else {
+        alert(message);
+      }
+    }
   }
 }
 

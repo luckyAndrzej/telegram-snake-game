@@ -43,12 +43,18 @@
                 <!-- Balances -->
                 <div class="balance-container">
                     <div class="balance-item">
-                        <span class="balance-label">🎮 Games:</span>
-                        <span id="games-balance" class="balance-value">0</span>
+                        <div class="balance-icon">🎮</div>
+                        <div class="balance-info">
+                            <span class="balance-label">Games</span>
+                            <span id="games-balance" class="balance-value">0</span>
+                        </div>
                     </div>
                     <div class="balance-item">
-                        <span class="balance-label">💰 Available for withdrawal:</span>
-                        <span id="winnings-balance" class="balance-value">0 USDT</span>
+                        <div class="balance-icon">💰</div>
+                        <div class="balance-info">
+                            <span class="balance-label">Available for withdrawal</span>
+                            <span id="winnings-balance" class="balance-value">0.00 USDT</span>
+                        </div>
                     </div>
                 </div>
                 
@@ -56,6 +62,11 @@
                     <!-- Add Balance (DEBUG_MODE) -->
                     <button id="add-games-btn" class="btn btn-secondary" style="display: none;">
                         💰 Add Balance (TEST)
+                    </button>
+                    
+                    <!-- Withdraw Button -->
+                    <button id="withdraw-btn" class="btn btn-withdraw">
+                        <span>💸 Withdraw Funds</span>
                     </button>
                     
                     <button id="start-game-btn" class="btn btn-primary">
