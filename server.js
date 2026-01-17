@@ -14,9 +14,6 @@ const gameLogic = require('./game/gameLogic');
 const gameLoop = require('./game/gameLoop');
 const paymentModule = require('./payment/paymentHandler');
 
-// Экспорт DEBUG_MODE для использования в других модулях
-module.exports.DEBUG_MODE = DEBUG_MODE;
-
 // DEBUG MODE: Переключатель режимов
 const DEBUG_MODE = true; // true = Тестовый режим, false = Боевой режим (TON)
 
