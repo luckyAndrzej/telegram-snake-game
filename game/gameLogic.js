@@ -16,12 +16,12 @@ const DIRECTIONS = {
 function createGame(player1Id, player2Id, config) {
   const gameId = `game_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
   
-  // Начальные позиции змеек (лицом друг к другу, прижаты к стенам)
+  // Начальные позиции змеек (лицом друг к другу, прижаты к самым краям карты)
   const centerY = Math.floor(config.FIELD_HEIGHT / 2);
-  // Змейка 1: голова x: 6, хвост влево до x: 0, длина 5, смотрит вправо (для поля 30x30)
-  const snake1Start = { x: 6, y: centerY };
-  // Змейка 2: голова x: 23, хвост вправо до x: 29, длина 5, смотрит влево (для поля 30x30)
-  const snake2Start = { x: 23, y: centerY };
+  // Змейка 1: голова x: 4, хвост влево до x: 0, длина 5, смотрит вправо (у самого левого края)
+  const snake1Start = { x: 4, y: centerY };
+  // Змейка 2: голова x: 25, хвост вправо до x: 29, длина 5, смотрит влево (у самого правого края)
+  const snake2Start = { x: 25, y: centerY };
   
   const game = {
     gameId,

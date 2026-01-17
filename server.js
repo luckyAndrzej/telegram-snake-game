@@ -281,7 +281,7 @@ function startCountdown(gameId) {
   // Змейки уже отрисованы в начальных позициях, но не двигаются
   game.is_running = false; // Игра еще не началась
   
-  let count = 3;
+  let count = 5; // Start countdown from 5 instead of 3
   const countdownInterval = setInterval(() => {
     // Отправляем событие countdown всем игрокам в комнате
     io.to(`game_${gameId}`).emit('countdown', {

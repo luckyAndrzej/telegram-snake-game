@@ -117,8 +117,8 @@ function initSocket() {
       currentGame.initialState = data.initial_state;
       console.log('✅ Initial game state received');
       
-      // Сразу переключаемся на игровой экран
-      gameState = 'playing';
+      // Сразу переключаемся на игровой экран (но игра еще не началась - ждем countdown)
+      gameState = 'countdown'; // Устанавливаем 'countdown' вместо 'playing' до начала игры
       showScreen('game');
       
       // Инициализируем game-canvas с логическим разрешением 800x800 для четкости
@@ -176,9 +176,9 @@ function initSocket() {
     currentGame.gameId = data.gameId;
     currentGame.startTime = data.start_time || Date.now();
     
-    // Принудительная установка gameState = 'playing'
+    // Принудительная установка gameState = 'playing' (игра действительно началась)
     gameState = 'playing';
-    console.log('✅ gameState установлен в:', gameState);
+    console.log('✅ gameState set to:', gameState);
     
     // Очищаем старое начальное состояние сразу после скрытия overlay
     currentGame.initialState = null;
@@ -222,8 +222,15 @@ function initSocket() {
   
   socket.on('game_state', (data) => {
     // Обновляем состояние игры только если игра активна (после countdown)
-    if (currentGame && gameState === 'playing') {
+    // Проверяем и 'playing' и 'countdown', чтобы не пропустить первые обновления
+    if (currentGame && (gameState === 'playing' || gameState === 'countdown')) {
+      // Если пришло game_state, значит игра уже началась - переключаем на playing
+      if (gameState === 'countdown') {
+        gameState = 'playing';
+      }
       updateGameState(data);
+    } else {
+      console.warn('⚠️ game_state received but gameState is:', gameState, 'currentGame:', currentGame);
     }
   });
   
