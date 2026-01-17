@@ -17,6 +17,7 @@ let currentGame = null;
 let gameCanvas = null;
 let gameCtx = null;
 let debugMode = false;
+let currentDirection = null; // Current snake direction (updated from game_state)
 
 // Инициализация
 document.addEventListener('DOMContentLoaded', () => {
@@ -112,14 +113,28 @@ function initSocket() {
     currentGame.gameId = data.gameId;
     currentGame.playerNumber = data.playerNumber;
     
-    // Сохраняем начальное состояние для отображения во время countdown
-    if (data.initial_state) {
-      currentGame.initialState = data.initial_state;
-      console.log('✅ Initial game state received');
-      
-      // Сразу переключаемся на игровой экран (но игра еще не началась - ждем countdown)
-      gameState = 'countdown'; // Устанавливаем 'countdown' вместо 'playing' до начала игры
-      showScreen('game');
+      // Сохраняем начальное состояние для отображения во время countdown
+      if (data.initial_state) {
+        currentGame.initialState = data.initial_state;
+        console.log('✅ Initial game state received');
+        
+        // Инициализируем текущее направление из начального состояния
+        if (data.initial_state.my_snake && data.initial_state.my_snake.direction) {
+          const dir = data.initial_state.my_snake.direction;
+          if (dir.dx === 1 && dir.dy === 0) {
+            currentDirection = 'right';
+          } else if (dir.dx === -1 && dir.dy === 0) {
+            currentDirection = 'left';
+          } else if (dir.dx === 0 && dir.dy === 1) {
+            currentDirection = 'down';
+          } else if (dir.dx === 0 && dir.dy === -1) {
+            currentDirection = 'up';
+          }
+        }
+        
+        // Сразу переключаемся на игровой экран (но игра еще не началась - ждем countdown)
+        gameState = 'countdown'; // Устанавливаем 'countdown' вместо 'playing' до начала игры
+        showScreen('game');
       
       // Инициализируем game-canvas с логическим разрешением 800x800 для четкости
       if (!gameCanvas || !gameCtx) {
@@ -179,6 +194,9 @@ function initSocket() {
     // Принудительная установка gameState = 'playing' (игра действительно началась)
     gameState = 'playing';
     console.log('✅ gameState set to:', gameState);
+    
+    // Сбрасываем текущее направление при старте игры
+    currentDirection = null;
     
     // Очищаем старое начальное состояние сразу после скрытия overlay
     currentGame.initialState = null;
@@ -422,12 +440,29 @@ function initWaitingCanvas() {
 }
 
 /**
- * Отправка команды направления
+ * Отправка команды направления с проверкой на поворот на 180°
  */
 function sendDirection(direction) {
-  if (socket && socket.connected && gameState === 'playing') {
-    socket.emit('direction', direction);
+  if (!socket || !socket.connected || gameState !== 'playing') {
+    return;
   }
+  
+  // Карта противоположных направлений
+  const opposites = {
+    'up': 'down',
+    'down': 'up',
+    'left': 'right',
+    'right': 'left'
+  };
+  
+  // Проверка на поворот на 180° (запрещено)
+  if (currentDirection && direction === opposites[currentDirection]) {
+    console.log(`⚠️ Prevented 180° turn: ${currentDirection} -> ${direction}`);
+    return; // Прерываем выполнение - не отправляем команду
+  }
+  
+  // Отправляем команду на сервер
+  socket.emit('direction', direction);
 }
 
 /**
@@ -577,6 +612,21 @@ function updateGameState(data) {
   // Рисуем змейки с современным дизайном
   drawSnake(data.my_snake, '#ff4444', '#ff6666'); // Красная с градиентом
   drawSnake(data.opponent_snake, '#4444ff', '#6666ff'); // Синяя с градиентом
+  
+  // Обновляем текущее направление только после реального хода (когда змейка уже переместилась)
+  if (data.my_snake && data.my_snake.direction) {
+    // Конвертируем объект направления {dx, dy} в строку 'up'/'down'/'left'/'right'
+    const dir = data.my_snake.direction;
+    if (dir.dx === 1 && dir.dy === 0) {
+      currentDirection = 'right';
+    } else if (dir.dx === -1 && dir.dy === 0) {
+      currentDirection = 'left';
+    } else if (dir.dx === 0 && dir.dy === 1) {
+      currentDirection = 'down';
+    } else if (dir.dx === 0 && dir.dy === -1) {
+      currentDirection = 'up';
+    }
+  }
   
   // Обновляем статусы игроков
   const player1Status = document.getElementById('player1-status');
