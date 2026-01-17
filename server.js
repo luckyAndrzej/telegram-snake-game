@@ -19,7 +19,8 @@ const tonPayment = require('./payment/tonPayment');
 require('dotenv').config();
 
 // DEBUG MODE: Переключатель режимов
-const DEBUG_MODE = process.env.DEBUG_MODE === 'true' || true; // true = Тестовый режим, false = Боевой режим (TON)
+// По умолчанию true для безопасности, но можно переопределить через .env
+const DEBUG_MODE = (process.env.DEBUG_MODE || 'true') === 'true'; // true = Тестовый режим, false = Боевой режим (TON)
 
 const app = express();
 const server = http.createServer(app);
