@@ -317,22 +317,32 @@ function initEventListeners() {
   }, { passive: false });
   
   // Кнопки результатов
+  // Кнопка "Играть снова" - ищем новую игру
   document.getElementById('play-again-btn')?.addEventListener('click', () => {
     // Очищаем состояние игры
     currentGame = null;
-    gameState = 'menu';
+    gameState = 'lobby';
     
     // Переключаемся на экран лобби и ищем новую игру
+    showScreen('lobby');
+    
+    if (socket && socket.connected) {
+      socket.emit('find_match');
+    }
     if (socket && socket.connected) {
       showScreen('lobby');
       socket.emit('find_match');
     }
   });
   
+  // Кнопка "В меню" - возврат в главное меню
   document.getElementById('menu-btn')?.addEventListener('click', () => {
     // Полная очистка состояния: сбрасываем Socket.io состояние
     currentGame = null;
     gameState = 'menu';
+    
+    // Переключаемся на главное меню
+    showScreen('menu');
     
     // Если сокет подключен, можно отправить событие очистки (опционально)
     // socket.emit('leave_game');
@@ -893,7 +903,9 @@ function renderGamePreviewOnCanvas(gameState, canvas, ctx) {
  * Завершение игры
  */
 function endGame(data) {
+  // Мгновенно переключаемся на экран результатов
   currentGame = null;
+  gameState = 'result';
   showScreen('result');
   
   const isWinner = data.winnerId === userId;
@@ -906,8 +918,10 @@ function endGame(data) {
     resultIcon.textContent = isWinner ? '🏆' : '💀';
   }
   
+  // Четкий текст: "ПОБЕДА!" (зеленым) или "ПОРАЖЕНИЕ" (красным)
   if (resultTitle) {
-    resultTitle.textContent = isWinner ? 'Победа!' : 'Поражение';
+    resultTitle.textContent = isWinner ? 'ПОБЕДА!' : 'ПОРАЖЕНИЕ';
+    resultTitle.style.color = isWinner ? '#10b981' : '#ef4444';
   }
   
   if (resultMessage) {
@@ -921,6 +935,6 @@ function endGame(data) {
   }
   
   // Обновляем балансы
-  // TODO: Получить обновленные балансы с сервера
+  updateBalance();
 }
 
