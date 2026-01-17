@@ -92,6 +92,10 @@ function initSocket() {
   socket.on('waiting_opponent', () => {
     console.log('⏳ Ожидание соперника...');
     showScreen('waiting');
+    // Инициализируем waiting-canvas при показе экрана ожидания
+    setTimeout(() => {
+      initWaitingCanvas();
+    }, 100);
   });
   
   socket.on('game_created', (data) => {
@@ -108,26 +112,22 @@ function initSocket() {
       currentGame.initialState = data.initial_state;
       console.log('✅ Начальное состояние игры получено');
       
-      // Показываем экран ожидания с preview игры (пока только для первого игрока)
+      // Показываем экран ожидания с preview игры
       showScreen('waiting');
-      // Рисуем preview игры на canvas во время ожидания
-      // Используем waiting-canvas если доступен, иначе основной canvas
-      const waitingCanvasEl = document.getElementById('waiting-canvas');
-      const canvas = window.waitingCanvas || waitingCanvasEl || gameCanvas;
-      const ctx = window.waitingCtx || gameCtx;
       
-      if (canvas && ctx) {
-        // Инициализируем waiting canvas если нужно
-        if (waitingCanvasEl && !window.waitingCanvas) {
-          const size = Math.min(waitingCanvasEl.parentElement.clientWidth - 20, 600);
-          waitingCanvasEl.width = size;
-          waitingCanvasEl.height = size;
-          window.waitingCanvas = waitingCanvasEl;
-          window.waitingCtx = waitingCanvasEl.getContext('2d');
-        }
+      // Инициализируем waiting-canvas и рисуем preview
+      setTimeout(() => {
+        initWaitingCanvas();
+        const canvas = window.waitingCanvas;
+        const ctx = window.waitingCtx;
         
-        renderGamePreviewOnCanvas(data.initial_state, canvas, ctx);
-      }
+        if (canvas && ctx) {
+          console.log('🎨 Рисуем preview игры на waiting-canvas');
+          renderGamePreviewOnCanvas(data.initial_state, canvas, ctx);
+        } else {
+          console.error('❌ waiting-canvas не инициализирован');
+        }
+      }, 100);
     }
     
     // Автоматически отправляем сигнал готовности после создания игры
@@ -159,16 +159,32 @@ function initSocket() {
       if (waitingText) {
         waitingText.textContent = 'Оба игрока готовы!';
       }
+      
+      // Обновляем preview на экране ожидания (чтобы показать обе змейки)
+      const waitingCanvas = window.waitingCanvas || document.getElementById('waiting-canvas');
+      const waitingCtx = window.waitingCtx;
+      
+      if (waitingCanvas && waitingCtx) {
+        console.log('🎨 Обновляем preview игры на waiting-canvas');
+        renderGamePreviewOnCanvas(data.initial_state, waitingCanvas, waitingCtx);
+      }
+      
+      // Небольшая задержка перед countdown, чтобы игрок увидел обновленное поле
+      setTimeout(() => {
+        // Переходим к countdown
+        console.log('⏳ Начинаем countdown...');
+        startCountdown(() => {
+          console.log('✅ Countdown завершен, запускаем игру');
+          startGame(data);
+        });
+      }, 1500); // 1.5 секунды чтобы увидеть обновленное поле
     } else {
       console.warn('⚠️ initial_state отсутствует в game_start');
+      // Если нет initial_state, сразу начинаем countdown
+      startCountdown(() => {
+        startGame(data);
+      });
     }
-    
-    // Переходим к countdown
-    console.log('⏳ Начинаем countdown...');
-    startCountdown(() => {
-      console.log('✅ Countdown завершен, запускаем игру');
-      startGame(data);
-    });
   });
   
   socket.on('game_state', (data) => {
@@ -331,15 +347,22 @@ function initCanvas() {
   }
   
   // Инициализируем canvas для waiting (если есть)
+  // Это будет вызвано позже при показе экрана ожидания
+}
+
+/**
+ * Инициализация waiting-canvas
+ */
+function initWaitingCanvas() {
   const waitingCanvas = document.getElementById('waiting-canvas');
-  if (waitingCanvas) {
-    const waitingCtx = waitingCanvas.getContext('2d');
+  if (waitingCanvas && !window.waitingCanvas) {
+    const size = Math.min(waitingCanvas.parentElement.clientWidth - 20, 600);
     waitingCanvas.width = size;
     waitingCanvas.height = size;
     
-    // Используем waiting canvas для отрисовки во время ожидания
     window.waitingCanvas = waitingCanvas;
-    window.waitingCtx = waitingCtx;
+    window.waitingCtx = waitingCanvas.getContext('2d');
+    console.log('✅ waiting-canvas инициализирован:', size);
   }
 }
 
