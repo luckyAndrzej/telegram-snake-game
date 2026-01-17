@@ -906,12 +906,29 @@ function renderGamePreviewOnCanvas(gameState, canvas, ctx) {
  * Завершение игры
  */
 function endGame(data) {
+  console.log('🎯 endGame вызвана, данные:', data);
+  
   // Принудительная остановка игрового состояния
   gameState = 'result';
   
   // Мгновенно переключаемся на экран результатов
   currentGame = null;
-  showScreen('result');
+  
+  // Принудительно показываем экран результатов
+  const resultScreen = document.getElementById('result-screen');
+  if (resultScreen) {
+    // Убираем active у всех экранов
+    document.querySelectorAll('.screen').forEach(s => {
+      s.classList.remove('active');
+      s.style.display = 'none';
+    });
+    // Показываем экран результатов
+    resultScreen.classList.add('active');
+    resultScreen.style.display = 'flex';
+    console.log('✅ Экран результатов показан');
+  } else {
+    console.error('❌ Элемент #result-screen не найден!');
+  }
   
   // Проверяем наличие данных из события game_end, используем значения по умолчанию
   const isWinner = data && data.winnerId ? data.winnerId === userId : false;
