@@ -188,16 +188,16 @@ function initSocket() {
   });
   
   socket.on('game_state', (data) => {
-    console.log('Получено game_state:', data, 'gameState:', gameState);
-    // Обновляем состояние игры если игра активна или если мы только начали
-    if (currentGame && (gameState === 'playing' || gameState === 'countdown')) {
-      // Если мы еще на countdown, но получили game_state - значит игра уже началась
-      if (gameState === 'countdown') {
-        // Переходим в playing режим
-        gameState = 'playing';
-        showScreen('playing');
-      }
+    // Обновляем состояние игры если игра активна
+    if (currentGame && gameState === 'playing') {
       updateGameState(data);
+    } else if (currentGame && gameState === 'countdown') {
+      // Если мы еще на countdown, но получили game_state - обновляем countdown canvas
+      const canvas = window.countdownCanvas || gameCanvas;
+      const ctx = window.countdownCtx || gameCtx;
+      if (canvas && ctx) {
+        renderGamePreviewOnCanvas(data, canvas, ctx);
+      }
     }
   });
   
@@ -449,12 +449,21 @@ function startCountdown(callback) {
   let count = 3;
   const countdownEl = document.getElementById('countdown-number');
   
+  // Сразу рисуем preview при начале countdown
+  if (currentGame && currentGame.initialState) {
+    const canvas = window.countdownCanvas || gameCanvas;
+    const ctx = window.countdownCtx || gameCtx;
+    if (canvas && ctx) {
+      renderGamePreviewOnCanvas(currentGame.initialState, canvas, ctx);
+    }
+  }
+  
   const interval = setInterval(() => {
     if (countdownEl) {
       countdownEl.textContent = count;
     }
     
-    // Обновляем preview во время countdown
+    // Обновляем preview во время countdown каждую секунду
     if (currentGame && currentGame.initialState) {
       const canvas = window.countdownCanvas || gameCanvas;
       const ctx = window.countdownCtx || gameCtx;
@@ -467,6 +476,7 @@ function startCountdown(callback) {
     
     if (count < 0) {
       clearInterval(interval);
+      console.log('⏰ Countdown завершен, вызываем callback');
       callback();
     }
   }, 1000);
@@ -476,23 +486,33 @@ function startCountdown(callback) {
  * Начало игры
  */
 function startGame(data) {
-  console.log('Начало игры:', data);
-  showScreen('playing');
+  console.log('🎮 Начало игры:', data);
   
   // Обновляем currentGame с данными из data
+  if (!currentGame) {
+    currentGame = {};
+  }
+  
   if (data.gameId) {
-    currentGame = {
-      gameId: data.gameId,
-      startTime: data.start_time || Date.now()
-    };
-  } else if (currentGame) {
-    // Если gameId уже есть в currentGame (из game_start), сохраняем его
-    currentGame.startTime = data.start_time || Date.now();
+    currentGame.gameId = data.gameId;
+  }
+  currentGame.startTime = data.start_time || Date.now();
+  
+  // Переключаемся на игровой экран
+  console.log('📺 Переключаемся на игровой экран');
+  showScreen('playing');
+  
+  // Инициализируем игровой canvas если нужно
+  if (gameCanvas && gameCtx) {
+    // Очищаем canvas и рисуем начальный фон
+    gameCtx.fillStyle = '#1a1a2e';
+    gameCtx.fillRect(0, 0, gameCanvas.width, gameCanvas.height);
+    drawGrid();
   }
   
   // Игра уже запущена сервером, он отправляет game_state события
   // Ждем первое обновление состояния игры
-  console.log('Игра началась, ожидаем game_state события...');
+  console.log('✅ Игра началась, ожидаем game_state события...');
 }
 
 /**
@@ -609,35 +629,22 @@ function drawSnake(snake, color1, color2) {
  * Отображение preview игры на указанном canvas
  */
 function renderGamePreviewOnCanvas(gameState, canvas, ctx) {
-  if (!canvas || !ctx || !gameState) return;
+  if (!canvas || !ctx || !gameState) {
+    console.error('❌ renderGamePreviewOnCanvas: canvas, ctx или gameState отсутствуют');
+    return;
+  }
+  
+  console.log('🎨 renderGamePreviewOnCanvas: canvas size:', canvas.width, 'x', canvas.height);
   
   // Очищаем canvas
   ctx.clearRect(0, 0, canvas.width, canvas.height);
   
-  // Рисуем сетку
-  const tileSize = canvas.width / 20;
-  ctx.strokeStyle = '#333333';
-  ctx.lineWidth = 1;
-  
-  for (let i = 0; i <= 20; i++) {
-    // Вертикальные линии
-    ctx.beginPath();
-    ctx.moveTo(i * tileSize, 0);
-    ctx.lineTo(i * tileSize, canvas.height);
-    ctx.stroke();
-    
-    // Горизонтальные линии
-    ctx.beginPath();
-    ctx.moveTo(0, i * tileSize);
-    ctx.lineTo(canvas.width, i * tileSize);
-    ctx.stroke();
-  }
-  
-  // Фон для countdown canvas
+  // СНАЧАЛА рисуем фон (темный)
   ctx.fillStyle = '#1a1a2e';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   
-  // Рисуем сетку для countdown (прозрачную)
+  // Затем рисуем сетку (прозрачную)
+  const tileSize = canvas.width / 20;
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
   ctx.lineWidth = 0.5;
   
