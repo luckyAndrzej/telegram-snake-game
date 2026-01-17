@@ -272,14 +272,14 @@ body {
     display: flex;
     flex-direction: column;
     height: 100vh;
-    justify-content: space-between;
+    justify-content: flex-start;
     padding: 10px;
 }
 
 #game-screen.active {
     display: flex !important;
     flex-direction: column;
-    justify-content: space-between;
+    justify-content: flex-start;
     align-items: center;
 }
 
@@ -293,7 +293,7 @@ body {
 
 .game-header {
     width: 100%;
-    margin-bottom: 5px;
+    margin-bottom: 20px;
     flex-shrink: 0;
 }
 
@@ -314,18 +314,18 @@ body {
 
 .game-container {
     position: relative;
-    flex: 1;
-    display: flex;
-    justify-content: center;
-    align-items: center;
+    flex-grow: 1;
+    margin: 0 auto;
     width: 100%;
+    display: flex;
+    align-items: center;
     min-height: 0; /* Позволяет flex-элементу сжиматься */
 }
 
 #game-canvas {
     display: block;
     max-width: 100%;
-    max-height: 55vh;
+    max-height: 50vh;
     width: auto;
     height: auto;
     aspect-ratio: 1/1;
@@ -344,12 +344,14 @@ body {
     left: 0;
     width: 100%;
     height: 100%;
-    background: rgba(0, 0, 0, 0.4);
+    background: transparent;
     z-index: 1000;
     display: none;
     justify-content: center;
     align-items: center;
     pointer-events: none; /* Не мешает кликам, если не исчезнет мгновенно */
+    border: none;
+    box-shadow: none;
 }
 
 .countdown-overlay-content {
@@ -383,9 +385,9 @@ body {
 
 .controls-grid {
     display: grid;
-    grid-template-columns: repeat(3, 70px);
-    grid-template-rows: repeat(3, 70px);
-    gap: 10px;
+    grid-template-columns: repeat(3, 65px);
+    grid-template-rows: repeat(3, 65px);
+    gap: 5px;
     margin: 0 auto;
     justify-items: center;
     align-items: center;
@@ -396,13 +398,13 @@ body {
     border: none;
     border-radius: 12px;
     padding: 0;
-    font-size: 28px;
+    font-size: 26px;
     cursor: pointer;
     transition: all 0.2s ease;
     box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
     color: white;
-    width: 70px;
-    height: 70px;
+    width: 65px;
+    height: 65px;
     display: flex;
     align-items: center;
     justify-content: center;
