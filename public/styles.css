@@ -626,3 +626,103 @@ body {
     color: #4444ff;
 }
 
+/* Payment Modal */
+.payment-modal {
+    position: fixed;
+    top: 0;
+    left: 0;
+    width: 100vw;
+    height: 100vh;
+    background: rgba(0, 0, 0, 0.8);
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    z-index: 10000;
+}
+
+.payment-modal-content {
+    background: white;
+    border-radius: 15px;
+    padding: 25px;
+    max-width: 90%;
+    max-height: 90vh;
+    overflow-y: auto;
+    box-shadow: 0 10px 40px rgba(0, 0, 0, 0.3);
+}
+
+.payment-modal-content h3 {
+    margin-bottom: 20px;
+    color: #333;
+    text-align: center;
+}
+
+.payment-modal-content p {
+    margin: 10px 0;
+    line-height: 1.6;
+}
+
+#payment-address {
+    background: #f0f0f0;
+    padding: 10px;
+    border-radius: 5px;
+    font-family: monospace;
+    word-break: break-all;
+    margin: 10px 0;
+}
+
+#payment-comment {
+    font-family: monospace;
+    font-weight: bold;
+    color: #667eea;
+    font-size: 18px;
+    letter-spacing: 2px;
+}
+
+#payment-status {
+    margin-top: 15px;
+    text-align: center;
+    font-weight: bold;
+    min-height: 24px;
+}
+
+/* Buy Games Buttons */
+.btn-buy {
+    background: linear-gradient(135deg, #10b981 0%, #059669 100%);
+    color: white;
+    border: none;
+    border-radius: 10px;
+    padding: 12px 20px;
+    font-size: 14px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    box-shadow: 0 4px 15px rgba(16, 185, 129, 0.3);
+    min-width: 120px;
+}
+
+.btn-buy:hover {
+    background: linear-gradient(135deg, #059669 0%, #047857 100%);
+    box-shadow: 0 6px 20px rgba(16, 185, 129, 0.4);
+    transform: translateY(-2px);
+}
+
+.btn-buy:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 8px rgba(16, 185, 129, 0.3);
+}
+
+#buy-games-section {
+    margin-bottom: 20px;
+    padding: 15px;
+    background: rgba(255, 255, 255, 0.1);
+    border-radius: 10px;
+}
+
+#buy-games-section strong {
+    color: white;
+    font-size: 16px;
+    display: block;
+    margin-bottom: 12px;
+    text-align: center;
+}
+

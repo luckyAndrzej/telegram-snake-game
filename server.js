@@ -13,9 +13,13 @@ const { initUser, getUser, updateUser } = require('./db/users');
 const gameLogic = require('./game/gameLogic');
 const gameLoop = require('./game/gameLoop');
 const paymentModule = require('./payment/paymentHandler');
+const tonPayment = require('./payment/tonPayment');
+
+// Загрузка переменных окружения
+require('dotenv').config();
 
 // DEBUG MODE: Переключатель режимов
-const DEBUG_MODE = true; // true = Тестовый режим, false = Боевой режим (TON)
+const DEBUG_MODE = process.env.DEBUG_MODE === 'true' || true; // true = Тестовый режим, false = Боевой режим (TON)
 
 const app = express();
 const server = http.createServer(app);
@@ -55,8 +59,29 @@ const GAME_CONFIG = {
 };
 
 // Инициализация базы данных
-db.init().then(() => {
+db.init().then(async () => {
   console.log('✅ База данных инициализирована');
+  
+  // Инициализация файлов для TON платежей (если не DEBUG_MODE)
+  if (!DEBUG_MODE) {
+    await tonPayment.initPaymentFiles();
+    
+    // Инициализация конфигурации TON
+    tonPayment.initConfig({
+      IS_TESTNET: process.env.IS_TESTNET === 'true',
+      TON_WALLET_ADDRESS: process.env.TON_WALLET_ADDRESS || '',
+      TON_API_KEY: process.env.TON_API_KEY || ''
+    });
+
+    // Запускаем сканер блокчейна (каждые 20 секунд)
+    setInterval(() => {
+      tonPayment.checkTonPayments(io); // Используем checkTonPayments как основной метод
+    }, 20000); // 20 секунд
+    console.log('✅ Сканер блокчейна TON запущен (интервал: 20 сек)');
+    
+    // Первая проверка сразу после запуска
+    tonPayment.checkTonPayments(io);
+  }
   
   // Запускаем игровой цикл (передаем endGame как callback)
   gameLoop.start(io, activeGames, GAME_CONFIG, endGame);
@@ -84,6 +109,9 @@ io.on('connection', async (socket) => {
   console.log(`🔌 Пользователь подключен: ${userId} (${username})`);
   socketToUser.set(socket.id, userId);
   
+  // Присоединяем к комнате пользователя для отправки событий payment_success
+  socket.join(`user_${userId}`);
+  
   // Инициализация пользователя в БД (если нового)
   await initUser(userId, username, DEBUG_MODE);
   
@@ -110,6 +138,50 @@ io.on('connection', async (socket) => {
   // Команда направления
   socket.on('direction', (direction) => {
     handleDirection(socket, userId, direction);
+  });
+  
+  // Инициация покупки игр (Socket.io альтернатива для /api/create-payment)
+  socket.on('initiatePurchase', async (data) => {
+    try {
+      if (DEBUG_MODE) {
+        socket.emit('error', {
+          message: 'TON платежи доступны только в боевом режиме (DEBUG_MODE=false)'
+        });
+        return;
+      }
+
+      const { packageId } = data;
+      
+      if (!packageId) {
+        socket.emit('error', {
+          message: 'packageId is required'
+        });
+        return;
+      }
+
+      // Проверяем, что пакет существует
+      if (!['pkg_1', 'pkg_5', 'pkg_10'].includes(packageId)) {
+        socket.emit('error', {
+          message: 'Invalid packageId. Use: pkg_1, pkg_5, or pkg_10'
+        });
+        return;
+      }
+
+      const result = await tonPayment.createPayment(userId, packageId);
+      
+      if (result.success) {
+        // Отправляем данные платежа клиенту
+        socket.emit('purchase_initiated', result);
+      } else {
+        socket.emit('error', {
+          message: result.error || 'Failed to create payment'
+        });
+      }
+    } catch (error) {
+      socket.emit('error', {
+        message: error.message || 'Error initiating purchase'
+      });
+    }
   });
   
   // Отключение
@@ -521,6 +593,45 @@ app.get('/api/add-games/:userId', async (req, res) => {
         winnings_usdt: user.winnings_usdt,
         added: amount
       });
+    } else {
+      res.status(400).json(result);
+    }
+  } catch (error) {
+    res.status(500).json({ success: false, error: error.message });
+  }
+});
+
+// HTTP маршрут для создания платежа TON (не DEBUG_MODE)
+app.post('/api/create-payment', async (req, res) => {
+  try {
+    if (DEBUG_MODE) {
+      return res.status(403).json({ 
+        success: false, 
+        error: 'TON платежи доступны только в боевом режиме (DEBUG_MODE=false)' 
+      });
+    }
+
+    const { userId, packageId } = req.body;
+    
+    if (!userId || !packageId) {
+      return res.status(400).json({
+        success: false,
+        error: 'userId and packageId are required'
+      });
+    }
+
+    // Проверяем, что пакет существует
+    if (!['pkg_1', 'pkg_5', 'pkg_10'].includes(packageId)) {
+      return res.status(400).json({
+        success: false,
+        error: 'Invalid packageId. Use: pkg_1, pkg_5, or pkg_10'
+      });
+    }
+
+    const result = await tonPayment.createPayment(userId, packageId);
+    
+    if (result.success) {
+      res.json(result);
     } else {
       res.status(400).json(result);
     }

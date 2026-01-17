@@ -64,6 +64,43 @@
                         💰 Add Balance (TEST)
                     </button>
                     
+                    <!-- Buy Games Buttons (non-DEBUG_MODE) -->
+                    <div id="buy-games-section" style="display: none; margin-bottom: 15px;">
+                        <div style="text-align: center; margin-bottom: 10px;">
+                            <strong>Buy Games:</strong>
+                        </div>
+                        <div style="display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
+                            <button id="buy-1-btn" class="btn btn-buy" data-package="pkg_1">
+                                1 Game (1 TON)
+                            </button>
+                            <button id="buy-5-btn" class="btn btn-buy" data-package="pkg_5">
+                                5 Games (5 TON)
+                            </button>
+                            <button id="buy-10-btn" class="btn btn-buy" data-package="pkg_10">
+                                10 Games (10 TON)
+                            </button>
+                        </div>
+                    </div>
+                    
+                    <!-- Payment Modal -->
+                    <div id="payment-modal" class="payment-modal" style="display: none;">
+                        <div class="payment-modal-content">
+                            <h3>Payment Instructions</h3>
+                            <div id="payment-info">
+                                <p><strong>Wallet Address:</strong></p>
+                                <p id="payment-address" style="word-break: break-all; background: #f0f0f0; padding: 10px; border-radius: 5px; font-family: monospace;"></p>
+                                <p><strong>Amount:</strong> <span id="payment-amount"></span> TON</p>
+                                <p><strong>Comment:</strong> <span id="payment-comment" style="font-family: monospace; font-weight: bold; color: #667eea;"></span></p>
+                                <p style="color: #666; font-size: 14px; margin-top: 15px;">⚠️ <strong>Important:</strong> You must include the exact comment when sending the payment!</p>
+                            </div>
+                            <div style="margin-top: 20px; display: flex; gap: 10px; justify-content: center;">
+                                <button id="pay-tonkeeper-btn" class="btn btn-primary">Pay with Tonkeeper</button>
+                                <button id="close-payment-btn" class="btn btn-secondary">Close</button>
+                            </div>
+                            <p id="payment-status" style="margin-top: 15px; text-align: center; color: #667eea; font-weight: bold;"></p>
+                        </div>
+                    </div>
+                    
                     <!-- Withdraw Button -->
                     <button id="withdraw-btn" class="btn btn-withdraw">
                         <span>💸 Withdraw Funds</span>

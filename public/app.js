@@ -94,6 +94,12 @@ function initSocket() {
     if (addGamesBtn) {
       addGamesBtn.style.display = debugMode ? 'block' : 'none';
     }
+    
+    // Показываем кнопки покупки игр только в НЕ DEBUG_MODE
+    const buyGamesSection = document.getElementById('buy-games-section');
+    if (buyGamesSection) {
+      buyGamesSection.style.display = !debugMode ? 'block' : 'none';
+    }
   });
   
   // Screen 2: Waiting for opponent (Lobby)
@@ -265,11 +271,89 @@ function initSocket() {
   socket.on('ready_confirmed', () => {
     console.log('Готовность подтверждена');
   });
+  
+  // Payment success notification
+  socket.on('payment_success', (data) => {
+    console.log('✅ Payment successful:', data);
+    
+    // Обновляем баланс
+    updateBalance(data.new_balance, null);
+    
+    // Закрываем модальное окно платежа
+    const paymentModal = document.getElementById('payment-modal');
+    if (paymentModal) {
+      paymentModal.style.display = 'none';
+    }
+    
+    // Показываем уведомление
+    const statusEl = document.getElementById('payment-status');
+    if (statusEl) {
+      statusEl.textContent = `✅ Payment successful! +${data.games} games added`;
+      statusEl.style.color = '#10b981';
+    }
+    
+    // Показываем уведомление в Telegram
+    tg.showAlert(`Payment successful! +${data.games} games added`);
+  });
 }
 
 /**
  * Инициализация обработчиков событий
  */
+/**
+ * Создание платежа TON (не DEBUG_MODE)
+ */
+async function createPayment(packageId) {
+  try {
+    // Получаем userId из Telegram WebApp
+    const userId = tg?.initDataUnsafe?.user?.id;
+    if (!userId) {
+      tg.showAlert('User ID not found');
+      return;
+    }
+
+    // Отправляем запрос на создание платежа
+    const response = await fetch('/api/create-payment', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json'
+      },
+      body: JSON.stringify({
+        userId,
+        packageId
+      })
+    });
+
+    const data = await response.json();
+
+    if (data.success) {
+      // Показываем модальное окно с инструкциями
+      const paymentModal = document.getElementById('payment-modal');
+      const addressEl = document.getElementById('payment-address');
+      const amountEl = document.getElementById('payment-amount');
+      const commentEl = document.getElementById('payment-comment');
+      const statusEl = document.getElementById('payment-status');
+
+      if (paymentModal && addressEl && amountEl && commentEl) {
+        addressEl.textContent = data.walletAddress;
+        amountEl.textContent = data.amountTon;
+        commentEl.textContent = data.comment;
+        
+        if (statusEl) {
+          statusEl.textContent = '';
+        }
+
+        paymentModal.style.display = 'flex';
+      }
+    } else {
+      tg.showAlert(data.error || 'Failed to create payment');
+    }
+  } catch (error) {
+    console.error('Error creating payment:', error);
+    tg.showAlert('Error creating payment. Please try again.');
+  }
+}
+
 function initEventListeners() {
   // "Find Match" button - switch to lobby screen
   document.getElementById('start-game-btn')?.addEventListener('click', () => {
@@ -292,6 +376,39 @@ function initEventListeners() {
   // "Withdraw Funds" button
   document.getElementById('withdraw-btn')?.addEventListener('click', () => {
     handleWithdraw();
+  });
+  
+  // Buy Games buttons (non-DEBUG_MODE)
+  ['buy-1-btn', 'buy-5-btn', 'buy-10-btn'].forEach(btnId => {
+    document.getElementById(btnId)?.addEventListener('click', () => {
+      const packageId = document.getElementById(btnId).getAttribute('data-package');
+      createPayment(packageId);
+    });
+  });
+  
+  // Payment modal buttons
+  document.getElementById('pay-tonkeeper-btn')?.addEventListener('click', () => {
+    const address = document.getElementById('payment-address')?.textContent;
+    const amount = document.getElementById('payment-amount')?.textContent;
+    const comment = document.getElementById('payment-comment')?.textContent;
+    
+    if (address && amount && comment) {
+      // Открываем Tonkeeper через Deep Link
+      const nanoTon = (parseFloat(amount) * 1000000000).toString();
+      const tonkeeperUrl = `ton://transfer/${address}?amount=${nanoTon}&text=${encodeURIComponent(comment)}`;
+      window.open(tonkeeperUrl, '_blank');
+      
+      // Обновляем статус
+      const statusEl = document.getElementById('payment-status');
+      if (statusEl) {
+        statusEl.textContent = '⏳ Waiting for payment...';
+        statusEl.style.color = '#667eea';
+      }
+    }
+  });
+  
+  document.getElementById('close-payment-btn')?.addEventListener('click', () => {
+    document.getElementById('payment-modal').style.display = 'none';
   });
   
   // Rules toggle (collapsible)
