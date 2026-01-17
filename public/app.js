@@ -305,16 +305,27 @@ function initEventListeners() {
     });
   }
   
-  // Игровые кнопки управления
+  // Игровые кнопки управления (моментальный отклик)
   ['up', 'down', 'left', 'right'].forEach(direction => {
-    document.getElementById(`btn-${direction}`)?.addEventListener('click', () => {
-      sendDirection(direction);
-    });
+    const btn = document.getElementById(`btn-${direction}`);
+    if (btn) {
+      // Используем 'pointerdown' вместо 'click' для мгновенной реакции (мобильные)
+      btn.addEventListener('pointerdown', (e) => {
+        e.preventDefault(); // Предотвращаем задержки
+        sendDirection(direction);
+      }, { passive: false });
+      // Также добавляем 'click' для совместимости
+      btn.addEventListener('click', (e) => {
+        e.preventDefault();
+        sendDirection(direction);
+      }, { passive: false });
+    }
   });
   
-  // Клавиатурное управление
+  // Клавиатурное управление (моментальный отклик)
   document.addEventListener('keydown', (e) => {
-    if (gameState !== 'playing') return;
+    // Разрешаем во время countdown и playing для мгновенной реакции
+    if (gameState !== 'playing' && gameState !== 'countdown') return;
     
     const keyMap = {
       'ArrowUp': 'up',
@@ -325,9 +336,9 @@ function initEventListeners() {
     
     if (keyMap[e.key]) {
       e.preventDefault();
-      sendDirection(keyMap[e.key]);
+      sendDirection(keyMap[e.key]); // Моментально отправляем
     }
-  });
+  }, { passive: false }); // Отключаем пассивный режим для мгновенной реакции
   
   // Свайпы для управления
   let touchStartX = 0, touchStartY = 0;
@@ -456,14 +467,14 @@ function initWaitingCanvas() {
 }
 
 /**
- * Отправка команды направления с проверкой на поворот на 180°
+ * Отправка команды направления с проверкой на поворот на 180° (моментальный отклик)
  */
 function sendDirection(direction) {
-  if (!socket || !socket.connected || gameState !== 'playing') {
-    return;
-  }
+  // Моментальная проверка - без задержек
+  if (!socket || !socket.connected) return;
+  if (gameState !== 'playing' && gameState !== 'countdown') return; // Разрешаем во время countdown
   
-  // Карта противоположных направлений
+  // Карта противоположных направлений (быстрая проверка)
   const opposites = {
     'up': 'down',
     'down': 'up',
@@ -471,13 +482,12 @@ function sendDirection(direction) {
     'right': 'left'
   };
   
-  // Проверка на поворот на 180° (запрещено)
+  // Мгновенная проверка на поворот на 180° (запрещено) - без логирования для скорости
   if (currentDirection && direction === opposites[currentDirection]) {
-    console.log(`⚠️ Prevented 180° turn: ${currentDirection} -> ${direction}`);
-    return; // Прерываем выполнение - не отправляем команду
+    return; // Мгновенно прерываем - не отправляем команду
   }
   
-  // Отправляем команду на сервер
+  // Моментально отправляем команду на сервер (без задержек)
   socket.emit('direction', direction);
 }
 

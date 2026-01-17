@@ -518,7 +518,7 @@ body {
     padding: 0;
     font-size: 26px;
     cursor: pointer;
-    transition: all 0.1s ease; /* Faster response (0.2s -> 0.1s) */
+    transition: transform 0.05s ease, box-shadow 0.05s ease; /* Моментальный отклик (0.05s) */
     box-shadow: 0 4px 15px rgba(102, 126, 234, 0.4);
     color: white;
     width: 65px;
@@ -528,6 +528,8 @@ body {
     justify-content: center;
     margin: 0;
     touch-action: manipulation;
+    -webkit-tap-highlight-color: transparent; /* Убираем задержку на мобильных */
+    user-select: none; /* Предотвращаем выделение текста */
 }
 
 .control-btn:active {

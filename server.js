@@ -321,47 +321,46 @@ async function startGame(gameId) {
 /**
  * Обработка команды направления
  */
+// Кэш для быстрого доступа к направлениям (моментальный отклик)
+const DIRECTIONS_MAP = {
+  'up': { dx: 0, dy: -1 },
+  'down': { dx: 0, dy: 1 },
+  'left': { dx: -1, dy: 0 },
+  'right': { dx: 1, dy: 0 }
+};
+
 function handleDirection(socket, userId, direction) {
+  // Моментальная проверка - без задержек
   const gameId = playerToGame.get(userId);
   if (!gameId || !activeGames.has(gameId)) {
-    socket.emit('error', { message: 'You are not in a game!' });
-    return;
+    return; // Убираем emit error для скорости - просто игнорируем
   }
   
   const game = activeGames.get(gameId);
   if (!game.is_running) {
-    return; // Игра еще не началась
+    return; // Игра еще не началась - мгновенный выход
   }
   
-  // Определяем текущую змейку игрока
+  // Определяем текущую змейку игрока (быстрый доступ)
   const isPlayer1 = game.player1_id === userId;
   const currentSnake = isPlayer1 ? game.snake1 : game.snake2;
   
   // Получаем текущее направление змейки
   const currentDir = currentSnake.direction;
   
-  // Преобразуем строку направления в объект направления
-  const DIRECTIONS_MAP = {
-    'up': { dx: 0, dy: -1 },
-    'down': { dx: 0, dy: 1 },
-    'left': { dx: -1, dy: 0 },
-    'right': { dx: 1, dy: 0 }
-  };
-  
+  // Преобразуем строку направления в объект направления (из кэша)
   const newDirection = DIRECTIONS_MAP[direction.toLowerCase()];
   if (!newDirection) {
-    return; // Неверное направление
+    return; // Неверное направление - мгновенный выход
   }
   
-  // Проверка на поворот на 180° (запрещено) - не доверяем клиенту!
-  // Проверяем противоположность: dx1 === -dx2 && dy1 === -dy2
+  // Мгновенная проверка на поворот на 180° (запрещено) - без логирования для скорости
   if (currentDir.dx === -newDirection.dx && currentDir.dy === -newDirection.dy && 
       currentDir.dx !== 0 && currentDir.dy !== 0) {
-    console.log(`⚠️ Server prevented 180° turn for player ${userId}: ${JSON.stringify(currentDir)} -> ${JSON.stringify(newDirection)}`);
-    return; // Игнорируем команду - не сохраняем направление
+    return; // Мгновенно игнорируем команду - не сохраняем направление
   }
   
-  // Сохраняем команду направления (только если не противоположное)
+  // Моментально сохраняем команду направления (только если не противоположное)
   gameLogic.setDirection(game, userId, direction);
 }
 
