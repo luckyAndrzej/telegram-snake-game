@@ -19,8 +19,9 @@ const tonPayment = require('./payment/tonPayment');
 require('dotenv').config();
 
 // DEBUG MODE: Переключатель режимов
-// По умолчанию true для безопасности, но можно переопределить через .env
-const DEBUG_MODE = (process.env.DEBUG_MODE || 'true') === 'true'; // true = Тестовый режим, false = Боевой режим (TON)
+// По умолчанию false (боевой режим) для продакшена
+// Для тестового режима установите DEBUG_MODE=true в переменных окружения Railway
+const DEBUG_MODE = process.env.DEBUG_MODE === 'true'; // true = Тестовый режим, false = Боевой режим (TON)
 
 const app = express();
 const server = http.createServer(app);
@@ -632,6 +633,13 @@ app.post('/api/create-payment', async (req, res) => {
     const result = await tonPayment.createPayment(userId, packageId);
     
     if (result.success) {
+      // Проверяем, что адрес кошелька настроен
+      if (!result.walletAddress) {
+        return res.status(500).json({
+          success: false,
+          error: 'TON_WALLET_ADDRESS is not configured. Please set it in Railway variables.'
+        });
+      }
       res.json(result);
     } else {
       res.status(400).json(result);

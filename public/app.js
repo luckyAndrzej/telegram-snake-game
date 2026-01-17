@@ -327,16 +327,28 @@ async function createPayment(packageId) {
     const data = await response.json();
 
     if (data.success) {
+      console.log('Payment created successfully:', data);
+      
+      // Проверяем, что все необходимые данные присутствуют
+      if (!data.walletAddress || !data.amountTon || !data.comment) {
+        console.error('Missing payment data in response:', data);
+        tg.showAlert('Payment data is incomplete. Please contact support.');
+        return;
+      }
+      
       // Показываем модальное окно с инструкциями
       const paymentModal = document.getElementById('payment-modal');
       const addressEl = document.getElementById('payment-address');
-      const amountEl = document.getElementById('payment-amount');
+      const amountUsdEl = document.getElementById('payment-amount-usd');
+      const amountTonEl = document.getElementById('payment-amount-ton');
       const commentEl = document.getElementById('payment-comment');
       const statusEl = document.getElementById('payment-status');
 
-      if (paymentModal && addressEl && amountEl && commentEl) {
+      if (paymentModal && addressEl && amountUsdEl && amountTonEl && commentEl) {
         addressEl.textContent = data.walletAddress;
-        amountEl.textContent = data.amountTon;
+        // Отображаем сумму в долларах (1 TON = 1$)
+        amountUsdEl.textContent = `$${data.amountTon}`;
+        amountTonEl.textContent = data.amountTon;
         commentEl.textContent = data.comment;
         
         if (statusEl) {
@@ -344,8 +356,19 @@ async function createPayment(packageId) {
         }
 
         paymentModal.style.display = 'flex';
+        
+        console.log('Payment modal shown with data:', {
+          address: data.walletAddress.substring(0, 10) + '...',
+          amountUsd: `$${data.amountTon}`,
+          amountTon: data.amountTon,
+          comment: data.comment
+        });
+      } else {
+        console.error('Payment modal elements not found');
+        tg.showAlert('Payment modal elements not found. Please reload the page.');
       }
     } else {
+      console.error('Payment creation failed:', data);
       tg.showAlert(data.error || 'Failed to create payment');
     }
   } catch (error) {
@@ -388,15 +411,37 @@ function initEventListeners() {
   
   // Payment modal buttons
   document.getElementById('pay-tonkeeper-btn')?.addEventListener('click', () => {
-    const address = document.getElementById('payment-address')?.textContent;
-    const amount = document.getElementById('payment-amount')?.textContent;
-    const comment = document.getElementById('payment-comment')?.textContent;
+    const addressEl = document.getElementById('payment-address');
+    const amountTonEl = document.getElementById('payment-amount-ton'); // Используем TON для Deep Link
+    const commentEl = document.getElementById('payment-comment');
     
-    if (address && amount && comment) {
+    const address = addressEl?.textContent?.trim();
+    const amount = amountTonEl?.textContent?.trim(); // Получаем TON из поля
+    const comment = commentEl?.textContent?.trim();
+    
+    console.log('Pay with Tonkeeper clicked:', { address, amount, comment });
+    
+    if (!address || !amount || !comment) {
+      console.error('Missing payment data:', { address: !!address, amount: !!amount, comment: !!comment });
+      tg.showAlert('Payment data is missing. Please try again.');
+      return;
+    }
+    
+    try {
       // Открываем Tonkeeper через Deep Link
       const nanoTon = (parseFloat(amount) * 1000000000).toString();
       const tonkeeperUrl = `ton://transfer/${address}?amount=${nanoTon}&text=${encodeURIComponent(comment)}`;
-      window.open(tonkeeperUrl, '_blank');
+      
+      console.log('Opening Tonkeeper URL:', tonkeeperUrl);
+      
+      // В Telegram Mini App используем tg.openLink() или window.location.href
+      if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.openLink) {
+        // Используем Telegram WebApp API для открытия ссылки
+        window.Telegram.WebApp.openLink(tonkeeperUrl);
+      } else {
+        // Fallback для других окружений
+        window.location.href = tonkeeperUrl;
+      }
       
       // Обновляем статус
       const statusEl = document.getElementById('payment-status');
@@ -404,6 +449,9 @@ function initEventListeners() {
         statusEl.textContent = '⏳ Waiting for payment...';
         statusEl.style.color = '#667eea';
       }
+    } catch (error) {
+      console.error('Error opening Tonkeeper:', error);
+      tg.showAlert('Error opening Tonkeeper. Please check if Tonkeeper is installed.');
     }
   });
   

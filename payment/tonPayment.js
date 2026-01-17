@@ -59,12 +59,13 @@ function generateComment() {
 }
 
 /**
- * Пакеты игр (1 TON = 1 игра, 5 TON = 5 игр, 10 TON = 10 игр)
+ * Пакеты игр (1$ = 1 игра = 1 TON, 5$ = 5 игр = 5 TON, 10$ = 10 игр = 10 TON)
+ * Цены отображаются в долларах, платежи принимаются в TON
  */
 const PACKAGES = {
-  pkg_1: { amount: 1, games: 1 },    // 1 TON = 1 игра
-  pkg_5: { amount: 5, games: 5 },    // 5 TON = 5 игр
-  pkg_10: { amount: 10, games: 10 }  // 10 TON = 10 игр
+  pkg_1: { amount: 1, games: 1, priceUsd: 1 },    // $1 = 1 игра = 1 TON
+  pkg_5: { amount: 5, games: 5, priceUsd: 5 },    // $5 = 5 игр = 5 TON
+  pkg_10: { amount: 10, games: 10, priceUsd: 10 }  // $10 = 10 игр = 10 TON
 };
 
 /**
