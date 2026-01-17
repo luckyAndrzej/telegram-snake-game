@@ -12,7 +12,7 @@ tg.expand();
 let socket = null;
 let userId = null;
 let username = null;
-let gameState = 'loading'; // loading, menu, waiting, countdown, playing, result
+let gameState = 'loading'; // loading, menu, lobby, countdown, game, result
 let currentGame = null;
 let gameCanvas = null;
 let gameCtx = null;
@@ -21,15 +21,13 @@ let debugMode = false;
 // Инициализация
 document.addEventListener('DOMContentLoaded', () => {
   console.log('🚀 Инициализация приложения...');
-  // Сразу скрываем loading-screen
-  const loadingScreen = document.getElementById('loading-screen');
-  if (loadingScreen) {
-    loadingScreen.classList.remove('active');
-  }
   
+  // Порядок инициализации: canvas, socket, затем показать меню
+  initCanvas();
   initSocket();
   initEventListeners();
-  initCanvas();
+  
+  // showScreen автоматически скроет loading-screen и покажет меню
   showScreen('menu');
   console.log('✅ Приложение инициализировано');
 });
@@ -162,7 +160,7 @@ function initSocket() {
   
   socket.on('game_state', (data) => {
     // Обновляем состояние игры только если игра активна (после countdown)
-    if (currentGame && gameState === 'playing') {
+    if (currentGame && gameState === 'game') {
       updateGameState(data);
     }
   });
@@ -212,7 +210,7 @@ function initEventListeners() {
   
   // Клавиатурное управление
   document.addEventListener('keydown', (e) => {
-    if (gameState !== 'playing') return;
+    if (gameState !== 'game') return;
     
     const keyMap = {
       'ArrowUp': 'up',
@@ -354,7 +352,7 @@ function initWaitingCanvas() {
  * Отправка команды направления
  */
 function sendDirection(direction) {
-  if (socket && socket.connected && gameState === 'playing') {
+  if (socket && socket.connected && gameState === 'game') {
     socket.emit('direction', direction);
   }
 }
@@ -363,14 +361,19 @@ function sendDirection(direction) {
  * Показ экрана
  */
 function showScreen(screenName) {
-  document.querySelectorAll('.screen').forEach(screen => {
-    screen.classList.remove('active');
-  });
+  console.log('Переключение на экран:', screenName);
   
-  const screen = document.getElementById(`${screenName}-screen`);
-  if (screen) {
-    screen.classList.add('active');
+  // Находим все элементы с классом screen
+  const screens = document.querySelectorAll('.screen');
+  screens.forEach(s => s.classList.remove('active'));
+
+  // Ищем целевой экран по id (screenName + '-screen')
+  const target = document.getElementById(`${screenName}-screen`);
+  if (target) {
+    target.classList.add('active');
     gameState = screenName;
+  } else {
+    console.warn(`Экран "${screenName}-screen" не найден!`);
   }
 }
 
@@ -422,10 +425,10 @@ function startGame(data) {
   }
   currentGame.startTime = data.start_time || Date.now();
   
-  // Переключаемся на игровой экран
+  // Переключаемся на игровой экран (ID в HTML: game-screen)
   console.log('📺 Переключаемся на игровой экран');
-  gameState = 'playing';
-  showScreen('playing');
+  gameState = 'game';
+  showScreen('game');
   
   // Инициализируем игровой canvas если нужно
   if (gameCanvas && gameCtx) {

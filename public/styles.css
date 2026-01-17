@@ -20,21 +20,22 @@ body {
 }
 
 .screen {
-    display: none;
-    width: 100%;
-    height: 100%;
-    position: absolute;
+    display: none !important;
+    position: fixed;
     top: 0;
     left: 0;
+    width: 100vw;
+    height: 100vh;
+    z-index: 1;
     padding: 20px;
     overflow-y: auto;
 }
 
 .screen.active {
-    display: flex;
-    flex-direction: column;
-    align-items: center;
+    display: flex !important;
+    z-index: 100;
     justify-content: center;
+    align-items: center;
 }
 
 /* TEST MODE Badge */
@@ -269,10 +270,13 @@ body {
 /* Игра - только во время активной игры */
 #game-screen {
     padding: 15px;
-    display: flex;
     flex-direction: column;
-    height: 100%;
-    min-height: 100vh;
+    justify-content: space-between;
+}
+
+#game-screen.active {
+    display: flex !important;
+    justify-content: space-between;
 }
 
 /* Скрываем игровое поле и кнопки на других экранах */
@@ -342,6 +346,8 @@ body {
     width: 100%;
     display: flex;
     justify-content: center;
+    z-index: 101;
+    position: relative;
 }
 
 .controls-grid {
@@ -370,6 +376,7 @@ body {
     align-items: center;
     justify-content: center;
     margin: 0;
+    touch-action: manipulation;
 }
 
 .control-btn:active {
