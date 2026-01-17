@@ -113,17 +113,19 @@ function initSocket() {
       gameState = 'playing';
       showScreen('game');
       
-      // Инициализируем game-canvas один раз
+      // Инициализируем game-canvas с логическим разрешением 800x800 для четкости
       if (!gameCanvas || !gameCtx) {
         gameCanvas = document.getElementById('game-canvas');
         if (gameCanvas) {
           gameCtx = gameCanvas.getContext('2d');
-          // Устанавливаем размер canvas адаптивно
-          const container = gameCanvas.parentElement;
-          const maxSize = Math.min(container.clientWidth - 40, 600);
-          gameCanvas.width = maxSize;
-          gameCanvas.height = maxSize;
+          // Логическое разрешение 800x800 (CSS растянет его)
+          gameCanvas.width = 800;
+          gameCanvas.height = 800;
         }
+      } else {
+        // Пересчитываем размер canvas при каждом входе в игру
+        gameCanvas.width = 800;
+        gameCanvas.height = 800;
       }
       
       // Показываем countdown overlay
@@ -173,16 +175,19 @@ function initSocket() {
     // Убеждаемся что gameState = 'playing'
     gameState = 'playing';
     
-    // Инициализируем canvas если нужно
+    // Инициализируем canvas с логическим разрешением 800x800 для четкости
     if (!gameCanvas || !gameCtx) {
       gameCanvas = document.getElementById('game-canvas');
       if (gameCanvas) {
         gameCtx = gameCanvas.getContext('2d');
-        const container = gameCanvas.parentElement;
-        const maxSize = Math.min(container.clientWidth - 40, 600);
-        gameCanvas.width = maxSize;
-        gameCanvas.height = maxSize;
+        // Логическое разрешение 800x800 (CSS растянет его)
+        gameCanvas.width = 800;
+        gameCanvas.height = 800;
       }
+    } else {
+      // Пересчитываем размер canvas при каждом входе в игру
+      gameCanvas.width = 800;
+      gameCanvas.height = 800;
     }
     
     // Очищаем canvas и готовимся к игре
@@ -348,11 +353,9 @@ function initCanvas() {
   
   gameCtx = gameCanvas.getContext('2d');
   
-  // Устанавливаем размер canvas
-  const container = gameCanvas.parentElement;
-  const size = Math.min(container.clientWidth - 20, 600);
-  gameCanvas.width = size;
-  gameCanvas.height = size;
+  // Устанавливаем логическое разрешение 800x800 (CSS растянет его)
+  gameCanvas.width = 800;
+  gameCanvas.height = 800;
   
   // Инициализируем canvas для countdown (если есть)
   const countdownCanvas = document.getElementById('countdown-canvas');
@@ -401,13 +404,17 @@ function sendDirection(direction) {
 function showScreen(screenName) {
   console.log('Переключение на экран:', screenName);
   
-  // Находим все элементы с классом screen
+  // Находим все элементы с классом screen и принудительно скрываем их
   const screens = document.querySelectorAll('.screen');
-  screens.forEach(s => s.classList.remove('active'));
+  screens.forEach(s => {
+    s.classList.remove('active');
+    s.style.display = 'none'; // Принудительное скрытие для исключения просвечивания
+  });
 
   // Ищем целевой экран по id (screenName + '-screen')
   const target = document.getElementById(`${screenName}-screen`);
   if (target) {
+    target.style.display = ''; // Сбрасываем inline display для использования CSS
     target.classList.add('active');
     gameState = screenName;
   } else {
@@ -542,8 +549,8 @@ function drawGrid() {
   const width = gameCanvas.width;
   const height = gameCanvas.height;
   
-  // Более тонкие и прозрачные линии сетки
-  gameCtx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+  // Более яркие линии сетки для лучшей видимости
+  gameCtx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
   gameCtx.lineWidth = 0.5;
   
   for (let i = 0; i <= 20; i++) {
@@ -594,9 +601,9 @@ function drawSnake(snake, color1, color2) {
     const offset = 1;
     const radius = size * (index === 0 ? 0.2 : 0.15);
     
-    // Neon эффект (свечение цвета змейки)
+    // Neon эффект (свечение цвета змейки) - увеличенная интенсивность
     gameCtx.shadowColor = color1;
-    gameCtx.shadowBlur = 8;
+    gameCtx.shadowBlur = 18; // Увеличено с 8 до 18 для лучшей видимости
     gameCtx.shadowOffsetX = 0;
     gameCtx.shadowOffsetY = 0;
     
@@ -606,6 +613,13 @@ function drawSnake(snake, color1, color2) {
       gameCtx.beginPath();
       gameCtx.roundRect(x + offset, y + offset, size, size, radius);
       gameCtx.fill();
+      
+      // Яркая белая обводка головы для лучшей видимости
+      gameCtx.strokeStyle = '#ffffff';
+      gameCtx.lineWidth = 2;
+      gameCtx.beginPath();
+      gameCtx.roundRect(x + offset, y + offset, size, size, radius);
+      gameCtx.stroke();
       
       // Сбрасываем свечение для глаз
       gameCtx.shadowBlur = 0;
@@ -695,9 +709,9 @@ function renderGamePreviewOnCanvas(gameState, canvas, ctx) {
   ctx.fillStyle = '#1a1a2e';
   ctx.fillRect(0, 0, canvas.width, canvas.height);
   
-  // Затем рисуем сетку (прозрачную)
+  // Затем рисуем сетку (более яркую для лучшей видимости)
   const tileSize = canvas.width / 20;
-  ctx.strokeStyle = 'rgba(255, 255, 255, 0.05)';
+  ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
   ctx.lineWidth = 0.5;
   
   for (let i = 0; i <= 20; i++) {
@@ -727,11 +741,11 @@ function renderGamePreviewOnCanvas(gameState, canvas, ctx) {
       const y = segment.y * tileSize;
       const size = tileSize - 2;
       
-      // Тень
-      ctx.shadowColor = 'rgba(0, 0, 0, 0.3)';
-      ctx.shadowBlur = 4;
-      ctx.shadowOffsetX = 2;
-      ctx.shadowOffsetY = 2;
+      // Neon эффект (свечение цвета змейки) - увеличенная интенсивность для видимости
+      ctx.shadowColor = color1;
+      ctx.shadowBlur = 18; // Увеличено для лучшей видимости
+      ctx.shadowOffsetX = 0;
+      ctx.shadowOffsetY = 0;
       
       if (index === 0) {
         // Голова
@@ -740,8 +754,16 @@ function renderGamePreviewOnCanvas(gameState, canvas, ctx) {
         ctx.roundRect(x + 1, y + 1, size, size, size * 0.2);
         ctx.fill();
         
+        // Яркая белая обводка головы для лучшей видимости
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 2;
+        ctx.beginPath();
+        ctx.roundRect(x + 1, y + 1, size, size, size * 0.2);
+        ctx.stroke();
+        
         // Глаза на голове
         ctx.shadowBlur = 0;
+        ctx.shadowColor = 'transparent';
         ctx.fillStyle = '#ffffff';
         ctx.beginPath();
         ctx.arc(x + size * 0.3, y + size * 0.3, size * 0.1, 0, Math.PI * 2);
