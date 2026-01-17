@@ -278,15 +278,16 @@ body {
 
 #game-screen.active {
     display: flex !important;
+    flex-direction: column;
+    justify-content: space-between;
+    align-items: center;
 }
 
 /* Скрываем игровое поле и кнопки на других экранах */
 #menu-screen .game-container,
 #menu-screen .game-controls,
 #lobby-screen .game-container,
-#lobby-screen .game-controls,
-#countdown-screen .game-container,
-#countdown-screen .game-controls {
+#lobby-screen .game-controls {
     display: none;
 }
 
@@ -312,13 +313,12 @@ body {
 }
 
 .game-container {
-    flex-grow: 1;
-    display: flex;
-    align-items: center;
-    justify-content: center;
     position: relative;
+    flex: 1;
+    display: flex;
+    justify-content: center;
+    align-items: center;
     width: 100%;
-    overflow: hidden;
     min-height: 0; /* Позволяет flex-элементу сжиматься */
 }
 
@@ -336,11 +336,36 @@ body {
     box-shadow: 0 8px 32px rgba(0, 0, 0, 0.3);
 }
 
-#countdown-canvas {
-    display: block;
+/* Countdown Overlay внутри игрового экрана */
+#countdown-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
     width: 100%;
     height: 100%;
-    background: #1a1a2e;
+    background: rgba(0, 0, 0, 0.4);
+    z-index: 1000;
+    display: none;
+    justify-content: center;
+    align-items: center;
+}
+
+.countdown-overlay-content {
+    text-align: center;
+    color: white;
+}
+
+.countdown-overlay-content .countdown-number {
+    font-size: 120px;
+    font-weight: bold;
+    margin-bottom: 20px;
+    text-shadow: 0 4px 30px rgba(255, 255, 255, 0.5);
+    animation: countdownPulse 1s ease-in-out;
+}
+
+.countdown-overlay-content .countdown-text {
+    font-size: 24px;
+    opacity: 0.9;
 }
 
 .game-controls {

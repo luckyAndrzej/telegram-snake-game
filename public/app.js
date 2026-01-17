@@ -22,13 +22,21 @@ let debugMode = false;
 document.addEventListener('DOMContentLoaded', () => {
   console.log('🚀 Инициализация приложения...');
   
-  // Порядок инициализации: canvas, socket, затем показать меню
+  // СНАЧАЛА показываем меню, чтобы интерфейс не блокировался
+  showScreen('menu');
+  
+  // Затем инициализируем остальное
   initCanvas();
-  initSocket();
   initEventListeners();
   
-  // showScreen автоматически скроет loading-screen и покажет меню
-  showScreen('menu');
+  // Инициализация сокета в try-catch, чтобы ошибки не блокировали интерфейс
+  try {
+    initSocket();
+  } catch (error) {
+    console.error('❌ Ошибка инициализации Socket:', error);
+    tg.showAlert('Предупреждение: не удалось подключиться к серверу');
+  }
+  
   console.log('✅ Приложение инициализировано');
 });
 
@@ -132,6 +140,8 @@ function initSocket() {
       const countdownOverlay = document.getElementById('countdown-overlay');
       if (countdownOverlay) {
         countdownOverlay.style.display = 'flex';
+      } else {
+        console.warn('countdown-overlay не найден!');
       }
       
       // Рисуем начальное состояние игры на game-canvas (обе змейки видны, но не двигаются)
@@ -166,29 +176,17 @@ function initSocket() {
     currentGame.gameId = data.gameId;
     currentGame.startTime = data.start_time || Date.now();
     
+    // Устанавливаем gameState = 'playing'
+    gameState = 'playing';
+    
     // Скрываем countdown overlay
     const countdownOverlay = document.getElementById('countdown-overlay');
     if (countdownOverlay) {
       countdownOverlay.style.display = 'none';
     }
     
-    // Убеждаемся что gameState = 'playing'
-    gameState = 'playing';
-    
-    // Инициализируем canvas с логическим разрешением 800x800 для четкости
-    if (!gameCanvas || !gameCtx) {
-      gameCanvas = document.getElementById('game-canvas');
-      if (gameCanvas) {
-        gameCtx = gameCanvas.getContext('2d');
-        // Логическое разрешение 800x800 (CSS растянет его)
-        gameCanvas.width = 800;
-        gameCanvas.height = 800;
-      }
-    } else {
-      // Пересчитываем размер canvas при каждом входе в игру
-      gameCanvas.width = 800;
-      gameCanvas.height = 800;
-    }
+    // Вызываем initCanvas(), чтобы убедиться, что размеры холста актуальны
+    initCanvas();
     
     // Очищаем canvas и готовимся к игре
     if (gameCanvas && gameCtx) {
@@ -507,6 +505,7 @@ function startGame(data) {
  * Обновление состояния игры
  */
 function updateGameState(data) {
+  console.log('Drawing state...'); // Лог для проверки прихода данных
   console.log('Данные игры:', data); // Логирование для отладки
   
   if (!gameCanvas || !gameCtx) {
