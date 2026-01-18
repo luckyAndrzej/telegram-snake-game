@@ -553,24 +553,8 @@ async function endGame(gameId, winnerId, loserId) {
       prize = 0;
     } else {
       try {
-        // Прямое чтение users.json через fs
-        const fs = require('fs');
-        const dbPath = path.join(__dirname, 'db', 'db.json');
-        
-        // Загружаем users.json напрямую
-        let usersData = {};
-        try {
-          const dbData = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
-          usersData = dbData.users || {};
-        } catch (readError) {
-          console.error(`⚠️ Ошибка при чтении ${dbPath}:`, readError.message);
-          prize = 0;
-          throw readError;
-        }
-        
-        // Находим победителя (приводим winnerId к строке)
-        const winnerIdStr = String(winnerId);
-        const winner = usersData[winnerIdStr];
+        // Получаем пользователя через getUser
+        const winner = getUser(winnerId);
         
         // Проверяем, что это не бот (боты не имеют записи в БД)
         // Начисляем выигрыш только реальному игроку
@@ -583,15 +567,11 @@ async function endGame(gameId, winnerId, loserId) {
           const newWinnings = oldWinnings + winAmount;
           const newTotalEarned = oldTotalEarned + winAmount;
           
-          // Обновляем данные пользователя
-          usersData[winnerIdStr].winnings_usdt = newWinnings;
-          usersData[winnerIdStr].totalEarned = newTotalEarned;
-          
-          // Принудительное сохранение через fs.writeFileSync
-          const dbDataToSave = {
-            users: usersData
-          };
-          fs.writeFileSync(dbPath, JSON.stringify(dbDataToSave, null, 2), 'utf8');
+          // Обновляем данные через updateUser (lowdb автоматически сохраняет через .write())
+          updateUser(winnerId, {
+            winnings_usdt: newWinnings,
+            totalEarned: newTotalEarned
+          });
           
           prize = winAmount;
           
@@ -601,12 +581,6 @@ async function endGame(gameId, winnerId, loserId) {
           console.log(`   withdrawalBalance (winnings_usdt): ${oldWinnings} -> ${newWinnings}`);
           console.log(`   totalEarned: ${oldTotalEarned} -> ${newTotalEarned}`);
           console.log('========================================\n');
-          
-          // Обновляем данные в lowdb для синхронизации
-          updateUser(winnerId, {
-            winnings_usdt: newWinnings,
-            totalEarned: newTotalEarned
-          });
           
           // Сразу отправляем обновленный баланс игроку через Socket.io
           const updatedUser = getUser(winnerId);

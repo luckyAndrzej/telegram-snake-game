@@ -290,7 +290,7 @@ function initSocket() {
     console.log('✅ Payment successful:', data);
     
     // Обновляем баланс
-    updateBalance(data.new_balance, null);
+    updateBalance(data.new_balance, data.winnings_usdt);
     
     // Закрываем модальное окно платежа
     const paymentModal = document.getElementById('payment-modal');
@@ -1346,8 +1346,8 @@ function endGame(data) {
     resultPrize.textContent = isWinner ? `💰 +${prize.toFixed(2)} USDT` : '💰 0 USDT';
   }
   
-  // Update balances
-  updateBalance();
+  // Баланс обновляется через socket.on('balance_updated') от сервера
+  // Не вызываем updateBalance() без параметров!
   
   // FORCE show results screen
   const resultScreen = document.getElementById('result-screen');

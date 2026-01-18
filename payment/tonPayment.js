@@ -370,6 +370,9 @@ async function scanTransactions(io) {
           games_balance: newBalance
         });
 
+        // Получаем обновленные данные пользователя
+        const updatedUser = getUser(foundPayment.userId);
+
         // Удаляем из pending_payments
         delete pendingPayments[foundPaymentId];
 
@@ -401,7 +404,8 @@ async function scanTransactions(io) {
           io.to(userRoom).emit('payment_success', {
             paymentId: foundPaymentId,
             games: foundPayment.games,
-            new_balance: newBalance
+            new_balance: newBalance,
+            winnings_usdt: updatedUser.winnings_usdt
           });
           console.log(`✅ Событие payment_success отправлено: games=${foundPayment.games}, new_balance=${newBalance}`);
         }
