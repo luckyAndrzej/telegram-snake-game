@@ -1,3 +1,6 @@
+// Загрузка переменных окружения ДО всех остальных импортов
+require('dotenv').config();
+
 /**
  * Сервер для мультиплеерной игры "Змейка" (Telegram Mini App)
  * Node.js + Socket.io + lowdb
@@ -14,9 +17,6 @@ const gameLogic = require('./game/gameLogic');
 const gameLoop = require('./game/gameLoop');
 const paymentModule = require('./payment/paymentHandler');
 const tonPayment = require('./payment/tonPayment');
-
-// Загрузка переменных окружения
-require('dotenv').config();
 
 // DEBUG MODE: Переключатель режимов
 // По умолчанию false (боевой режим) для продакшена
@@ -68,17 +68,30 @@ db.init().then(async () => {
   if (!DEBUG_MODE) {
     await tonPayment.initPaymentFiles();
     
+    // Логирование переменных окружения для отладки
+    console.log('🔍 Проверка переменных окружения:');
+    console.log(`   process.env.IS_TESTNET = "${process.env.IS_TESTNET}" (type: ${typeof process.env.IS_TESTNET})`);
+    console.log(`   process.env.TON_WALLET_ADDRESS = "${process.env.TON_WALLET_ADDRESS ? process.env.TON_WALLET_ADDRESS.substring(0, 10) + '...' : 'undefined'}"`);
+    console.log(`   process.env.TON_API_KEY = "${process.env.TON_API_KEY ? '***' + process.env.TON_API_KEY.slice(-4) : 'undefined'}"`);
+    console.log(`   process.env.TONCENTER_API_KEY = "${process.env.TONCENTER_API_KEY ? '***' + process.env.TONCENTER_API_KEY.slice(-4) : 'undefined'}"`);
+    
     // Читаем IS_TESTNET из переменных окружения (строка 'true' или булево)
-    const isTestnet = process.env.IS_TESTNET === 'true' || process.env.IS_TESTNET === true;
+    // Жесткая проверка: если в .env написано 'true', то IS_TESTNET = true
+    const isTestnet = process.env.IS_TESTNET === 'true' || process.env.IS_TESTNET === true || process.env.IS_TESTNET === 'TRUE';
+    
+    // Проверяем оба варианта названия API ключа (TON_API_KEY и TONCENTER_API_KEY)
+    const apiKey = process.env.TON_API_KEY || process.env.TONCENTER_API_KEY || '';
+    const walletAddress = process.env.TON_WALLET_ADDRESS || '';
     
     // Инициализация конфигурации TON
     tonPayment.initConfig({
       IS_TESTNET: isTestnet,
-      TON_WALLET_ADDRESS: process.env.TON_WALLET_ADDRESS || '',
-      TON_API_KEY: process.env.TON_API_KEY || ''
+      TON_WALLET_ADDRESS: walletAddress,
+      TON_API_KEY: apiKey
     });
     
     console.log(`🌐 TON Config: IS_TESTNET=${isTestnet} (from env: ${process.env.IS_TESTNET})`);
+    console.log(`✅ ПРОВЕРКА: API Key загружен: ${!!apiKey}`);
 
     // Запускаем сканер блокчейна (каждые 20 секунд)
     setInterval(() => {

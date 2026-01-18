@@ -418,22 +418,28 @@ async function scanTransactions(io) {
  * Инициализация конфигурации (вызывается из server.js)
  */
 function initConfig(config) {
-  // Явно обрабатываем IS_TESTNET как строку 'true' или булево значение
-  const isTestnet = config.IS_TESTNET === 'true' || config.IS_TESTNET === true;
+  // Жесткая проверка: если в config или .env написано 'true', то IS_TESTNET = true
+  // Поддерживаем несколько вариантов: 'true', true, 'TRUE'
+  const isTestnet = config.IS_TESTNET === 'true' || config.IS_TESTNET === true || config.IS_TESTNET === 'TRUE';
+  
+  // Жесткая проверка API_URL: если IS_TESTNET = true, то ОБЯЗАТЕЛЬНО testnet URL
+  const apiUrl = isTestnet 
+    ? 'https://testnet.toncenter.com/api/v2' 
+    : 'https://toncenter.com/api/v2';
   
   TON_CONFIG = {
     IS_TESTNET: isTestnet,
-    TON_API_URL: isTestnet 
-      ? 'https://testnet.toncenter.com/api/v2' 
-      : 'https://toncenter.com/api/v2',
+    TON_API_URL: apiUrl,
     TON_WALLET_ADDRESS: config.TON_WALLET_ADDRESS || '',
     TON_API_KEY: config.TON_API_KEY || ''
   };
   
   console.log(`🔧 TON Config initialized:`);
   console.log(`   IS_TESTNET: ${TON_CONFIG.IS_TESTNET} (from config: ${config.IS_TESTNET})`);
-  console.log(`   API_URL: ${TON_CONFIG.TON_API_URL}`);
+  console.log(`   API_URL: ${TON_CONFIG.TON_API_URL} ${isTestnet ? '(TESTNET)' : '(MAINNET)'}`);
   console.log(`   WALLET_ADDRESS: ${TON_CONFIG.TON_WALLET_ADDRESS ? TON_CONFIG.TON_WALLET_ADDRESS.substring(0, 10) + '...' : 'NOT SET'}`);
+  console.log(`   TON_API_KEY: ${TON_CONFIG.TON_API_KEY ? '***' + TON_CONFIG.TON_API_KEY.slice(-4) : 'NOT SET'}`);
+  console.log(`✅ ПРОВЕРКА: API Key загружен: ${!!TON_CONFIG.TON_API_KEY}`);
 }
 
 module.exports = {
