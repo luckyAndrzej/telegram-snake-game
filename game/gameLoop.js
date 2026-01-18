@@ -13,9 +13,15 @@ let tickInterval = null; // Интервал между тиками в милл
  */
 function start(io, activeGames, config, endGameCallback) {
   // Вычисляем интервал между тиками (1000ms / TICK_RATE)
+  // TICK_RATE обычно 15-20 тиков/сек для логики игры
   tickInterval = 1000 / config.TICK_RATE; // Например, 1000/15 = 66.67ms
   
-  // Запускаем цикл
+  // Throttle для отправки game_state: отправляем только 15-20 раз в секунду (50-60 FPS для клиента)
+  const SEND_RATE = 20; // 20 обновлений в секунду (50ms между отправками)
+  const sendInterval = 1000 / SEND_RATE; // 50ms
+  let lastSendTime = 0;
+  
+  // Запускаем цикл обновления игры
   gameLoopInterval = setInterval(() => {
     const currentTime = Date.now();
     const gameIds = Array.from(activeGames.keys());
@@ -30,11 +36,15 @@ function start(io, activeGames, config, endGameCallback) {
       if (!game || game.finished) return;
       
       if (game.is_running) {
-        // Выполняем тик игры
+        // Выполняем тик игры (внутренняя логика всегда обновляется)
         const result = gameLogic.tick(game);
         
-        // Отправляем состояние игры всем игрокам
-        broadcastGameState(io, game, gameId);
+        // Отправляем состояние игры всем игрокам только с нужной частотой (throttle)
+        const currentTime = Date.now();
+        if (currentTime - lastSendTime >= sendInterval) {
+          broadcastGameState(io, game, gameId);
+          lastSendTime = currentTime;
+        }
         
         // Если игра завершена - уведомляем
         if (result.finished && endGameCallback) {

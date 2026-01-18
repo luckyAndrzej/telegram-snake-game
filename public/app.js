@@ -35,23 +35,43 @@ document.addEventListener('DOMContentLoaded', () => {
   window.addEventListener('resize', () => {
     clearTimeout(resizeTimeout);
     resizeTimeout = setTimeout(() => {
-      // Пересчитываем размер canvas при изменении размера окна
-      if (gameCanvas) {
-        // Адаптивный размер canvas: устанавливаем CSS размеры
-        gameCanvas.style.width = '100%';
-        gameCanvas.style.height = '100%';
-        
+      // Пересчитываем размер canvas при изменении размера окна с учетом DPR
+      if (gameCanvas && gameCtx) {
+        const dpr = window.devicePixelRatio || 1;
         const containerWidth = gameCanvas.parentElement?.clientWidth || window.innerWidth;
         const containerHeight = window.innerHeight * 0.5;
         const maxCanvasSize = Math.min(containerWidth - 40, containerHeight, 800);
         
-        // Устанавливаем логический размер (DPI) из offsetWidth/offsetHeight или вычисленного размера
-        gameCanvas.width = gameCanvas.offsetWidth || maxCanvasSize;
-        gameCanvas.height = gameCanvas.offsetHeight || maxCanvasSize;
+        // Устанавливаем логический размер с учетом DPR (для четкости на Retina)
+        const logicalWidth = maxCanvasSize * dpr;
+        const logicalHeight = maxCanvasSize * dpr;
+        
+        gameCanvas.width = logicalWidth;
+        gameCanvas.height = logicalHeight;
+        
+        // Масштабируем контекст для корректного отображения
+        gameCtx.scale(dpr, dpr);
+        
+        // CSS размер для отображения (без DPR)
+        gameCanvas.style.width = maxCanvasSize + 'px';
+        gameCanvas.style.height = maxCanvasSize + 'px';
+        
+        // Отключаем сглаживание для производительности пиксельной графики
+        gameCtx.imageSmoothingEnabled = false;
         
         // Если игра активна, перерисовываем состояние
-        if (gameState === 'playing' && currentGame) {
-          // Canvas будет обновлен следующим game_state событием
+        if (gameState === 'playing' && currentGame && gameStateData) {
+          // Быстрая перерисовка текущего состояния
+          requestAnimationFrame(() => {
+            if (gameCtx && gameStateData) {
+              gameCtx.clearRect(0, 0, maxCanvasSize, maxCanvasSize);
+              gameCtx.fillStyle = '#0a0e27';
+              gameCtx.fillRect(0, 0, maxCanvasSize, maxCanvasSize);
+              drawGrid();
+              drawSnake(gameStateData.my_snake, '#ff4444', '#ff6666');
+              drawSnake(gameStateData.opponent_snake, '#4444ff', '#6666ff');
+            }
+          });
         }
       }
     }, 100); // Debounce для производительности
@@ -814,14 +834,26 @@ function initCanvas() {
   
   gameCtx = gameCanvas.getContext('2d');
   
-  // Адаптивное логическое разрешение: используем динамический размер
-  // Базовая ширина 800px, но адаптируем под размер экрана
+  // Оптимизация производительности: отключаем сглаживание для пиксельной графики
+  gameCtx.imageSmoothingEnabled = false;
+  
+  // Адаптивное логическое разрешение с учетом devicePixelRatio
+  // Используем devicePixelRatio для четкости на Retina экранах
+  const dpr = window.devicePixelRatio || 1;
   const containerWidth = gameCanvas.parentElement?.clientWidth || window.innerWidth;
   const containerHeight = window.innerHeight * 0.5; // Максимум 50% высоты экрана
   const maxCanvasSize = Math.min(containerWidth - 40, containerHeight, 800); // Ограничиваем 800px
   
-  gameCanvas.width = maxCanvasSize;
-  gameCanvas.height = maxCanvasSize;
+  // Устанавливаем логический размер с учетом DPR для четкости
+  gameCanvas.width = maxCanvasSize * dpr;
+  gameCanvas.height = maxCanvasSize * dpr;
+  
+  // Масштабируем контекст для корректного отображения
+  gameCtx.scale(dpr, dpr);
+  
+  // CSS размер (для отображения на экране)
+  gameCanvas.style.width = maxCanvasSize + 'px';
+  gameCanvas.style.height = maxCanvasSize + 'px';
   
   // Инициализируем canvas для countdown (если есть)
   const countdownCanvas = document.getElementById('countdown-canvas');

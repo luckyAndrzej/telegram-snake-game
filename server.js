@@ -79,10 +79,15 @@ db.init().then(async () => {
   if (!DEBUG_MODE) {
     await tonPayment.initPaymentFiles();
     
-    // Используем fallback значения, если переменные окружения не определены
-    const IS_TESTNET = process.env.IS_TESTNET === 'true' || process.env.IS_TESTNET === true || process.env.IS_TESTNET === 'TRUE' || FALLBACK_IS_TESTNET;
-    const WALLET = process.env.TON_WALLET_ADDRESS || FALLBACK_WALLET;
-    const API_KEY = process.env.TONCENTER_API_KEY || FALLBACK_API_KEY;
+    // Используем значения из .env, с fallback на true для тестнета если не задано
+    const IS_TESTNET = process.env.IS_TESTNET === 'true' || process.env.IS_TESTNET === true || process.env.IS_TESTNET === 'TRUE' || true; // Fallback: true (тестнет)
+    const WALLET = process.env.TON_WALLET_ADDRESS || '';
+    const API_KEY = process.env.TONCENTER_API_KEY || process.env.TON_API_KEY || '';
+    
+    // Предупреждение если переменные не заданы
+    if (!process.env.TONCENTER_API_KEY && !process.env.TON_API_KEY) {
+      console.warn('⚠️ TONCENTER_API_KEY не найден в .env. Некоторые функции могут не работать.');
+    }
     
     // Определяем, используются ли fallback значения
     const usingFallback = !process.env.IS_TESTNET || !process.env.TON_WALLET_ADDRESS || !process.env.TONCENTER_API_KEY;
@@ -154,18 +159,43 @@ function validateTelegramUser(socket, next) {
 // Socket.io подключение
 io.use(validateTelegramUser);
 
+// Кэш для отслеживания недавних подключений (защита от частых переподключений)
+const recentConnections = new Map(); // userId -> timestamp
+
 io.on('connection', async (socket) => {
   const userId = socket.handshake.auth.user_id;
   const username = socket.handshake.auth.username || `User_${userId}`;
   
-  console.log(`🔌 Пользователь подключен: ${userId} (${username})`);
+  // Проверка: если пользователь переподключается в течение 2 секунд, используем существующую сессию
+  const lastConnection = recentConnections.get(userId);
+  const now = Date.now();
+  const reconnectThreshold = 2000; // 2 секунды
+  
+  if (lastConnection && (now - lastConnection) < reconnectThreshold) {
+    console.log(`🔄 Быстрое переподключение игрока ${userId} (${now - lastConnection}ms). Используем существующую сессию.`);
+  } else {
+    console.log(`🔌 Пользователь подключен: ${userId} (${username})`);
+    // Инициализация пользователя в БД только если не было недавнего подключения
+    await initUser(userId, username, DEBUG_MODE);
+  }
+  
+  // Обновляем время последнего подключения
+  recentConnections.set(userId, now);
+  
+  // Очистка старых записей каждые 10 секунд (чтобы не накапливать память)
+  if (recentConnections.size > 1000) {
+    const tenSecondsAgo = now - 10000;
+    for (const [uid, timestamp] of recentConnections.entries()) {
+      if (timestamp < tenSecondsAgo) {
+        recentConnections.delete(uid);
+      }
+    }
+  }
+  
   socketToUser.set(socket.id, userId);
   
   // Присоединяем к комнате пользователя для отправки событий payment_success
   socket.join(`user_${userId}`);
-  
-  // Инициализация пользователя в БД (если нового)
-  await initUser(userId, username, DEBUG_MODE);
   
   // Отправляем информацию о режиме и балансе
   const user = await getUser(userId);
