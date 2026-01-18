@@ -239,6 +239,96 @@ io.on('connection', async (socket) => {
     }
   });
   
+  // Обработчик запроса на вывод средств
+  socket.on('requestWithdraw', async (data) => {
+    try {
+      const { amount } = data;
+      
+      if (!amount || amount <= 0) {
+        socket.emit('withdrawal_error', {
+          message: 'Некорректная сумма для вывода'
+        });
+        return;
+      }
+      
+      // Получаем пользователя
+      const user = await getUser(userId);
+      
+      // Проверяем баланс
+      if (!user.winnings_usdt || user.winnings_usdt < amount) {
+        socket.emit('withdrawal_error', {
+          message: `Недостаточно средств для вывода. Доступно: ${user.winnings_usdt || 0} USDT, запрошено: ${amount} USDT`
+        });
+        return;
+      }
+      
+      // Минимальная сумма вывода 1.5 USDT
+      if (amount < 1.5) {
+        socket.emit('withdrawal_error', {
+          message: 'Минимальная сумма вывода: 1.5 USDT'
+        });
+        return;
+      }
+      
+      // Проверяем наличие кошелька
+      if (!user.wallet || user.wallet.trim() === '') {
+        socket.emit('withdrawal_error', {
+          message: 'Кошелек не указан. Пожалуйста, укажите адрес кошелька в настройках.'
+        });
+        return;
+      }
+      
+      // Выполняем вывод средств (TODO: интеграция с TON SDK)
+      // Пока что просто обновляем баланс и логируем
+      const newWinnings = user.winnings_usdt - amount;
+      
+      // Обновляем баланс
+      updateUser(userId, {
+        winnings_usdt: newWinnings
+      });
+      
+      // Логируем вывод в withdrawals.json
+      const fs = require('fs');
+      const withdrawalsPath = path.join(__dirname, 'withdrawals.json');
+      let withdrawals = {};
+      
+      try {
+        const data = fs.readFileSync(withdrawalsPath, 'utf8');
+        withdrawals = JSON.parse(data);
+      } catch {
+        withdrawals = {};
+      }
+      
+      const withdrawalId = `withdrawal_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+      withdrawals[withdrawalId] = {
+        userId,
+        amount,
+        wallet: user.wallet,
+        status: 'pending', // pending, completed, failed
+        createdAt: Date.now(),
+        note: 'TODO: Интегрировать с TON SDK для реального перевода'
+      };
+      
+      fs.writeFileSync(withdrawalsPath, JSON.stringify(withdrawals, null, 2), 'utf8');
+      
+      console.log(`💰 Вывод средств: userId=${userId}, amount=${amount}, wallet=${user.wallet}`);
+      
+      // Отправляем успешный ответ
+      const updatedUser = getUser(userId);
+      socket.emit('withdrawal_success', {
+        amount,
+        games_balance: updatedUser.games_balance,
+        winnings_usdt: updatedUser.winnings_usdt
+      });
+      
+    } catch (error) {
+      console.error('❌ Ошибка при выводе средств:', error);
+      socket.emit('withdrawal_error', {
+        message: error.message || 'Неизвестная ошибка при выводе средств'
+      });
+    }
+  });
+  
   // Отключение
   socket.on('disconnect', () => {
     handleDisconnect(socket, userId);
@@ -408,16 +498,19 @@ function startCountdown(gameId) {
   // Змейки уже отрисованы в начальных позициях, но не двигаются
   game.is_running = false; // Игра еще не началась
   
-  let count = 5; // Start countdown from 5 instead of 3
+  let count = 5; // Start countdown from 5
   const countdownInterval = setInterval(() => {
     // Отправляем событие countdown всем игрокам в комнате
-    io.to(`game_${gameId}`).emit('countdown', {
-      number: count,
-      gameId
-    });
+    if (count > 0) {
+      io.to(`game_${gameId}`).emit('countdown', {
+        number: count,
+        gameId
+      });
+    }
     
     count--;
     
+    // Когда count становится 0, завершаем countdown и начинаем игру
     if (count < 0) {
       clearInterval(countdownInterval);
       // Countdown завершен - начинаем игру

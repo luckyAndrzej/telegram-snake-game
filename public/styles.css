@@ -505,7 +505,7 @@ body::before {
 #game-canvas {
     display: block;
     max-width: 100%;
-    max-height: 50vh;
+    max-height: 55vh;
     width: auto;
     height: auto;
     aspect-ratio: 1/1;
@@ -517,6 +517,19 @@ body::before {
     box-shadow: 
         0 0 40px rgba(0, 245, 255, 0.5),
         inset 0 0 40px rgba(0, 245, 255, 0.1);
+}
+
+/* Адаптивность для разных размеров экрана */
+@media (max-width: 768px) {
+    #game-canvas {
+        max-height: 50vh;
+    }
+}
+
+@media (min-width: 1920px) {
+    #game-canvas {
+        max-height: 60vh;
+    }
 }
 
 /* Countdown Overlay */

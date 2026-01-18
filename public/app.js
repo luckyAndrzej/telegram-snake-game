@@ -308,6 +308,33 @@ function initSocket() {
     // Показываем уведомление в Telegram
     tg.showAlert(`✅ Payment successful! +${data.games} games added. New balance: ${data.new_balance} games.`);
   });
+  
+  // Withdrawal success notification
+  socket.on('withdrawal_success', (data) => {
+    console.log('✅ Withdrawal successful:', data);
+    
+    // Обновляем баланс
+    updateBalance(data.games_balance, data.winnings_usdt);
+    
+    // Показываем уведомление
+    if (window.Telegram && window.Telegram.WebApp) {
+      window.Telegram.WebApp.showAlert(`✅ Вывод средств успешен! ${data.amount} USDT отправлено на ваш кошелек.`);
+    } else {
+      alert(`✅ Вывод средств успешен! ${data.amount} USDT отправлено на ваш кошелек.`);
+    }
+  });
+  
+  // Withdrawal error notification
+  socket.on('withdrawal_error', (error) => {
+    console.error('❌ Withdrawal error:', error);
+    
+    // Показываем ошибку
+    if (window.Telegram && window.Telegram.WebApp) {
+      window.Telegram.WebApp.showAlert(`❌ Ошибка вывода: ${error.message || 'Неизвестная ошибка'}`);
+    } else {
+      alert(`❌ Ошибка вывода: ${error.message || 'Неизвестная ошибка'}`);
+    }
+  });
 }
 
 /**
@@ -684,9 +711,14 @@ function initCanvas() {
   
   gameCtx = gameCanvas.getContext('2d');
   
-  // Устанавливаем логическое разрешение 800x800 (CSS растянет его)
-  gameCanvas.width = 800;
-  gameCanvas.height = 800;
+  // Адаптивное логическое разрешение: используем динамический размер
+  // Базовая ширина 800px, но адаптируем под размер экрана
+  const containerWidth = gameCanvas.parentElement?.clientWidth || window.innerWidth;
+  const containerHeight = window.innerHeight * 0.5; // Максимум 50% высоты экрана
+  const maxCanvasSize = Math.min(containerWidth - 40, containerHeight, 800); // Ограничиваем 800px
+  
+  gameCanvas.width = maxCanvasSize;
+  gameCanvas.height = maxCanvasSize;
   
   // Инициализируем canvas для countdown (если есть)
   const countdownCanvas = document.getElementById('countdown-canvas');
@@ -795,37 +827,35 @@ function handleWithdraw() {
   const withdrawMessage = `Withdraw ${currentBalance.toFixed(2)} USDT?`;
   
   // Показываем подтверждение
-  if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.showConfirm) {
-    window.Telegram.WebApp.showConfirm(
-      withdrawMessage,
-      (confirmed) => {
-        if (confirmed) {
-          // TODO: Реализовать вывод средств (TON blockchain интеграция)
-          // В DEBUG_MODE просто показываем сообщение
-          const message = debugMode 
-            ? `DEBUG: Withdrawal of ${currentBalance.toFixed(2)} USDT would be processed`
-            : 'Withdrawal functionality coming soon';
-          
-          if (window.Telegram && window.Telegram.WebApp) {
-            window.Telegram.WebApp.showAlert(message);
-          } else {
-            alert(message);
-          }
+  const onConfirm = (confirmed) => {
+    if (confirmed) {
+      // Отправляем запрос на вывод средств
+      if (socket && socket.connected) {
+        socket.emit('requestWithdraw', {
+          amount: currentBalance
+        });
+        
+        // Показываем уведомление
+        if (window.Telegram && window.Telegram.WebApp) {
+          window.Telegram.WebApp.showAlert('Запрос отправлен, ожидайте транзакцию');
+        } else {
+          alert('Запрос отправлен, ожидайте транзакцию');
+        }
+      } else {
+        if (window.Telegram && window.Telegram.WebApp) {
+          window.Telegram.WebApp.showAlert('Ошибка: нет подключения к серверу');
+        } else {
+          alert('Ошибка: нет подключения к серверу');
         }
       }
-    );
+    }
+  };
+  
+  if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.showConfirm) {
+    window.Telegram.WebApp.showConfirm(withdrawMessage, onConfirm);
   } else {
-    // Fallback для случаев, когда showConfirm недоступен
     if (confirm(withdrawMessage)) {
-      const message = debugMode 
-        ? `DEBUG: Withdrawal of ${currentBalance.toFixed(2)} USDT would be processed`
-        : 'Withdrawal functionality coming soon';
-      
-      if (window.Telegram && window.Telegram.WebApp) {
-        window.Telegram.WebApp.showAlert(message);
-      } else {
-        alert(message);
-      }
+      onConfirm(true);
     }
   }
 }
