@@ -408,7 +408,7 @@ io.on('connection', async (socket) => {
         if (adminSeed && !DEBUG_MODE) {
           // Реальная транзакция через @ton/ton (требуется: npm install @ton/ton @ton/crypto)
           try {
-            const { TonClient, WalletContractV4, internal, toNano } = require('@ton/ton');
+            const { TonClient, WalletContractV4, WalletContractV3R2, internal, toNano } = require('@ton/ton');
             const { mnemonicToWalletKey } = require('@ton/crypto');
             
             const isTestnet = process.env.IS_TESTNET === 'true' || process.env.IS_TESTNET === true;
@@ -417,11 +417,17 @@ io.on('connection', async (socket) => {
               ? 'https://testnet.toncenter.com/api/v2/jsonRPC'
               : 'https://toncenter.com/api/v2/jsonRPC';
             
-            console.log(`2. Кошелек инициализирован. Endpoint: ${endpoint}, isTestnet: ${isTestnet}`);
+            const apiKey = process.env.TONCENTER_API_KEY || process.env.TON_API_KEY || '';
+            console.log(`2. Кошелек инициализирован. Endpoint: ${endpoint}, isTestnet: ${isTestnet}, Has API Key: ${!!apiKey}`);
+            
+            // Проверка соответствия API ключа и сети
+            if (!isTestnet && !apiKey) {
+              console.warn('⚠️ ВНИМАНИЕ: Mainnet требует валидный TONCENTER_API_KEY для Mainnet!');
+            }
               
             const client = new TonClient({
               endpoint,
-              apiKey: process.env.TONCENTER_API_KEY || process.env.TON_API_KEY || ''
+              apiKey: apiKey
             });
             
             // Создаем кошелек из seed-фразы
@@ -431,20 +437,86 @@ io.on('connection', async (socket) => {
             }
             
             const keyPair = await mnemonicToWalletKey(seedWords);
-            const wallet = WalletContractV4.create({ publicKey: keyPair.publicKey, workchain: 0 });
-            const walletAddress = wallet.address.toString();
+            
+            // Пробуем сначала V4, потом V3R2 (если V4 дает нулевой баланс)
+            let wallet = WalletContractV4.create({ publicKey: keyPair.publicKey, workchain: 0 });
+            let walletVersion = 'V4';
+            
+            // Корректный вывод адреса с параметрами
+            const walletAddress = wallet.address.toString({ 
+              testOnly: isTestnet, 
+              bounceable: false, 
+              urlSafe: true 
+            });
+            
+            // DEBUG: Логирование адреса кошелька в разных форматах
+            console.log("DEBUG: Wallet Version:", walletVersion);
+            console.log("DEBUG: Wallet Address (Raw):", wallet.address.toRawString());
+            console.log("DEBUG: Wallet Address (Friendly с параметрами):", walletAddress);
+            console.log("DEBUG: Wallet Address (toString без параметров):", wallet.address.toString());
             
             console.log(`🔐 Seed-фраза загружена: ${!!adminSeed}`);
-            console.log(`🔍 Администраторский кошелек: ${walletAddress.substring(0, 10)}...`);
+            console.log(`🔍 Администраторский кошелек: ${walletAddress}`);
             
-            // Проверяем баланс кошелька администратора
-            const balance = await client.getBalance(walletAddress);
+            // Проверяем состояние контракта для диагностики
+            console.log(`🔍 Проверка состояния контракта для адреса: ${walletAddress}`);
+            let contractState;
+            try {
+              contractState = await client.getContractState(wallet.address);
+              console.log('📊 Account State:', contractState.state);
+              console.log('📊 Account State (full):', JSON.stringify(contractState, null, 2));
+              
+              if (contractState.state === 'uninitialized') {
+                console.warn('⚠️ ВНИМАНИЕ: Адрес кошелька не инициализирован (uninitialized). Возможно, используется неправильная версия кошелька или адрес не совпадает.');
+                // Пробуем V3R2 как альтернативу
+                console.log('🔄 Пробую инициализацию V3R2...');
+                wallet = WalletContractV3R2.create({ publicKey: keyPair.publicKey, workchain: 0 });
+                walletVersion = 'V3R2';
+                const walletAddressV3 = wallet.address.toString({ 
+                  testOnly: isTestnet, 
+                  bounceable: false, 
+                  urlSafe: true 
+                });
+                console.log(`🔍 V3R2 адрес: ${walletAddressV3}`);
+                contractState = await client.getContractState(wallet.address);
+                console.log('📊 V3R2 Account State:', contractState.state);
+              }
+            } catch (stateError) {
+              console.error('❌ Ошибка получения состояния контракта:', stateError.message);
+            }
+            
+            // Проверяем баланс кошелька администратора (используем объект адреса, не строку)
+            console.log(`🔍 Запрос баланса для адреса (object):`, wallet.address.toString());
+            
+            // Пробуем несколько способов получения баланса
+            let balance;
+            try {
+              // Способ 1: стандартный getBalance
+              balance = await client.getBalance(wallet.address);
+              console.log(`💰 Баланс (getBalance): ${balance.toString()} nanotons`);
+            } catch (balanceError) {
+              console.error('❌ Ошибка getBalance:', balanceError.message);
+              // Способ 2: через состояние контракта
+              if (contractState && contractState.balance) {
+                balance = contractState.balance;
+                console.log(`💰 Баланс (из state): ${balance.toString()} nanotons`);
+              } else {
+                throw balanceError;
+              }
+            }
+            
             const balanceInTon = parseFloat(balance.toString()) / 1000000000;
             
-            console.log(`💰 Баланс кошелька админа: ${balanceInTon} TON`);
+            // Обновляем walletAddress если использовали V3R2
+            const finalWalletAddress = walletVersion === 'V3R2' 
+              ? wallet.address.toString({ testOnly: isTestnet, bounceable: false, urlSafe: true })
+              : walletAddress;
+            
+            console.log(`💰 Баланс кошелька админа (${walletVersion}): ${balanceInTon} TON (${balance.toString()} nanotons)`);
+            console.log(`📍 Финальный адрес кошелька: ${finalWalletAddress}`);
             
             if (balanceInTon < 0.1) {
-              throw new Error(`Недостаточно средств на администраторском кошельке. Баланс: ${balanceInTon} TON, требуется минимум 0.1 TON`);
+              throw new Error(`Недостаточно средств на администраторском кошельке (${walletVersion}). Баланс: ${balanceInTon} TON, требуется минимум 0.1 TON. Адрес: ${finalWalletAddress}`);
             }
             
             // Получаем seqno для транзакции
