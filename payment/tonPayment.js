@@ -251,151 +251,72 @@ async function scanTransactions(io) {
       }
 
       // Извлекаем комментарий из транзакции
-      // Умная функция проверки валидного Base64
+      // Упрощенная логика без сложных замен
+      let extractedComment = '';
+      
+      // Функция проверки валидного Base64
       function isBase64(str) {
         if (!str || typeof str !== 'string') return false;
         // Base64 должна содержать только: A-Z, a-z, 0-9, +, /, =
         const base64Pattern = /^[A-Za-z0-9+/]+=*$/;
-        if (!base64Pattern.test(str)) return false;
-        // Длина должна быть кратна 4 (после padding)
-        const cleanStr = str.replace(/=+$/, '');
-        return cleanStr.length % 4 === 0;
+        return base64Pattern.test(str) && str.length >= 4;
       }
       
-      // Функция проверки, является ли строка читаемым текстом (не бинарным мусором)
-      function isReadableText(str) {
-        if (!str) return false;
-        // Проверяем, что строка содержит хотя бы 50% печатаемых ASCII символов
-        const printableChars = str.match(/[\x20-\x7E]/g) || [];
-        return printableChars.length >= str.length * 0.5 && str.length >= 3;
-      }
-      
-      let extractedComment = '';
-      
-      // ПРИОРИТЕТ 1: Проверяем in_msg.message как обычную строку (не Base64 и не Hex)
-      if (inMsg.message && typeof inMsg.message === 'string') {
-        const trimmed = inMsg.message.trim();
-        // Если это НЕ Base64 и НЕ Hex, используем как обычный текст
-        if (!trimmed.startsWith('0x') && !isBase64(trimmed)) {
-          extractedComment = trimmed;
-          console.log(`🔍 Извлечено из in_msg.message (обычный текст): "${extractedComment}"`);
-        }
-      }
-      
-      // ПРИОРИТЕТ 2: Если msg_data.text существует, используем его
-      if ((!extractedComment || extractedComment.length === 0) && inMsg.msg_data) {
+      // ПРИОРИТЕТ 1: Если msg_data.text существует, сначала пробуем декодировать из Base64
+      if (inMsg.msg_data && inMsg.msg_data.text && typeof inMsg.msg_data.text === 'string') {
+        const trimmed = inMsg.msg_data.text.trim();
         try {
-          // Проверяем msg_data.text
-          if (inMsg.msg_data.text && typeof inMsg.msg_data.text === 'string') {
-            const trimmed = inMsg.msg_data.text.trim();
-            // Если это НЕ Base64 и НЕ Hex, используем как обычный текст
-            if (!trimmed.startsWith('0x') && !isBase64(trimmed)) {
-              extractedComment = trimmed;
-              console.log(`🔍 Извлечено из msg_data.text (обычный текст): "${extractedComment}"`);
-            }
+          // Пробуем декодировать из Base64
+          if (isBase64(trimmed)) {
+            const decoded = Buffer.from(trimmed, 'base64').toString('utf-8');
+            // Используем декодированный результат
+            extractedComment = decoded;
+          } else if (!trimmed.startsWith('0x')) {
+            // Если не Base64 и не Hex, используем как обычный текст
+            extractedComment = trimmed;
           }
-        } catch (e) {
-          console.log(`⚠️ Ошибка при чтении in_msg.msg_data.text:`, e.message);
-        }
-      }
-      
-      // ПРИОРИТЕТ 3: Умное декодирование Base64/Hex (только если еще не нашли обычный текст)
-      if (!extractedComment || extractedComment.length === 0) {
-        // Пробуем декодировать из in_msg.message (если это Base64/Hex)
-        if (inMsg.message && typeof inMsg.message === 'string') {
-          const trimmed = inMsg.message.trim();
-          try {
-            if (trimmed.startsWith('0x')) {
-              // Hex формат
-              const hex = trimmed.slice(2);
-              const decoded = Buffer.from(hex, 'hex').toString('utf-8').replace(/\0/g, '');
-              if (isReadableText(decoded)) {
-                extractedComment = decoded;
-                console.log(`✅ Декодирован Hex из in_msg.message: "${trimmed}" -> "${extractedComment}"`);
-              } else {
-                console.log(`⚠️ Декодированный Hex содержит бинарный мусор, отбрасываем`);
-              }
-            } else if (isBase64(trimmed)) {
-              // Base64 формат
-              const decoded = Buffer.from(trimmed, 'base64').toString('utf-8').replace(/\0/g, '');
-              if (isReadableText(decoded)) {
-                extractedComment = decoded;
-                console.log(`✅ Декодирован Base64 из in_msg.message: "${trimmed}" -> "${extractedComment}"`);
-              } else {
-                console.log(`⚠️ Декодированный Base64 содержит бинарный мусор, отбрасываем`);
-              }
-            }
-          } catch (decodeError) {
-            console.log(`⚠️ Ошибка декодирования in_msg.message:`, decodeError.message);
-          }
-        }
-        
-        // Пробуем декодировать из msg_data (если это Base64/Hex)
-        if ((!extractedComment || extractedComment.length === 0) && inMsg.msg_data) {
-          try {
-            if (typeof inMsg.msg_data === 'string') {
-              const trimmed = inMsg.msg_data.trim();
-              if (trimmed.startsWith('0x')) {
-                const hex = trimmed.slice(2);
-                const decoded = Buffer.from(hex, 'hex').toString('utf-8').replace(/\0/g, '');
-                if (isReadableText(decoded)) {
-                  extractedComment = decoded;
-                  console.log(`✅ Декодирован Hex из msg_data: "${trimmed}" -> "${extractedComment}"`);
-                }
-              } else if (isBase64(trimmed)) {
-                const decoded = Buffer.from(trimmed, 'base64').toString('utf-8').replace(/\0/g, '');
-                if (isReadableText(decoded)) {
-                  extractedComment = decoded;
-                  console.log(`✅ Декодирован Base64 из msg_data: "${trimmed}" -> "${extractedComment}"`);
-                }
-              }
-            } else if (inMsg.msg_data.text && typeof inMsg.msg_data.text === 'string') {
-              const trimmed = inMsg.msg_data.text.trim();
-              if (trimmed.startsWith('0x')) {
-                const hex = trimmed.slice(2);
-                const decoded = Buffer.from(hex, 'hex').toString('utf-8').replace(/\0/g, '');
-                if (isReadableText(decoded)) {
-                  extractedComment = decoded;
-                  console.log(`✅ Декодирован Hex из msg_data.text: "${trimmed}" -> "${extractedComment}"`);
-                }
-              } else if (isBase64(trimmed)) {
-                const decoded = Buffer.from(trimmed, 'base64').toString('utf-8').replace(/\0/g, '');
-                if (isReadableText(decoded)) {
-                  extractedComment = decoded;
-                  console.log(`✅ Декодирован Base64 из msg_data.text: "${trimmed}" -> "${extractedComment}"`);
-                }
-              }
-            }
-          } catch (decodeError) {
-            console.log(`⚠️ Ошибка декодирования msg_data:`, decodeError.message);
+        } catch (decodeError) {
+          // Если декодирование не удалось, пробуем как обычный текст
+          if (!trimmed.startsWith('0x')) {
+            extractedComment = trimmed;
           }
         }
       }
       
-      // Очистка от мусора (невидимых символов) и нормализация
-      // Удаляем все символы, которые не являются печатаемыми ASCII (0x20-0x7E)
-      // Затем переводим в UPPERCASE для сравнения
-      const finalComment = extractedComment 
-        ? extractedComment.replace(/[^\x20-\x7E]/g, '').trim().toUpperCase()
-        : '';
+      // ПРИОРИТЕТ 2: Если не нашли в msg_data.text, проверяем in_msg.message
+      if (!extractedComment && inMsg.message && typeof inMsg.message === 'string') {
+        const trimmed = inMsg.message.trim();
+        try {
+          if (isBase64(trimmed)) {
+            const decoded = Buffer.from(trimmed, 'base64').toString('utf-8');
+            extractedComment = decoded;
+          } else if (!trimmed.startsWith('0x')) {
+            extractedComment = trimmed;
+          }
+        } catch (decodeError) {
+          if (!trimmed.startsWith('0x')) {
+            extractedComment = trimmed;
+          }
+        }
+      }
       
-      console.log(`🔍 Исходный комментарий: "${extractedComment}"`);
-      console.log(`🔍 Финальный комментарий (после очистки): "${finalComment}"`);
+      // Нормализация: ТОЛЬКО trim() и toUpperCase(), без других замен
+      const comment = extractedComment ? extractedComment.trim().toUpperCase() : '';
+
+      // Если комментарий пустой, пропускаем транзакцию
+      if (!comment || comment.length === 0) {
+        continue;
+      }
       
-      // Используем финальный комментарий для дальнейшей обработки
-      const comment = finalComment;
-      
-      // Если комментарий все еще пустой, пропускаем транзакцию
       // Ищем платеж с таким комментарием в pending_payments
-      // Комментарии уже нормализованы в UPPERCASE
       let foundPaymentId = null;
       let foundPayment = null;
       const pendingComments = Object.values(pendingPayments).map(p => (p.comment || '').toUpperCase().trim());
 
-      // Логирование перед сравнением
-      console.log(`🔍 Final Decoded Comment: [${comment}] Looking for: [${pendingComments.join(', ')}]`);
+      // Единственный лог сравнения
+      console.log(`[Сканер] Сверяю: полученный [${comment}] и ожидаемый [${pendingComments.join(', ')}]`);
 
-      // Точное совпадение: сравниваем очищенный комментарий с базой
+      // Точное совпадение: сравниваем комментарий с базой
       for (const [paymentId, payment] of Object.entries(pendingPayments)) {
         const paymentComment = (payment.comment || '').toUpperCase().trim();
         if (paymentComment === comment && payment.status === 'pending') {
@@ -404,20 +325,8 @@ async function scanTransactions(io) {
           break;
         }
       }
-      
-      // Если комментарий пустой, но не нашли совпадение - пропускаем
-      if (!comment || comment.length === 0) {
-        console.log('⚠️ Транзакция без комментария');
-        continue;
-      }
 
       if (!foundPayment) {
-        console.log(`⚠️ Найден комментарий: "${comment}", а ожидаем: [${pendingComments.join(', ')}]`);
-        console.log(`📋 Все pending_payments:`, Object.keys(pendingPayments).map(id => ({
-          id,
-          comment: pendingPayments[id].comment,
-          status: pendingPayments[id].status
-        })));
         continue;
       }
 
