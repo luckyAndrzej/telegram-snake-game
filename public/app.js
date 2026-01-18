@@ -292,15 +292,15 @@ function initSocket() {
       paymentModal.style.display = 'none';
     }
     
-    // Показываем уведомление
+    // Очищаем и скрываем статус "Waiting for payment..."
     const statusEl = document.getElementById('payment-status');
     if (statusEl) {
-      statusEl.textContent = `✅ Payment successful! +${data.games} games added`;
-      statusEl.style.color = '#10b981';
+      statusEl.textContent = '';
+      statusEl.style.color = '';
     }
     
     // Показываем уведомление в Telegram
-    tg.showAlert(`Payment successful! +${data.games} games added`);
+    tg.showAlert(`✅ Payment successful! +${data.games} games added. New balance: ${data.new_balance} games.`);
   });
 }
 
@@ -346,28 +346,27 @@ async function createPayment(packageId) {
       // Показываем модальное окно с инструкциями
       const paymentModal = document.getElementById('payment-modal');
       const addressEl = document.getElementById('payment-address');
-      const amountUsdEl = document.getElementById('payment-amount-usd');
       const amountTonEl = document.getElementById('payment-amount-ton');
       const commentEl = document.getElementById('payment-comment');
       const statusEl = document.getElementById('payment-status');
 
-      if (paymentModal && addressEl && amountUsdEl && amountTonEl && commentEl) {
+      if (paymentModal && addressEl && amountTonEl && commentEl) {
         addressEl.textContent = data.walletAddress;
-        // Отображаем сумму в долларах (1 TON = 1$)
-        amountUsdEl.textContent = data.amountTon; // Только число, $ уже есть в HTML
+        // Отображаем сумму только в TON
         amountTonEl.textContent = data.amountTon;
         commentEl.textContent = data.comment;
         
+        // Очищаем статус при открытии модального окна
         if (statusEl) {
           statusEl.textContent = '';
+          statusEl.style.color = '';
         }
 
         paymentModal.style.display = 'flex';
         
         console.log('Payment modal shown with data:', {
           address: data.walletAddress.substring(0, 10) + '...',
-          amountUsd: `$${data.amountTon}`,
-          amountTon: data.amountTon,
+          amountTon: `${data.amountTon} TON`,
           comment: data.comment
         });
       } else {

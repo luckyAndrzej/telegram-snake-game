@@ -68,12 +68,17 @@ db.init().then(async () => {
   if (!DEBUG_MODE) {
     await tonPayment.initPaymentFiles();
     
+    // Читаем IS_TESTNET из переменных окружения (строка 'true' или булево)
+    const isTestnet = process.env.IS_TESTNET === 'true' || process.env.IS_TESTNET === true;
+    
     // Инициализация конфигурации TON
     tonPayment.initConfig({
-      IS_TESTNET: process.env.IS_TESTNET === 'true',
+      IS_TESTNET: isTestnet,
       TON_WALLET_ADDRESS: process.env.TON_WALLET_ADDRESS || '',
       TON_API_KEY: process.env.TON_API_KEY || ''
     });
+    
+    console.log(`🌐 TON Config: IS_TESTNET=${isTestnet} (from env: ${process.env.IS_TESTNET})`);
 
     // Запускаем сканер блокчейна (каждые 20 секунд)
     setInterval(() => {

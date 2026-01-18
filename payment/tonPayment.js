@@ -155,6 +155,13 @@ async function getWalletTransactions(address) {
       ? { 'X-API-Key': TON_CONFIG.TON_API_KEY }
       : {};
 
+    // Логирование полного URL для отладки
+    console.log(`🌐 Запрос к TonCenter API:`);
+    console.log(`   Full URL: ${url}`);
+    console.log(`   API URL (base): ${TON_CONFIG.TON_API_URL}`);
+    console.log(`   IS_TESTNET: ${TON_CONFIG.IS_TESTNET}`);
+    console.log(`   Has API Key: ${!!TON_CONFIG.TON_API_KEY}`);
+
     const response = await fetch(url, { headers });
     
     if (!response.ok) {
@@ -162,6 +169,7 @@ async function getWalletTransactions(address) {
     }
 
     const data = await response.json();
+    console.log(`📊 TonCenter API response: ok=${data.ok}, transactions count=${data.result?.length || 0}`);
     return data.ok ? data.result : [];
   } catch (error) {
     console.error('❌ Ошибка получения транзакций:', error);
