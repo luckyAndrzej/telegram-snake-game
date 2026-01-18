@@ -408,7 +408,7 @@ io.on('connection', async (socket) => {
         if (adminSeed && !DEBUG_MODE) {
           // Реальная транзакция через @ton/ton (требуется: npm install @ton/ton @ton/crypto)
           try {
-            const { TonClient, WalletContractV4, WalletContractV3R2, internal, toNano } = require('@ton/ton');
+            const { TonClient, WalletContractV4, WalletContractV3R2, internal, toNano, Address } = require('@ton/ton');
             const { mnemonicToWalletKey } = require('@ton/crypto');
             
             // Используем ту же логику, что и в сканере (синхронизация сетей)
@@ -485,7 +485,13 @@ io.on('connection', async (socket) => {
                 });
                 console.log(`🔍 V3R2 адрес: ${walletAddressV3}`);
                 contractState = await client.getContractState(wallet.address);
+                // Исправление BigInt для V3R2 state
+                const v3StateForLog = {
+                  ...contractState,
+                  balance: contractState.balance ? contractState.balance.toString() : contractState.balance
+                };
                 console.log('📊 V3R2 Account State:', contractState.state);
+                console.log('📊 V3R2 Account State (full):', JSON.stringify(v3StateForLog, null, 2));
               }
             } catch (stateError) {
               console.error('❌ Ошибка получения состояния контракта:', stateError.message);
@@ -528,29 +534,48 @@ io.on('connection', async (socket) => {
             // Получаем seqno для транзакции
             const provider = client.provider(wallet.address);
             const seqno = await wallet.getSeqno(provider);
+            console.log(`📊 Seqno получен: ${String(seqno)}`);
             
             // Используем адрес из запроса или из БД
             const recipientWallet = userWallet;
             console.log(`3. Пытаюсь отправить транзакцию на адрес: ${recipientWallet.substring(0, 10)}...`);
             
+            // Конвертируем адрес получателя в объект Address
+            let recipientAddress;
+            try {
+              recipientAddress = Address.parse(recipientWallet);
+              console.log(`✅ Адрес получателя распарсен: ${recipientAddress.toString()}`);
+            } catch (parseError) {
+              throw new Error(`Невалидный адрес получателя: ${recipientWallet}. Ошибка: ${parseError.message}`);
+            }
+            
             // Комментарий к транзакции с ID пользователя
             const transactionComment = `Withdrawal for User ${userId} via Snake Game`;
             
-            // Создаем трансфер
+            // Форматируем сумму для toNano (9 знаков после запятой)
+            const amountFormatted = amountInTon.toFixed(9);
+            const amountNano = toNano(amountFormatted);
+            console.log(`💰 Сумма перевода: ${amountInTon} TON = ${String(amountNano)} nanotons`);
+            
+            // Создаем трансфер с правильными параметрами для Wallet V4
             const transfer = wallet.createTransfer({
               secretKey: keyPair.secretKey,
               messages: [
                 internal({
-                  to: recipientWallet,
-                  value: toNano(amountInTon.toString()), // Используем toNano для правильной конвертации
+                  to: recipientAddress, // Используем объект Address, не строку
+                  value: amountNano, // Используем toNano(amountInTon.toFixed(9))
                   body: transactionComment
                 })
               ],
               seqno: seqno
             });
             
+            // Логирование перед отправкой
+            console.log('🚀 Отправляю реальную транзакцию на', recipientAddress.toString(), 'сумма:', amountInTon, 'TON');
+            console.log(`   Seqno: ${String(seqno)}, SecretKey: ${keyPair.secretKey ? 'установлен' : 'отсутствует'}`);
+            
             // Отправляем транзакцию
-            console.log('4. Отправка транзакции...');
+            console.log('4. Отправка транзакции через provider.send()...');
             const sendResult = await provider.send(transfer);
             
             // Получаем хеш транзакции из результата или генерируем
