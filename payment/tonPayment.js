@@ -167,16 +167,8 @@ async function getWalletTransactions(address) {
     
     // Обработка ошибки 429 (Too Many Requests) с задержкой
     if (response.status === 429) {
-      console.warn('⚠️ Получен код 429 (Too Many Requests). Ожидание 5 секунд перед повторным запросом...');
-      await new Promise(resolve => setTimeout(resolve, 5000)); // Задержка 5 секунд
-      // Повторный запрос после задержки
-      const retryResponse = await fetch(url, { headers });
-      if (!retryResponse.ok) {
-        throw new Error(`TonCenter API error (after retry): ${retryResponse.status} ${retryResponse.statusText}`);
-      }
-      const retryData = await retryResponse.json();
-      console.log(`📊 TonCenter API response (after retry): ok=${retryData.ok}, transactions count=${retryData.result?.length || 0}`);
-      return retryData.ok ? retryData.result : [];
+      // Не логируем 429, чтобы не забивать логи - просто возвращаем пустой массив
+      return [];
     }
     
     if (!response.ok) {
@@ -187,6 +179,10 @@ async function getWalletTransactions(address) {
     console.log(`📊 TonCenter API response: ok=${data.ok}, transactions count=${data.result?.length || 0}`);
     return data.ok ? data.result : [];
   } catch (error) {
+    // Если ошибка 429, не логируем, чтобы не забивать логи
+    if (error.response?.status === 429) {
+      return [];
+    }
     console.error('❌ Ошибка получения транзакций:', error);
     return [];
   }

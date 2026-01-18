@@ -139,9 +139,9 @@ db.init().then(async () => {
     // Первая проверка сразу после запуска (асинхронно)
     runScanner();
     
-    // Периодическая проверка каждые 30 секунд (увеличено для предотвращения 429)
-    setInterval(runScanner, 30000); // 30 секунд
-    console.log('✅ Сканер блокчейна TON запущен (интервал: 30 сек, асинхронный режим)');
+    // Периодическая проверка каждые 35 секунд (увеличено для предотвращения 429)
+    setInterval(runScanner, 35000); // 35 секунд
+    console.log('✅ Сканер блокчейна TON запущен (интервал: 35 сек, асинхронный режим)');
   }
   
   // Запускаем игровой цикл (передаем endGame как callback)
@@ -450,143 +450,59 @@ io.on('connection', async (socket) => {
               urlSafe: true 
             });
             
-            // DEBUG: Логирование адреса кошелька в разных форматах
-            console.log("DEBUG: Wallet Version:", walletVersion);
-            console.log("DEBUG: Wallet Address (Raw):", wallet.address.toRawString());
-            console.log("DEBUG: Wallet Address (Friendly с параметрами):", walletAddress);
-            console.log("DEBUG: Wallet Address (toString без параметров):", wallet.address.toString());
+            // Минимальное логирование для диагностики
             
-            console.log(`🔐 Seed-фраза загружена: ${!!adminSeed}`);
-            console.log(`🔍 Администраторский кошелек: ${walletAddress}`);
-            
-            // Проверяем состояние контракта для диагностики
-            console.log(`🔍 Проверка состояния контракта для адреса: ${walletAddress}`);
-            let contractState;
-            try {
-              contractState = await client.getContractState(wallet.address);
-              console.log('📊 Account State:', contractState.state);
-              // Исправление BigInt: конвертируем balance в строку перед JSON.stringify
-              const stateForLog = {
-                ...contractState,
-                balance: contractState.balance ? contractState.balance.toString() : contractState.balance
-              };
-              console.log('📊 Account State (full):', JSON.stringify(stateForLog, null, 2));
-              
-              if (contractState.state === 'uninitialized') {
-                console.warn('⚠️ ВНИМАНИЕ: Адрес кошелька не инициализирован (uninitialized). Возможно, используется неправильная версия кошелька или адрес не совпадает.');
-                // Пробуем V3R2 как альтернативу
-                console.log('🔄 Пробую инициализацию V3R2...');
-                wallet = WalletContractV3R2.create({ publicKey: keyPair.publicKey, workchain: 0 });
-                walletVersion = 'V3R2';
-                const walletAddressV3 = wallet.address.toString({ 
-                  testOnly: true, // Принудительно true для тестнета
-                  bounceable: false, 
-                  urlSafe: true 
-                });
-                console.log(`🔍 V3R2 адрес: ${walletAddressV3}`);
-                contractState = await client.getContractState(wallet.address);
-                // Исправление BigInt для V3R2 state
-                const v3StateForLog = {
-                  ...contractState,
-                  balance: contractState.balance ? contractState.balance.toString() : contractState.balance
-                };
-                console.log('📊 V3R2 Account State:', contractState.state);
-                console.log('📊 V3R2 Account State (full):', JSON.stringify(v3StateForLog, null, 2));
-              }
-            } catch (stateError) {
-              console.error('❌ Ошибка получения состояния контракта:', stateError.message);
-            }
-            
-            // Проверяем баланс кошелька администратора (используем объект адреса, не строку)
-            console.log(`🔍 Запрос баланса для адреса (object):`, wallet.address.toString());
-            
-            // Пробуем несколько способов получения баланса
+            // Проверяем баланс кошелька администратора
             let balance;
             try {
-              // Способ 1: стандартный getBalance
               balance = await client.getBalance(wallet.address);
-              console.log(`💰 Баланс (getBalance): ${balance.toString()} nanotons`);
             } catch (balanceError) {
               console.error('❌ Ошибка getBalance:', balanceError.message);
-              // Способ 2: через состояние контракта
-              if (contractState && contractState.balance) {
-                balance = contractState.balance;
-                console.log(`💰 Баланс (из state): ${balance.toString()} nanotons`);
-              } else {
-                throw balanceError;
-              }
+              throw balanceError;
             }
             
             const balanceInTon = parseFloat(balance.toString()) / 1000000000;
-            
-            // Обновляем walletAddress если использовали V3R2 (принудительно testOnly: true)
-            const finalWalletAddress = walletVersion === 'V3R2' 
-              ? wallet.address.toString({ testOnly: true, bounceable: false, urlSafe: true })
-              : walletAddress;
-            
-            console.log(`💰 Баланс кошелька админа (${walletVersion}): ${balanceInTon} TON (${balance.toString()} nanotons)`);
-            console.log(`📍 Финальный адрес кошелька: ${finalWalletAddress}`);
+            console.log(`💰 Баланс админа: ${balanceInTon} TON`);
             
             if (balanceInTon < 0.1) {
-              throw new Error(`Недостаточно средств на администраторском кошельке (${walletVersion}). Баланс: ${balanceInTon} TON, требуется минимум 0.1 TON. Адрес: ${finalWalletAddress}`);
+              throw new Error(`Недостаточно средств на администраторском кошельке. Баланс: ${balanceInTon} TON, требуется минимум 0.1 TON`);
             }
             
-            // Получаем seqno для транзакции
-            const provider = client.provider(wallet.address);
-            const seqno = await wallet.getSeqno(provider);
-            console.log(`📊 Seqno получен: ${String(seqno)}`);
-            
-            // Используем адрес из запроса или из БД
-            const recipientWallet = userWallet;
-            console.log(`3. Пытаюсь отправить транзакцию на адрес: ${recipientWallet.substring(0, 10)}...`);
-            
-            // Конвертируем адрес получателя в объект Address
-            let recipientAddress;
+            // Используем проверенный метод для Wallet V4
             try {
-              recipientAddress = Address.parse(recipientWallet);
-              console.log(`✅ Адрес получателя распарсен: ${recipientAddress.toString()}`);
-            } catch (parseError) {
-              throw new Error(`Невалидный адрес получателя: ${recipientWallet}. Ошибка: ${parseError.message}`);
+              const provider = client.provider(wallet.address);
+              const seqno = await wallet.getSeqno(provider);
+              
+              // Конвертируем адрес получателя
+              const recipientAddress = Address.parse(userWallet);
+              
+              console.log(`🚀 Отправка транзакции: seqno=${seqno}, сумма=${amountInTon} TON`);
+              
+              const transfer = wallet.createTransfer({
+                secretKey: keyPair.secretKey,
+                seqno: seqno,
+                messages: [
+                  internal({
+                    to: recipientAddress,
+                    value: toNano(amountInTon.toFixed(9)),
+                    bounce: false,
+                    body: `Snake Game Prize: ${amount} USDT`
+                  })
+                ]
+              });
+              
+              await provider.send(transfer);
+              
+              // Транзакция успешно отправлена
+              transactionSuccess = true;
+              withdrawalStatus = 'completed';
+              txHash = `tx_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            } catch (e) {
+              console.error('❌ Ошибка при provider.send:', e.message);
+              transactionSuccess = false;
+              txHash = `withdraw_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+              withdrawalStatus = 'failed';
             }
-            
-            // Комментарий к транзакции с ID пользователя
-            const transactionComment = `Withdrawal for User ${userId} via Snake Game`;
-            
-            // Форматируем сумму для toNano (9 знаков после запятой)
-            const amountFormatted = amountInTon.toFixed(9);
-            const amountNano = toNano(amountFormatted);
-            console.log(`💰 Сумма перевода: ${amountInTon} TON = ${String(amountNano)} nanotons`);
-            
-            // Создаем трансфер с правильными параметрами для Wallet V4
-            const transfer = wallet.createTransfer({
-              secretKey: keyPair.secretKey,
-              messages: [
-                internal({
-                  to: recipientAddress, // Используем объект Address, не строку
-                  value: amountNano, // Используем toNano(amountInTon.toFixed(9))
-                  body: transactionComment
-                })
-              ],
-              seqno: seqno
-            });
-            
-            // Логирование перед отправкой
-            console.log('🚀 Отправляю реальную транзакцию на', recipientAddress.toString(), 'сумма:', amountInTon, 'TON');
-            console.log(`   Seqno: ${String(seqno)}, SecretKey: ${keyPair.secretKey ? 'установлен' : 'отсутствует'}`);
-            
-            // Отправляем транзакцию
-            console.log('4. Отправка транзакции через provider.send()...');
-            const sendResult = await provider.send(transfer);
-            
-            // Получаем хеш транзакции из результата или генерируем
-            txHash = sendResult?.hash || `tx_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-            
-            // Проверяем успешность отправки (в реальности можно проверить статус транзакции)
-            transactionSuccess = true;
-            withdrawalStatus = 'completed';
-            
-            console.log(`✅ TON транзакция успешно отправлена: ${amountInTon} TON на ${recipientWallet}`);
-            console.log(`   TX Hash: ${txHash}, Seqno: ${seqno}, Balance before: ${balanceInTon} TON`);
           } catch (tonError) {
             console.error('❌ Ошибка TON SDK:', tonError.message);
             transactionSuccess = false;
