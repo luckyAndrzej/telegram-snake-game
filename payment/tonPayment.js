@@ -220,15 +220,21 @@ async function scanTransactions(io) {
         continue;
       }
 
+      // Логирование полной структуры транзакции для отладки
+      console.log('📨 Full transaction data:', JSON.stringify(tx, null, 2));
+
       // Проверяем входящее сообщение (комментарий)
       const inMsg = tx.in_msg;
-      if (!inMsg) continue;
+      if (!inMsg) {
+        console.log('⚠️ Транзакция без in_msg, пропускаем');
+        continue;
+      }
 
       // Извлекаем комментарий из транзакции
       // TonCenter API может возвращать комментарий в разных форматах
       let comment = '';
       
-      // Вариант 1: Прямое текстовое поле (если есть)
+      // Вариант 1: Прямое текстовое поле in_msg.message
       if (inMsg.message && typeof inMsg.message === 'string') {
         try {
           // Если сообщение уже в виде строки (текст)
@@ -250,17 +256,19 @@ async function scanTransactions(io) {
             }
           }
         } catch (e) {
-          // Если не получается декодировать, пропускаем
-          console.log(`⚠️ Не удалось декодировать комментарий из in_msg.message: ${inMsg.message?.substring(0, 20)}...`);
-          continue;
+          console.log(`⚠️ Не удалось декодировать комментарий из in_msg.message: ${inMsg.message?.substring(0, 20)}...`, e.message);
         }
       }
       
-      // Вариант 2: Поле msg_data (если message не содержит текста)
+      // Вариант 2: Поле msg_data.text (текстовая версия комментария)
       if ((!comment || comment.length === 0) && inMsg.msg_data) {
         try {
-          // msg_data может быть hex строкой
-          if (typeof inMsg.msg_data === 'string') {
+          // Проверяем msg_data.text (может быть текстовым полем)
+          if (inMsg.msg_data.text && typeof inMsg.msg_data.text === 'string') {
+            comment = inMsg.msg_data.text.trim();
+          }
+          // Если msg_data - строка (hex или base64)
+          else if (typeof inMsg.msg_data === 'string') {
             if (inMsg.msg_data.startsWith('0x')) {
               const hex = inMsg.msg_data.slice(2);
               comment = Buffer.from(hex, 'hex').toString('utf8').replace(/\0/g, '').trim();
@@ -269,42 +277,67 @@ async function scanTransactions(io) {
             }
           }
         } catch (e) {
-          // Пропускаем, если не получается декодировать
+          console.log(`⚠️ Не удалось декодировать комментарий из in_msg.msg_data:`, e.message);
         }
       }
       
+      // Нормализуем комментарий (toLowerCase и trim) для сравнения
+      comment = comment ? comment.toLowerCase().trim() : '';
+      
       // Если комментарий все еще пустой, пропускаем транзакцию
       if (!comment || comment.length < 6) {
-        continue; // Минимум 6 символов для комментария
+        console.log('⚠️ Транзакция без комментария или комментарий слишком короткий (мин. 6 символов)');
+        continue;
       }
 
-      // Если комментарий пустой, пропускаем
-      if (!comment || comment.length < 8) continue;
+      console.log(`🔍 Извлеченный комментарий: "${comment}" (длина: ${comment.length})`);
 
-      // Ищем платеж с таким комментарием в pending_payments
+      // Ищем платеж с таким комментарием в pending_payments (без учета регистра)
       let foundPaymentId = null;
       let foundPayment = null;
+      const pendingComments = Object.values(pendingPayments).map(p => p.comment?.toLowerCase().trim());
 
       for (const [paymentId, payment] of Object.entries(pendingPayments)) {
-        if (payment.comment === comment && payment.status === 'pending') {
+        const paymentComment = (payment.comment || '').toLowerCase().trim();
+        if (paymentComment === comment && payment.status === 'pending') {
           foundPaymentId = paymentId;
           foundPayment = payment;
           break;
         }
       }
 
-      if (!foundPayment) continue;
-
-      // Проверяем сумму (из value в нанотонах)
-      const txAmount = nanoTonToTon(inMsg.value || tx.value || '0');
-      const expectedAmount = foundPayment.amount;
-
-      // Допустимая погрешность 0.1% (для комиссий)
-      const tolerance = expectedAmount * 0.001;
-      if (Math.abs(txAmount - expectedAmount) > tolerance) {
-        console.log(`⚠️ Несоответствие суммы: ожидается ${expectedAmount} TON, получено ${txAmount} TON (comment: ${comment})`);
+      if (!foundPayment) {
+        console.log(`⚠️ Найден комментарий: "${comment}", а ожидаем: [${pendingComments.join(', ')}]`);
+        console.log(`📋 Все pending_payments:`, Object.keys(pendingPayments).map(id => ({
+          id,
+          comment: pendingPayments[id].comment,
+          status: pendingPayments[id].status
+        })));
         continue;
       }
+
+      console.log(`✅ Найден соответствующий платеж: paymentId=${foundPaymentId}, comment="${foundPayment.comment}"`);
+
+      // Проверяем сумму (из value в нанотонах) - используем BigInt для точности
+      const txValueStr = (inMsg.value || tx.value || '0').toString();
+      const txValueNanoTon = BigInt(txValueStr);
+      const expectedAmountTon = foundPayment.amount;
+      const expectedAmountNanoTon = BigInt(tonToNanoTon(expectedAmountTon));
+
+      // Допустимая погрешность 0.1% (для комиссий) - в нанотонах
+      const toleranceNanoTon = expectedAmountNanoTon * BigInt(1000) / BigInt(1000000); // 0.1% от суммы
+      const diff = txValueNanoTon > expectedAmountNanoTon 
+        ? txValueNanoTon - expectedAmountNanoTon 
+        : expectedAmountNanoTon - txValueNanoTon;
+
+      if (diff > toleranceNanoTon) {
+        const txAmount = nanoTonToTon(txValueStr);
+        console.log(`⚠️ Несоответствие суммы: ожидается ${expectedAmountTon} TON, получено ${txAmount} TON (comment: ${comment})`);
+        console.log(`   Нанотоны: получено ${txValueNanoTon.toString()}, ожидается ${expectedAmountNanoTon.toString()}, разница: ${diff.toString()}, допустимо: ${toleranceNanoTon.toString()}`);
+        continue;
+      }
+
+      console.log(`✅ Сумма совпадает: ${expectedAmountTon} TON (${txValueNanoTon.toString()} нанотонов)`);
 
       // Всё верно! Обрабатываем платеж
       try {
