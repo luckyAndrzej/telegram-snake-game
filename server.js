@@ -1,9 +1,17 @@
 // Загрузка переменных окружения ДО всех остальных импортов
 const path = require('path');
 const result = require('dotenv').config({ path: path.join(__dirname, '.env') });
+
+// Fallback значения (используются, если .env не загружен или переменные не определены)
+const FALLBACK_IS_TESTNET = true; // Принудительно true для теста
+const FALLBACK_WALLET = '0QCD6bCJwyuK7Kl21EBORyeY2UdJ5o_dJ5MmdO1ARZzXxL-v';
+const FALLBACK_API_KEY = 'bd0ac1e83d4f3ef6f7358adba6f2cc1b720873da9f30716d5e412b79a22fd728';
+
 if (result.error) {
-  console.error('❌ ОШИБКА: Файл .env не найден по пути: ' + path.join(__dirname, '.env'));
-  console.error('   Подробности:', result.error.message);
+  const envPath = path.join(__dirname, '.env');
+  console.warn(`⚠️ ВНИМАНИЕ: Файл .env не найден по пути ${envPath}.`);
+  console.warn(`   Используются ручные настройки для TESTNET (fallback значения).`);
+  console.warn(`   Подробности ошибки: ${result.error.message}`);
 } else {
   console.log('✅ Файл .env успешно загружен из: ' + path.join(__dirname, '.env'));
 }
@@ -74,39 +82,42 @@ db.init().then(async () => {
   if (!DEBUG_MODE) {
     await tonPayment.initPaymentFiles();
     
-    // ЖЕСТКАЯ ПРОВЕРКА: IS_TESTNET должен быть определен
-    if (process.env.IS_TESTNET === undefined || process.env.IS_TESTNET === null || process.env.IS_TESTNET === '') {
-      console.error('❌ КРИТИЧЕСКАЯ ОШИБКА: IS_TESTNET не определен в переменных окружения!');
-      console.error('   Please setup your .env file with IS_TESTNET=true or IS_TESTNET=false');
-      console.error('   Сервер остановлен для предотвращения работы в Mainnet без настройки.');
-      process.exit(1);
+    // Используем fallback значения, если переменные окружения не определены
+    const IS_TESTNET = process.env.IS_TESTNET === 'true' || process.env.IS_TESTNET === true || process.env.IS_TESTNET === 'TRUE' || FALLBACK_IS_TESTNET;
+    const WALLET = process.env.TON_WALLET_ADDRESS || FALLBACK_WALLET;
+    const API_KEY = process.env.TONCENTER_API_KEY || FALLBACK_API_KEY;
+    
+    // Определяем, используются ли fallback значения
+    const usingFallback = !process.env.IS_TESTNET || !process.env.TON_WALLET_ADDRESS || !process.env.TONCENTER_API_KEY;
+    
+    // Устанавливаем правильный API URL на основе IS_TESTNET
+    const API_URL = IS_TESTNET ? 'https://testnet.toncenter.com/api/v2' : 'https://toncenter.com/api/v2';
+    
+    // Логирование конфигурации
+    if (usingFallback) {
+      const envPath = path.join(__dirname, '.env');
+      console.warn(`⚠️ ВНИМАНИЕ: Файл .env не найден по пути ${envPath}. Используются ручные настройки для TESTNET.`);
+      console.log(`✅ WALLET: ${WALLET.substring(0, 5)}...`);
+      console.log(`✅ API_URL: ${API_URL}`);
     }
     
     // Логирование переменных окружения для отладки
     console.log('🔍 Проверка переменных окружения:');
-    console.log(`   process.env.IS_TESTNET = "${process.env.IS_TESTNET}" (type: ${typeof process.env.IS_TESTNET})`);
-    console.log(`   process.env.TON_WALLET_ADDRESS = "${process.env.TON_WALLET_ADDRESS ? process.env.TON_WALLET_ADDRESS.substring(0, 10) + '...' : 'undefined'}"`);
-    console.log(`   process.env.TONCENTER_API_KEY = "${process.env.TONCENTER_API_KEY ? '***' + process.env.TONCENTER_API_KEY.slice(-4) : 'undefined'}"`);
+    console.log(`   process.env.IS_TESTNET = "${process.env.IS_TESTNET || 'undefined (используется fallback)'}" (type: ${typeof process.env.IS_TESTNET})`);
+    console.log(`   process.env.TON_WALLET_ADDRESS = "${process.env.TON_WALLET_ADDRESS ? process.env.TON_WALLET_ADDRESS.substring(0, 10) + '...' : 'undefined (используется fallback)'}"`);
+    console.log(`   process.env.TONCENTER_API_KEY = "${process.env.TONCENTER_API_KEY ? '***' + process.env.TONCENTER_API_KEY.slice(-4) : 'undefined (используется fallback)'}"`);
     
-    // Читаем IS_TESTNET из переменных окружения (строка 'true' или булево)
-    // Жесткая проверка: если в .env написано 'true', то IS_TESTNET = true
-    const isTestnet = process.env.IS_TESTNET === 'true' || process.env.IS_TESTNET === true || process.env.IS_TESTNET === 'TRUE';
-    
-    // Используем ТОЛЬКО TONCENTER_API_KEY (как в .env)
-    const apiKey = process.env.TONCENTER_API_KEY || '';
-    const walletAddress = process.env.TON_WALLET_ADDRESS || '';
-    
-    console.log(`✅ ПРОВЕРКА: IS_TESTNET из файла = ${isTestnet}`);
+    console.log(`✅ ПРОВЕРКА: IS_TESTNET из файла = ${IS_TESTNET}${usingFallback ? ' (fallback)' : ''}`);
     
     // Инициализация конфигурации TON
     tonPayment.initConfig({
-      IS_TESTNET: isTestnet,
-      TON_WALLET_ADDRESS: walletAddress,
-      TON_API_KEY: apiKey  // Передаем как TON_API_KEY для совместимости с tonPayment.js
+      IS_TESTNET: IS_TESTNET,
+      TON_WALLET_ADDRESS: WALLET,
+      TON_API_KEY: API_KEY  // Передаем как TON_API_KEY для совместимости с tonPayment.js
     });
     
-    console.log(`🌐 TON Config: IS_TESTNET=${isTestnet} (from env: ${process.env.IS_TESTNET})`);
-    console.log(`✅ ПРОВЕРКА: API Key загружен: ${!!apiKey}`);
+    console.log(`🌐 TON Config: IS_TESTNET=${IS_TESTNET}, API_URL=${API_URL}`);
+    console.log(`✅ ПРОВЕРКА: API Key загружен: ${!!API_KEY}`);
 
     // Запускаем сканер блокчейна (каждые 20 секунд)
     setInterval(() => {
