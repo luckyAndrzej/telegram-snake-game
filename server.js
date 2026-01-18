@@ -557,16 +557,36 @@ async function endGame(gameId, winnerId, loserId) {
         // Начисляем выигрыш только реальному игроку
         if (winner && winner.tg_id) {
           // Начисляем выигрыш
-          const newWinnings = (winner.winnings_usdt || 0) + winAmount;
-          await updateUser(winnerId, {
+          const oldWinnings = winner.winnings_usdt || 0;
+          const newWinnings = oldWinnings + winAmount;
+          
+          // Обновляем пользователя через updateUser (lowdb автоматически сохраняет)
+          updateUser(winnerId, {
             winnings_usdt: newWinnings
           });
           
+          // Принудительное сохранение через fs.writeFileSync для гарантии
+          const fs = require('fs');
+          const dbPath = path.join(__dirname, 'db', 'db.json');
+          try {
+            const dbData = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
+            const userIdStr = winnerId.toString();
+            if (dbData.users && dbData.users[userIdStr]) {
+              dbData.users[userIdStr].winnings_usdt = newWinnings;
+              fs.writeFileSync(dbPath, JSON.stringify(dbData, null, 2), 'utf8');
+              console.log(`✅ Данные сохранены через fs.writeFileSync в ${dbPath}`);
+            }
+          } catch (fsError) {
+            console.error(`⚠️ Ошибка при принудительном сохранении через fs:`, fsError.message);
+          }
+          
           prize = winAmount;
           
-          console.log(`🏆 Победа подтверждена! Игрок [${winnerId}] получает ${winAmount} USDT.`);
-          console.log(`   Баланс выигрышей до: ${winner.winnings_usdt || 0}, после: ${newWinnings}`);
-          console.log(`💰 Баланс игрока ${winnerId} обновлен на ${winAmount}$`);
+          // Жирное логирование начисления
+          console.log('\n========================================');
+          console.log(`💰 НАЧИСЛЕНО ${winAmount}$ ИГРОКУ [${winnerId}]`);
+          console.log(`   Баланс выигрышей до: ${oldWinnings}, после: ${newWinnings}`);
+          console.log('========================================\n');
           
           // Сразу отправляем обновленный баланс игроку через Socket.io
           const updatedUser = getUser(winnerId);
