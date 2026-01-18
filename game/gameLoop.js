@@ -49,23 +49,48 @@ function start(io, activeGames, config, endGameCallback) {
 }
 
 /**
- * Broadcast состояния игры всем игрокам
+ * Broadcast состояния игры всем игрокам (оптимизировано - только минимальные данные)
  */
 function broadcastGameState(io, game, gameId) {
-  // Получаем снимки для каждого игрока
-  const snapshot1 = gameLogic.getGameSnapshot(game, game.player1_id);
-  const snapshot2 = gameLogic.getGameSnapshot(game, game.player2_id);
+  // Отправляем только измененные данные (координаты змеек и минимальная мета-информация)
+  // Создаем легковесный snapshot только с координатами тел змеек
+  const lightweightState = {
+    tick: game.tick_number,
+    s1: game.snake1.body, // snake1 body coordinates
+    s2: game.snake2.body, // snake2 body coordinates
+    s1a: game.snake1.alive, // snake1 alive
+    s2a: game.snake2.alive, // snake2 alive
+    s1d: game.snake1.direction, // snake1 direction
+    s2d: game.snake2.direction, // snake2 direction
+    f: game.finished, // finished
+    w: game.winner_id // winner_id
+  };
   
-  // Отправляем каждому игроку его персональный snapshot через отдельные сокеты
-  // Находим все сокеты в комнате и отправляем персональные данные
+  // Отправляем каждому игроку его персональный view
   const room = io.sockets.adapter.rooms.get(`game_${gameId}`);
   if (room) {
     room.forEach(socketId => {
       const socket = io.sockets.sockets.get(socketId);
       if (socket) {
         const playerNumber = socket.playerNumber;
-        const snapshot = playerNumber === 1 ? snapshot1 : snapshot2;
-        socket.emit('game_state', snapshot);
+        // Формируем персональный view на основе playerNumber
+        const personalView = {
+          gameId: game.gameId,
+          tick_number: lightweightState.tick,
+          my_snake: {
+            body: playerNumber === 1 ? lightweightState.s1 : lightweightState.s2,
+            alive: playerNumber === 1 ? lightweightState.s1a : lightweightState.s2a,
+            direction: playerNumber === 1 ? lightweightState.s1d : lightweightState.s2d
+          },
+          opponent_snake: {
+            body: playerNumber === 1 ? lightweightState.s2 : lightweightState.s1,
+            alive: playerNumber === 1 ? lightweightState.s2a : lightweightState.s1a,
+            direction: playerNumber === 1 ? lightweightState.s2d : lightweightState.s1d
+          },
+          finished: lightweightState.f,
+          winner_id: lightweightState.w
+        };
+        socket.emit('game_state', personalView);
       }
     });
   }

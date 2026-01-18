@@ -1,20 +1,16 @@
-// Загрузка переменных окружения ДО всех остальных импортов
+// ЗАГРУЗКА ПЕРЕМЕННЫХ ОКРУЖЕНИЯ В САМОМ НАЧАЛЕ (до всех остальных импортов)
+require('dotenv').config();
+
+// Проверка и логирование загруженных переменных
+console.log('📋 Проверка переменных окружения:');
+console.log(`   IS_TESTNET: ${process.env.IS_TESTNET || 'не задано'}`);
+console.log(`   TON_WALLET_ADDRESS: ${process.env.TON_WALLET_ADDRESS ? process.env.TON_WALLET_ADDRESS.substring(0, 10) + '...' : 'не задано'}`);
+console.log(`   TONCENTER_API_KEY: ${process.env.TONCENTER_API_KEY ? 'загружен (' + process.env.TONCENTER_API_KEY.substring(0, 10) + '...)' : 'не задано'}`);
+console.log(`   ADMIN_SEED: ${process.env.ADMIN_SEED ? 'загружен (' + process.env.ADMIN_SEED.split(' ').length + ' слов)' : 'не задано'}`);
+console.log(`   DEBUG_MODE: ${process.env.DEBUG_MODE || 'не задано'}`);
+console.log(`   PORT: ${process.env.PORT || 'не задано'}`);
+
 const path = require('path');
-const result = require('dotenv').config({ path: path.join(__dirname, '.env') });
-
-// Fallback значения (используются, если .env не загружен или переменные не определены)
-const FALLBACK_IS_TESTNET = true; // Принудительно true для теста
-const FALLBACK_WALLET = '0QCD6bCJwyuK7Kl21EBORyeY2UdJ5o_dJ5MmdO1ARZzXxL-v';
-const FALLBACK_API_KEY = 'bd0ac1e83d4f3ef6f7358adba6f2cc1b720873da9f30716d5e412b79a22fd728';
-
-if (result.error) {
-  const envPath = path.join(__dirname, '.env');
-  console.warn(`⚠️ ВНИМАНИЕ: Файл .env не найден по пути ${envPath}.`);
-  console.warn(`   Используются ручные настройки для TESTNET (fallback значения).`);
-  console.warn(`   Подробности ошибки: ${result.error.message}`);
-} else {
-  console.log('✅ Файл .env успешно загружен из: ' + path.join(__dirname, '.env'));
-}
 
 /**
  * Сервер для мультиплеерной игры "Змейка" (Telegram Mini App)
@@ -205,6 +201,11 @@ io.on('connection', async (socket) => {
     handleDirection(socket, userId, direction);
   });
   
+  // Обработка ping для измерения задержки сети
+  socket.on('ping', (timestamp) => {
+    socket.emit('pong', timestamp);
+  });
+  
   // Инициация покупки игр (Socket.io альтернатива для /api/create-payment)
   socket.on('initiatePurchase', async (data) => {
     try {
@@ -348,27 +349,28 @@ io.on('connection', async (socket) => {
       // Обновляем время последнего запроса
       lastWithdrawRequest.set(userId, now);
       
-      // ВАЖНО: Обнуляем баланс ДО отправки транзакции, чтобы избежать double-spend атак
-      const newWinnings = Math.max(0, (user.winnings_usdt || 0) - amount);
-      updateUser(userId, {
-        winnings_usdt: newWinnings
-      });
-      console.log('💰 Баланс обнулен ДО отправки транзакции:', { 
-        old: user.winnings_usdt, 
-        new: newWinnings 
-      });
+      // БЕЗОПАСНЫЙ ВЫВОД: Проверяем ADMIN_SEED ПЕРЕД списанием баланса
+      const adminSeed = process.env.ADMIN_SEED;
+      console.log('🔍 Проверка ADMIN_SEED:', !!adminSeed, adminSeed ? '(загружен)' : '(не найден)');
+      
+      if (!adminSeed && !DEBUG_MODE) {
+        // Если нет ADMIN_SEED и не DEBUG_MODE - выдаем ошибку и НЕ списываем баланс
+        socket.emit('withdrawal_error', {
+          message: 'Система вывода временно недоступна. Пожалуйста, попробуйте позже.'
+        });
+        console.error('❌ ADMIN_SEED не найден, вывод отменен без списания баланса');
+        return;
+      }
       
       // Конвертируем USDT в TON (1 USDT ≈ 0.5 TON, можно настроить через курс)
       const amountInTon = amount * 0.5;
       
       let txHash = null;
       let withdrawalStatus = 'pending';
+      let transactionSuccess = false;
       
       // Попытка реального вывода через TON API
       try {
-        const adminSeed = process.env.ADMIN_SEED;
-        console.log('🔍 Проверка ADMIN_SEED:', !!adminSeed, adminSeed ? '(загружен)' : '(не найден)');
-        
         if (adminSeed && !DEBUG_MODE) {
           // Реальная транзакция через @ton/ton (требуется: npm install @ton/ton @ton/crypto)
           try {
@@ -437,40 +439,58 @@ io.on('connection', async (socket) => {
             
             // Отправляем транзакцию
             console.log('4. Отправка транзакции...');
-            await provider.send(transfer);
+            const sendResult = await provider.send(transfer);
             
-            // Получаем хеш транзакции (упрощенный способ - в реальности нужно получить из ответа)
-            txHash = `tx_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            // Получаем хеш транзакции из результата или генерируем
+            txHash = sendResult?.hash || `tx_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            
+            // Проверяем успешность отправки (в реальности можно проверить статус транзакции)
+            transactionSuccess = true;
             withdrawalStatus = 'completed';
             
-            console.log(`✅ TON транзакция отправлена: ${amountInTon} TON на ${recipientWallet}`);
-            console.log(`   Seqno: ${seqno}, Balance before: ${balanceInTon} TON`);
+            console.log(`✅ TON транзакция успешно отправлена: ${amountInTon} TON на ${recipientWallet}`);
+            console.log(`   TX Hash: ${txHash}, Seqno: ${seqno}, Balance before: ${balanceInTon} TON`);
           } catch (tonError) {
             console.error('❌ Ошибка TON SDK:', tonError.message);
-            console.warn('⚠️ TON SDK не доступен или произошла ошибка, используем упрощенную логику');
+            transactionSuccess = false;
             txHash = `withdraw_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
             withdrawalStatus = 'failed';
           }
+        } else if (DEBUG_MODE) {
+          // DEBUG_MODE: симулируем успешную транзакцию
+          console.log(`💰 Вывод средств (DEBUG_MODE): ${amount} USDT = ${amountInTon} TON на ${userWallet}`);
+          transactionSuccess = true;
+          txHash = `debug_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          withdrawalStatus = 'completed';
         } else {
-          // Упрощенная логика (DEBUG_MODE или нет ADMIN_SEED)
-          if (DEBUG_MODE) {
-            console.log(`💰 Вывод средств (DEBUG_MODE): ${amount} USDT = ${amountInTon} TON на ${user.wallet}`);
-          } else {
-            console.warn('⚠️ ADMIN_SEED не найден в .env, используем упрощенную логику');
-          }
-          txHash = `withdraw_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          // Нет ADMIN_SEED и не DEBUG_MODE - уже обработано выше
+          transactionSuccess = false;
+          withdrawalStatus = 'failed';
         }
       } catch (error) {
         console.error('❌ Ошибка при выполнении TON транзакции:', error);
-        // Если транзакция не удалась, возвращаем баланс обратно
-        const restoredWinnings = (user.winnings_usdt || 0) + amount;
-        updateUser(userId, {
-          winnings_usdt: restoredWinnings
-        });
-        console.log('🔄 Баланс восстановлен из-за ошибки транзакции:', restoredWinnings);
-        
+        transactionSuccess = false;
         txHash = `withdraw_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         withdrawalStatus = 'failed';
+      }
+      
+      // БЕЗОПАСНЫЙ ВЫВОД: Списываем баланс ТОЛЬКО после успешной отправки транзакции
+      if (transactionSuccess) {
+        const newWinnings = Math.max(0, (user.winnings_usdt || 0) - amount);
+        updateUser(userId, {
+          winnings_usdt: newWinnings
+        });
+        console.log('💰 Баланс списан ПОСЛЕ успешной отправки транзакции:', { 
+          old: user.winnings_usdt, 
+          new: newWinnings 
+        });
+      } else {
+        // Транзакция не удалась - баланс НЕ списываем
+        console.warn('⚠️ Транзакция не удалась, баланс НЕ списан');
+        socket.emit('withdrawal_error', {
+          message: 'Не удалось отправить транзакцию. Баланс не списан.'
+        });
+        return;
       }
       
       // Логируем вывод в withdrawals.json (асинхронно, чтобы не блокировать)

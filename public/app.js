@@ -96,10 +96,20 @@ function initSocket() {
   socket.on('connect', () => {
     console.log('✅ WebSocket подключен');
     console.log('Socket ID:', socket.id);
+    // Запускаем измерение пинга
+    startPingMeasurement();
   });
   
   socket.on('disconnect', (reason) => {
     console.warn('⚠️ WebSocket отключен:', reason);
+    // Останавливаем измерение пинга
+    stopPingMeasurement();
+  });
+  
+  // Обработчик для ping/pong для измерения задержки
+  socket.on('pong', (timestamp) => {
+    const ping = Date.now() - timestamp;
+    updatePingDisplay(ping);
   });
   
   socket.on('connect_error', (error) => {
@@ -245,6 +255,9 @@ function initSocket() {
     // Принудительная установка gameState = 'playing' (игра действительно началась)
     gameState = 'playing';
     console.log('✅ gameState set to:', gameState);
+    
+    // Запускаем цикл отрисовки
+    startRenderLoop();
     
     // Сбрасываем текущее направление при старте игры
     currentDirection = null;
@@ -873,6 +886,11 @@ function sendDirection(direction) {
 function showScreen(screenName) {
   console.log('🖥️ Switching to screen:', screenName);
   
+  // Останавливаем цикл отрисовки если переключаемся с игрового экрана
+  if (gameState === 'playing' && screenName !== 'playing') {
+    stopRenderLoop();
+  }
+  
   // Находим все элементы с классом screen и принудительно скрываем их
   const screens = document.querySelectorAll('.screen');
   screens.forEach(s => {
@@ -906,6 +924,53 @@ function isValidTonAddress(address) {
   const trimmed = address.trim();
   // TON адреса начинаются с EQ или UQ (user-friendly формат)
   return trimmed.length > 20 && (trimmed.startsWith('EQ') || trimmed.startsWith('UQ') || trimmed.startsWith('0Q'));
+}
+
+/**
+ * Измерение пинга (задержка сети)
+ */
+let pingInterval = null;
+
+function startPingMeasurement() {
+  // Отправляем ping каждые 2 секунды
+  pingInterval = setInterval(() => {
+    if (socket && socket.connected) {
+      socket.emit('ping', Date.now());
+    }
+  }, 2000);
+  
+  // Первое измерение сразу
+  if (socket && socket.connected) {
+    socket.emit('ping', Date.now());
+  }
+}
+
+function stopPingMeasurement() {
+  if (pingInterval) {
+    clearInterval(pingInterval);
+    pingInterval = null;
+  }
+  updatePingDisplay(null);
+}
+
+function updatePingDisplay(ping) {
+  const pingValueEl = document.getElementById('ping-value');
+  if (pingValueEl) {
+    if (ping === null) {
+      pingValueEl.textContent = '--';
+      pingValueEl.style.color = '#666';
+    } else {
+      pingValueEl.textContent = ping.toString();
+      // Цвет зависит от пинга: зеленый < 50ms, желтый < 100ms, красный > 100ms
+      if (ping < 50) {
+        pingValueEl.style.color = '#00ff00';
+      } else if (ping < 100) {
+        pingValueEl.style.color = '#ffff00';
+      } else {
+        pingValueEl.style.color = '#ff4444';
+      }
+    }
+  }
 }
 
 /**
@@ -1107,59 +1172,21 @@ function startGame(data) {
 }
 
 /**
- * Обновление состояния игры
+ * Обновление состояния игры с оптимизацией и requestAnimationFrame
  */
-// Переменная для отслеживания времени последнего кадра (для пропуска отрисовки при лагах)
-let lastFrameTime = 0;
+// Состояние игры для интерполяции
+let gameStateData = null;
+let lastGameStateUpdate = 0;
+let animationFrameId = null;
 
+// Функция для сохранения данных от сервера (не блокирует отрисовку)
 function updateGameState(data) {
-  // Проверка разницы между кадрами для пропуска отрисовки при лагах
-  const now = performance.now();
-  const frameDelta = now - lastFrameTime;
-  const shouldSkipSecondaryRendering = frameDelta > 200; // Если прошло больше 200ms, пропускаем второстепенные элементы
+  // Сохраняем данные для отрисовки
+  gameStateData = data;
+  lastGameStateUpdate = performance.now();
   
-  // Обновляем время последнего кадра
-  lastFrameTime = now;
-  
-  if (shouldSkipSecondaryRendering) {
-    console.log('⚠️ Пропуск второстепенных элементов из-за большого delta:', frameDelta + 'ms');
-  }
-  
-  console.log('Drawing state...'); // Лог для проверки прихода данных
-  console.log('Данные игры:', data); // Логирование для отладки
-  
-  if (!gameCanvas || !gameCtx) {
-    console.warn('Canvas не инициализирован!');
-    return;
-  }
-  
-  if (!data || !data.my_snake || !data.opponent_snake) {
-    console.warn('Неполные данные игры:', data);
-    return;
-  }
-  
-  // Проверка координат змеек для отладки
-  if (data.my_snake && data.my_snake.body && data.my_snake.body.length > 0) {
-    console.log('Snake pos:', data.my_snake.body[0]);
-  }
-  
-  // Очищаем canvas
-  gameCtx.clearRect(0, 0, gameCanvas.width, gameCanvas.height);
-  
-  // Фон для игрового поля
-  gameCtx.fillStyle = '#0a0e27'; // Modern dark blue background
-  gameCtx.fillRect(0, 0, gameCanvas.width, gameCanvas.height);
-  
-  // Рисуем сетку
-  drawGrid();
-  
-  // Рисуем змейки с современным дизайном
-  drawSnake(data.my_snake, '#ff4444', '#ff6666'); // Красная с градиентом
-  drawSnake(data.opponent_snake, '#4444ff', '#6666ff'); // Синяя с градиентом
-  
-  // Обновляем текущее направление только после реального хода (когда змейка уже переместилась)
-  if (data.my_snake && data.my_snake.direction) {
-    // Конвертируем объект направления {dx, dy} в строку 'up'/'down'/'left'/'right'
+  // Обновляем текущее направление
+  if (data && data.my_snake && data.my_snake.direction) {
     const dir = data.my_snake.direction;
     if (dir.dx === 1 && dir.dy === 0) {
       currentDirection = 'right';
@@ -1172,12 +1199,60 @@ function updateGameState(data) {
     }
   }
   
-  // Обновляем статусы игроков
-  const player1Status = document.getElementById('player1-status');
-  const player2Status = document.getElementById('player2-status');
+  // Обновляем статусы игроков (быстрая DOM операция)
+  if (data && data.my_snake && data.opponent_snake) {
+    const player1Status = document.getElementById('player1-status');
+    const player2Status = document.getElementById('player2-status');
+    if (player1Status) player1Status.textContent = `You: ${data.my_snake.alive ? 'Alive' : 'Dead'}`;
+    if (player2Status) player2Status.textContent = `Opponent: ${data.opponent_snake.alive ? 'Alive' : 'Dead'}`;
+  }
   
-  if (player1Status) player1Status.textContent = `You: ${data.my_snake.alive ? 'Alive' : 'Dead'}`;
-  if (player2Status) player2Status.textContent = `Opponent: ${data.opponent_snake.alive ? 'Alive' : 'Dead'}`;
+  // Запускаем цикл отрисовки если он еще не запущен
+  if (!animationFrameId && gameState === 'playing') {
+    startRenderLoop();
+  }
+}
+
+// Цикл отрисовки с requestAnimationFrame (60 FPS)
+function startRenderLoop() {
+  if (animationFrameId) return; // Уже запущен
+  
+  function render() {
+    if (gameState !== 'playing' || !gameCanvas || !gameCtx) {
+      animationFrameId = null;
+      return;
+    }
+    
+    // Отрисовываем только если есть данные
+    if (gameStateData && gameStateData.my_snake && gameStateData.opponent_snake) {
+      // Эффективная очистка canvas
+      gameCtx.clearRect(0, 0, gameCanvas.width, gameCanvas.height);
+      
+      // Фон для игрового поля
+      gameCtx.fillStyle = '#0a0e27';
+      gameCtx.fillRect(0, 0, gameCanvas.width, gameCanvas.height);
+      
+      // Рисуем сетку
+      drawGrid();
+      
+      // Рисуем змейки
+      drawSnake(gameStateData.my_snake, '#ff4444', '#ff6666');
+      drawSnake(gameStateData.opponent_snake, '#4444ff', '#6666ff');
+    }
+    
+    // Продолжаем цикл
+    animationFrameId = requestAnimationFrame(render);
+  }
+  
+  animationFrameId = requestAnimationFrame(render);
+}
+
+// Останавливаем цикл отрисовки
+function stopRenderLoop() {
+  if (animationFrameId) {
+    cancelAnimationFrame(animationFrameId);
+    animationFrameId = null;
+  }
 }
 
 /**
