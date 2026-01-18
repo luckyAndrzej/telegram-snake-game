@@ -5,12 +5,12 @@ require('dotenv').config();
 console.log('📋 Проверка переменных окружения:');
 console.log(`   IS_TESTNET: ${process.env.IS_TESTNET || 'не задано'}`);
 console.log(`   TON_WALLET_ADDRESS: ${process.env.TON_WALLET_ADDRESS ? process.env.TON_WALLET_ADDRESS.substring(0, 10) + '...' : 'не задано'}`);
-console.log(`   TONCENTER_API_KEY: ${process.env.TONCENTER_API_KEY ? 'загружен (' + process.env.TONCENTER_API_KEY.substring(0, 10) + '...)' : 'не задано'}`);
 console.log(`   ADMIN_SEED: ${process.env.ADMIN_SEED ? 'загружен (' + process.env.ADMIN_SEED.split(' ').length + ' слов)' : 'не задано'}`);
 console.log(`   DEBUG_MODE: ${process.env.DEBUG_MODE || 'не задано'}`);
 console.log(`   PORT: ${process.env.PORT || 'не задано'}`);
 
 const path = require('path');
+const { getHttpEndpoint } = require('@orbs-network/ton-access');
 
 /**
  * Сервер для мультиплеерной игры "Змейка" (Telegram Mini App)
@@ -86,17 +86,12 @@ db.init().then(async () => {
     // Используем значения из .env, с fallback на true для тестнета если не задано
     const IS_TESTNET = process.env.IS_TESTNET === 'true' || process.env.IS_TESTNET === true || process.env.IS_TESTNET === 'TRUE' || true; // Fallback: true (тестнет)
     const WALLET = process.env.TON_WALLET_ADDRESS || '';
-    const API_KEY = process.env.TONCENTER_API_KEY || process.env.TON_API_KEY || '';
-    
-    // Предупреждение если переменные не заданы
-    if (!process.env.TONCENTER_API_KEY && !process.env.TON_API_KEY) {
-      console.warn('⚠️ TONCENTER_API_KEY не найден в .env. Некоторые функции могут не работать.');
-    }
+    const API_KEY = process.env.TONCENTER_API_KEY || process.env.TON_API_KEY || ''; // Для сканера транзакций (пока используем TonCenter API)
     
     // Определяем, используются ли fallback значения
-    const usingFallback = !process.env.IS_TESTNET || !process.env.TON_WALLET_ADDRESS || !process.env.TONCENTER_API_KEY;
+    const usingFallback = !process.env.IS_TESTNET || !process.env.TON_WALLET_ADDRESS;
     
-    // Устанавливаем правильный API URL на основе IS_TESTNET
+    // Устанавливаем правильный API URL на основе IS_TESTNET (для сканера транзакций)
     const API_URL = IS_TESTNET ? 'https://testnet.toncenter.com/api/v2' : 'https://toncenter.com/api/v2';
     
     // Логирование конфигурации
@@ -104,26 +99,24 @@ db.init().then(async () => {
       const envPath = path.join(__dirname, '.env');
       console.warn(`⚠️ ВНИМАНИЕ: Файл .env не найден по пути ${envPath}. Используются ручные настройки для TESTNET.`);
       console.log(`✅ WALLET: ${WALLET.substring(0, 5)}...`);
-      console.log(`✅ API_URL: ${API_URL}`);
+      console.log(`✅ API_URL (для сканера): ${API_URL}`);
     }
     
     // Логирование переменных окружения для отладки
     console.log('🔍 Проверка переменных окружения:');
     console.log(`   process.env.IS_TESTNET = "${process.env.IS_TESTNET || 'undefined (используется fallback)'}" (type: ${typeof process.env.IS_TESTNET})`);
     console.log(`   process.env.TON_WALLET_ADDRESS = "${process.env.TON_WALLET_ADDRESS ? process.env.TON_WALLET_ADDRESS.substring(0, 10) + '...' : 'undefined (используется fallback)'}"`);
-    console.log(`   process.env.TONCENTER_API_KEY = "${process.env.TONCENTER_API_KEY ? '***' + process.env.TONCENTER_API_KEY.slice(-4) : 'undefined (используется fallback)'}"`);
     
     console.log(`✅ ПРОВЕРКА: IS_TESTNET из файла = ${IS_TESTNET}${usingFallback ? ' (fallback)' : ''}`);
     
-    // Инициализация конфигурации TON
+    // Инициализация конфигурации TON (для сканера транзакций пока используется TonCenter)
     tonPayment.initConfig({
       IS_TESTNET: IS_TESTNET,
       TON_WALLET_ADDRESS: WALLET,
-      TON_API_KEY: API_KEY  // Передаем как TON_API_KEY для совместимости с tonPayment.js
+      TON_API_KEY: API_KEY  // Для сканера транзакций (пока используем TonCenter API)
     });
     
-    console.log(`🌐 TON Config: IS_TESTNET=${IS_TESTNET}, API_URL=${API_URL}`);
-    console.log(`✅ ПРОВЕРКА: API Key загружен: ${!!API_KEY}`);
+    console.log(`🌐 TON Config: IS_TESTNET=${IS_TESTNET}, API_URL (для сканера)=${API_URL}`);
 
     // Запускаем сканер блокчейна (каждые 20 секунд) - вынесено в setImmediate для неблокирующего выполнения
     const runScanner = () => {
@@ -411,25 +404,14 @@ io.on('connection', async (socket) => {
             const { TonClient, WalletContractV4, WalletContractV3R2, internal, toNano, Address } = require('@ton/ton');
             const { mnemonicToWalletKey } = require('@ton/crypto');
             
-            // Используем ту же логику, что и в сканере (синхронизация сетей)
+            // Используем децентрализованный Orbs Access вместо TonCenter
             const isTestnet = process.env.IS_TESTNET === 'true' || process.env.IS_TESTNET === true || process.env.IS_TESTNET === 'TRUE' || true; // Fallback: true (тестнет)
-            // Убеждаемся, что используется правильный endpoint для тестнета
-            const endpoint = isTestnet 
-              ? 'https://testnet.toncenter.com/api/v2/jsonRPC'
-              : 'https://toncenter.com/api/v2/jsonRPC';
             
-            const apiKey = process.env.TONCENTER_API_KEY || process.env.TON_API_KEY || '';
-            console.log(`2. Кошелек инициализирован. Endpoint: ${endpoint}, isTestnet: ${isTestnet}, Has API Key: ${!!apiKey}`);
-            
-            // Проверка соответствия API ключа и сети
-            if (!isTestnet && !apiKey) {
-              console.warn('⚠️ ВНИМАНИЕ: Mainnet требует валидный TONCENTER_API_KEY для Mainnet!');
-            }
+            // Получаем endpoint через децентрализованную сеть Orbs
+            const endpoint = await getHttpEndpoint({ network: isTestnet ? 'testnet' : 'mainnet' });
+            console.log(`🌐 Подключено к децентрализованному узлу: ${endpoint}`);
               
-            const client = new TonClient({
-              endpoint,
-              apiKey: apiKey
-            });
+            const client = new TonClient({ endpoint });
             
             // Создаем кошелек из seed-фразы
             const seedWords = adminSeed.split(' ');
