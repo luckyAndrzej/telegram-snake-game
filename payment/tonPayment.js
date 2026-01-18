@@ -377,7 +377,7 @@ async function scanTransactions(io) {
         processedTx[txHash] = {
           userId: foundPayment.userId,
           comment,
-          amount: expectedAmount,
+          amount: expectedAmountTon, // Используем expectedAmountTon (из foundPayment.amount)
           games: foundPayment.games,
           processedAt: Date.now()
         };
