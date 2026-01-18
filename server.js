@@ -520,27 +520,76 @@ async function endGame(gameId, winnerId, loserId) {
   game.finished = true;
   game.end_time = Date.now();
   
-  // Рассчитываем приз: (стоимость_входа * 2) * 0.75
-  const pool = GAME_CONFIG.ENTRY_PRICE * 2; // Два входа
-  const prize = pool * GAME_CONFIG.WINNER_PERCENTAGE; // 75% победителю
-  
-  console.log(`💰 Приз: ${prize} USDT для победителя ${winnerId}`);
-  
-  // Начисляем приз победителю (только если еще не начисляли)
-  if (winnerId && shouldSendEvent) {
-    try {
-      const winner = await getUser(winnerId);
-      await updateUser(winnerId, {
-        winnings_usdt: winner.winnings_usdt + prize
+  // Защита от повторного начисления по одному matchId
+  if (game.winnings_paid) {
+    console.log(`⚠️ Попытка повторного начисления по матчу [${gameId}]. Отклонено.`);
+    // Все равно отправляем событие game_end, если оно еще не было отправлено
+    if (!game.end_event_sent) {
+      const roomName = `game_${gameId}`;
+      io.to(roomName).emit('game_end', {
+        winnerId,
+        prize: 0,
+        game_stats: {
+          duration: game.end_time - game.start_time,
+          pool: 0
+        }
       });
+      game.end_event_sent = true;
+    }
+    return;
+  }
+  
+  // Рассчитываем приз: (стоимость_входа * 2) * 0.75 = 1 * 2 * 0.75 = 1.5
+  const pool = GAME_CONFIG.ENTRY_PRICE * 2; // Два входа
+  let prize = 0; // По умолчанию приз = 0
+  
+  // Начисляем приз победителю только если все проверки пройдены
+  if (winnerId && shouldSendEvent) {
+    // Проверка активности матча: выигрыш начисляется только если был хотя бы один тик
+    if (game.tick_number === 0 || !game.tick_number) {
+      console.log(`⚠️ Игра ${gameId} не имела тиков движения (tick_number=0). Выигрыш не начисляется.`);
+      prize = 0;
+    } else {
+      // Рассчитываем приз
+      prize = pool * GAME_CONFIG.WINNER_PERCENTAGE; // 75% победителю = 1.5
       
-      console.log(`🏆 Игра ${gameId} завершена. Победитель: ${winnerId}, приз: ${prize}`);
-    } catch (error) {
-      console.error(`❌ Ошибка при начислении приза:`, error);
+      try {
+        const winner = await getUser(winnerId);
+        
+        // Проверяем наличие игр (хотя баланс уже списан при входе, но проверка на всякий случай)
+        if (winner.games_balance < 0) {
+          console.log(`⚠️ У победителя ${winnerId} отрицательный баланс игр. Выигрыш не начисляется.`);
+          prize = 0;
+        } else {
+          // Начисляем выигрыш
+          const newWinnings = winner.winnings_usdt + prize;
+          await updateUser(winnerId, {
+            winnings_usdt: newWinnings
+          });
+          
+          console.log(`🏆 Победа подтверждена! Игрок [${winnerId}] получает ${prize} USDT.`);
+          console.log(`   Баланс выигрышей до: ${winner.winnings_usdt}, после: ${newWinnings}`);
+          
+          // Сразу отправляем обновленный баланс игроку через Socket.io
+          const updatedUser = getUser(winnerId);
+          io.to(`user_${winnerId}`).emit('balance_updated', {
+            games_balance: updatedUser.games_balance,
+            winnings_usdt: updatedUser.winnings_usdt
+          });
+          console.log(`📤 Отправлен обновленный баланс игроку ${winnerId}: winnings=${updatedUser.winnings_usdt}`);
+        }
+      } catch (error) {
+        console.error(`❌ Ошибка при начислении приза:`, error);
+        prize = 0;
+      }
     }
   } else if (!winnerId && shouldSendEvent) {
     console.log(`🏁 Игра ${gameId} завершена ничьей`);
+    prize = 0;
   }
+  
+  // Помечаем, что выигрыш обработан (защита от повторного начисления)
+  game.winnings_paid = true;
   
   // Уведомляем игроков (ОБЯЗАТЕЛЬНО отправляем событие, даже если игра уже завершена)
   if (!game.end_event_sent) {

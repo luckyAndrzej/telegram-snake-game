@@ -270,6 +270,12 @@ function initSocket() {
     endGame(data);
   });
   
+  // Обновление баланса после начисления выигрыша
+  socket.on('balance_updated', (data) => {
+    console.log('💰 Баланс обновлен:', data);
+    updateBalance(data.games_balance, data.winnings_usdt);
+  });
+  
   socket.on('error', (error) => {
     console.error('Socket error:', error);
     tg.showAlert(error.message || 'An error occurred');
