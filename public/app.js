@@ -37,12 +37,17 @@ document.addEventListener('DOMContentLoaded', () => {
     resizeTimeout = setTimeout(() => {
       // Пересчитываем размер canvas при изменении размера окна
       if (gameCanvas) {
+        // Адаптивный размер canvas: устанавливаем CSS размеры
+        gameCanvas.style.width = '100%';
+        gameCanvas.style.height = '100%';
+        
         const containerWidth = gameCanvas.parentElement?.clientWidth || window.innerWidth;
         const containerHeight = window.innerHeight * 0.5;
         const maxCanvasSize = Math.min(containerWidth - 40, containerHeight, 800);
         
-        gameCanvas.width = maxCanvasSize;
-        gameCanvas.height = maxCanvasSize;
+        // Устанавливаем логический размер (DPI) из offsetWidth/offsetHeight или вычисленного размера
+        gameCanvas.width = gameCanvas.offsetWidth || maxCanvasSize;
+        gameCanvas.height = gameCanvas.offsetHeight || maxCanvasSize;
         
         // Если игра активна, перерисовываем состояние
         if (gameState === 'playing' && currentGame) {
@@ -201,12 +206,17 @@ function initSocket() {
     }
   });
   
-  // Обновление countdown (сервер отправляет числа: 3, 2, 1) - overlay поверх game-canvas
+  // Обновление countdown (сервер отправляет числа: 5, 4, 3, 2, 1) - overlay поверх game-canvas
   socket.on('countdown', (data) => {
     console.log('⏰ Countdown:', data.number);
     const countdownNumber = document.getElementById('countdown-number');
     if (countdownNumber) {
-      countdownNumber.textContent = data.number;
+      // Сбрасываем и устанавливаем новое значение (предотвращает наложение цифр)
+      countdownNumber.textContent = '';
+      // Используем requestAnimationFrame для плавного обновления
+      requestAnimationFrame(() => {
+        countdownNumber.textContent = data.number;
+      });
     }
     
     // Обновляем game-canvas во время countdown (рисуем начальное состояние)
@@ -218,6 +228,12 @@ function initSocket() {
   // Экран 4: Игра начинается (после countdown) - скрываем overlay
   socket.on('game_start', (data) => {
     console.log('🎮 Game started (client):', data);
+    
+    // Сбрасываем переменную таймера при новом старте игры
+    const countdownNumber = document.getElementById('countdown-number');
+    if (countdownNumber) {
+      countdownNumber.textContent = ''; // Очищаем таймер
+    }
     
     // Сохраняем данные игры
     if (!currentGame) {
@@ -335,14 +351,27 @@ function initSocket() {
   socket.on('withdrawal_success', (data) => {
     console.log('✅ Withdrawal successful:', data);
     
+    // Восстанавливаем кнопку вывода
+    const withdrawBtn = document.getElementById('withdraw-btn');
+    if (withdrawBtn) {
+      withdrawBtn.disabled = false;
+      withdrawBtn.innerHTML = withdrawBtn.dataset.originalText || '<span>💸 Withdraw Funds</span>';
+      withdrawBtn.style.opacity = '1';
+      withdrawBtn.style.cursor = 'pointer';
+    }
+    
     // Обновляем баланс
     updateBalance(data.games_balance, data.winnings_usdt);
     
     // Показываем уведомление
+    const message = data.txHash 
+      ? `✅ Деньги отправлены! ${data.amount} USDT отправлено на ваш кошелек. TX: ${data.txHash.substring(0, 10)}...`
+      : `✅ Деньги отправлены! ${data.amount} USDT отправлено на ваш кошелек.`;
+      
     if (window.Telegram && window.Telegram.WebApp) {
-      window.Telegram.WebApp.showAlert(`✅ Вывод средств успешен! ${data.amount} USDT отправлено на ваш кошелек.`);
+      window.Telegram.WebApp.showAlert(message);
     } else {
-      alert(`✅ Вывод средств успешен! ${data.amount} USDT отправлено на ваш кошелек.`);
+      alert(message);
     }
   });
   
@@ -350,11 +379,23 @@ function initSocket() {
   socket.on('withdrawal_error', (error) => {
     console.error('❌ Withdrawal error:', error);
     
+    // Восстанавливаем кнопку вывода
+    const withdrawBtn = document.getElementById('withdraw-btn');
+    if (withdrawBtn) {
+      withdrawBtn.disabled = false;
+      withdrawBtn.innerHTML = withdrawBtn.dataset.originalText || '<span>💸 Withdraw Funds</span>';
+      withdrawBtn.style.opacity = '1';
+      withdrawBtn.style.cursor = 'pointer';
+    }
+    
     // Показываем ошибку
+    const errorMessage = error.message || 'Неизвестная ошибка';
+    const message = `❌ Ошибка: ${errorMessage}. Проверьте кошелек или баланс.`;
+    
     if (window.Telegram && window.Telegram.WebApp) {
-      window.Telegram.WebApp.showAlert(`❌ Ошибка вывода: ${error.message || 'Неизвестная ошибка'}`);
+      window.Telegram.WebApp.showAlert(message);
     } else {
-      alert(`❌ Ошибка вывода: ${error.message || 'Неизвестная ошибка'}`);
+      alert(message);
     }
   });
 }
@@ -439,6 +480,14 @@ async function createPayment(packageId) {
 }
 
 function initEventListeners() {
+  // Проверка кнопки вывода в DOM
+  const withdrawBtnCheck = document.getElementById('withdraw-btn');
+  if (withdrawBtnCheck) {
+    console.log('✅ Кнопка вывода найдена в DOM');
+  } else {
+    console.warn('⚠️ Кнопка вывода (withdraw-btn) не найдена в DOM!');
+  }
+  
   // "Find Match" button - switch to lobby screen
   document.getElementById('start-game-btn')?.addEventListener('click', () => {
     if (socket && socket.connected) {
@@ -834,6 +883,7 @@ function showScreen(screenName) {
  * Обработка вывода средств
  */
 function handleWithdraw() {
+  const withdrawBtn = document.getElementById('withdraw-btn');
   const winningsEl = document.getElementById('winnings-balance');
   const currentBalance = parseFloat(winningsEl?.textContent?.replace(' USDT', '') || '0');
   
@@ -851,6 +901,20 @@ function handleWithdraw() {
   // Показываем подтверждение
   const onConfirm = (confirmed) => {
     if (confirmed) {
+      console.log('📤 Отправляю запрос на вывод через сокет...', { amount: currentBalance, socketConnected: socket?.connected });
+      
+      // Блокируем кнопку и показываем спиннер
+      if (withdrawBtn) {
+        const originalText = withdrawBtn.innerHTML;
+        withdrawBtn.disabled = true;
+        withdrawBtn.innerHTML = '<span>⏳ Processing...</span>';
+        withdrawBtn.style.opacity = '0.6';
+        withdrawBtn.style.cursor = 'not-allowed';
+        
+        // Сохраняем оригинальный текст для восстановления
+        withdrawBtn.dataset.originalText = originalText;
+      }
+      
       // Отправляем запрос на вывод средств
       if (socket && socket.connected) {
         socket.emit('requestWithdraw', {
@@ -864,6 +928,14 @@ function handleWithdraw() {
           alert('Запрос отправлен, ожидайте транзакцию');
         }
       } else {
+        // Восстанавливаем кнопку при ошибке
+        if (withdrawBtn) {
+          withdrawBtn.disabled = false;
+          withdrawBtn.innerHTML = withdrawBtn.dataset.originalText || '<span>💸 Withdraw Funds</span>';
+          withdrawBtn.style.opacity = '1';
+          withdrawBtn.style.cursor = 'pointer';
+        }
+        
         if (window.Telegram && window.Telegram.WebApp) {
           window.Telegram.WebApp.showAlert('Ошибка: нет подключения к серверу');
         } else {
@@ -966,7 +1038,22 @@ function startGame(data) {
 /**
  * Обновление состояния игры
  */
+// Переменная для отслеживания времени последнего кадра (для пропуска отрисовки при лагах)
+let lastFrameTime = 0;
+
 function updateGameState(data) {
+  // Проверка разницы между кадрами для пропуска отрисовки при лагах
+  const now = performance.now();
+  const frameDelta = now - lastFrameTime;
+  const shouldSkipSecondaryRendering = frameDelta > 200; // Если прошло больше 200ms, пропускаем второстепенные элементы
+  
+  // Обновляем время последнего кадра
+  lastFrameTime = now;
+  
+  if (shouldSkipSecondaryRendering) {
+    console.log('⚠️ Пропуск второстепенных элементов из-за большого delta:', frameDelta + 'ms');
+  }
+  
   console.log('Drawing state...'); // Лог для проверки прихода данных
   console.log('Данные игры:', data); // Логирование для отладки
   

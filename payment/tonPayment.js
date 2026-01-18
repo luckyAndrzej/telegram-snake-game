@@ -150,7 +150,8 @@ async function createPayment(userId, packageId) {
  */
 async function getWalletTransactions(address) {
   try {
-    const url = `${TON_CONFIG.TON_API_URL}/getTransactions?address=${address}&limit=10`;
+    // Ограничиваем количество транзакций до 5 для снижения нагрузки
+    const url = `${TON_CONFIG.TON_API_URL}/getTransactions?address=${address}&limit=5`;
     const headers = TON_CONFIG.TON_API_KEY 
       ? { 'X-API-Key': TON_CONFIG.TON_API_KEY }
       : {};

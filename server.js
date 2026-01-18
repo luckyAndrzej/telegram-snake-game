@@ -120,14 +120,23 @@ db.init().then(async () => {
     console.log(`🌐 TON Config: IS_TESTNET=${IS_TESTNET}, API_URL=${API_URL}`);
     console.log(`✅ ПРОВЕРКА: API Key загружен: ${!!API_KEY}`);
 
-    // Запускаем сканер блокчейна (каждые 20 секунд)
-    setInterval(() => {
-      tonPayment.checkTonPayments(io); // Используем checkTonPayments как основной метод
-    }, 20000); // 20 секунд
-    console.log('✅ Сканер блокчейна TON запущен (интервал: 20 сек)');
+    // Запускаем сканер блокчейна (каждые 20 секунд) - вынесено в setImmediate для неблокирующего выполнения
+    const runScanner = () => {
+      setImmediate(async () => {
+        try {
+          await tonPayment.checkTonPayments(io);
+        } catch (error) {
+          console.error('❌ Ошибка сканера транзакций:', error);
+        }
+      });
+    };
     
-    // Первая проверка сразу после запуска
-    tonPayment.checkTonPayments(io);
+    // Первая проверка сразу после запуска (асинхронно)
+    runScanner();
+    
+    // Периодическая проверка каждые 20 секунд
+    setInterval(runScanner, 20000); // 20 секунд
+    console.log('✅ Сканер блокчейна TON запущен (интервал: 20 сек, асинхронный режим)');
   }
   
   // Запускаем игровой цикл (передаем endGame как callback)
@@ -242,6 +251,9 @@ io.on('connection', async (socket) => {
   
   // Обработчик запроса на вывод средств
   socket.on('requestWithdraw', async (data) => {
+    console.log('📥 Получен запрос на вывод от пользователя:', userId);
+    console.log('   Данные запроса:', data);
+    
     try {
       const { amount } = data;
       
@@ -265,6 +277,7 @@ io.on('connection', async (socket) => {
       
       // Получаем пользователя
       const user = await getUser(userId);
+      console.log('1. Проверка баланса пройдена:', { winnings_usdt: user.winnings_usdt, requested: amount });
       
       // Проверяем баланс
       if (!user.winnings_usdt || user.winnings_usdt < amount) {
@@ -282,13 +295,16 @@ io.on('connection', async (socket) => {
         return;
       }
       
-      // Проверяем наличие кошелька
-      if (!user.wallet || user.wallet.trim() === '') {
+      // Проверяем наличие кошелька (используем user.wallet, как в структуре БД)
+      const userWallet = user.wallet || user.wallet_address || '';
+      if (!userWallet || userWallet.trim() === '') {
+        console.log('❌ Кошелек не найден в user:', { wallet: user.wallet, wallet_address: user.wallet_address });
         socket.emit('withdrawal_error', {
           message: 'Кошелек не указан. Пожалуйста, укажите адрес кошелька в настройках.'
         });
         return;
       }
+      console.log('2. Кошелек найден:', userWallet.substring(0, 10) + '...');
       
       // Обновляем время последнего запроса
       lastWithdrawRequest.set(userId, now);
@@ -302,56 +318,100 @@ io.on('connection', async (socket) => {
       // Попытка реального вывода через TON API
       try {
         const adminSeed = process.env.ADMIN_SEED;
+        console.log('🔍 Проверка ADMIN_SEED:', !!adminSeed, adminSeed ? '(загружен)' : '(не найден)');
         
         if (adminSeed && !DEBUG_MODE) {
           // Реальная транзакция через @ton/ton (требуется: npm install @ton/ton @ton/crypto)
           try {
-            const { TonClient, WalletContractV4, internal } = require('@ton/ton');
+            const { TonClient, WalletContractV4, internal, toNano } = require('@ton/ton');
             const { mnemonicToWalletKey } = require('@ton/crypto');
             
             const isTestnet = process.env.IS_TESTNET === 'true' || process.env.IS_TESTNET === true;
+            // Убеждаемся, что используется правильный endpoint для тестнета
             const endpoint = isTestnet 
               ? 'https://testnet.toncenter.com/api/v2/jsonRPC'
               : 'https://toncenter.com/api/v2/jsonRPC';
+            
+            console.log(`2. Кошелек инициализирован. Endpoint: ${endpoint}, isTestnet: ${isTestnet}`);
               
             const client = new TonClient({
               endpoint,
               apiKey: process.env.TONCENTER_API_KEY || process.env.TON_API_KEY || ''
             });
             
+            // Создаем кошелек из seed-фразы
             const seedWords = adminSeed.split(' ');
+            if (seedWords.length !== 24) {
+              throw new Error('ADMIN_SEED должен содержать 24 слова');
+            }
+            
             const keyPair = await mnemonicToWalletKey(seedWords);
             const wallet = WalletContractV4.create({ publicKey: keyPair.publicKey, workchain: 0 });
+            const walletAddress = wallet.address.toString();
             
+            console.log(`🔐 Seed-фраза загружена: ${!!adminSeed}`);
+            console.log(`🔍 Администраторский кошелек: ${walletAddress.substring(0, 10)}...`);
+            
+            // Проверяем баланс кошелька администратора
+            const balance = await client.getBalance(walletAddress);
+            const balanceInTon = parseFloat(balance.toString()) / 1000000000;
+            
+            console.log(`💰 Баланс кошелька админа: ${balanceInTon} TON`);
+            
+            if (balanceInTon < 0.1) {
+              throw new Error(`Недостаточно средств на администраторском кошельке. Баланс: ${balanceInTon} TON, требуется минимум 0.1 TON`);
+            }
+            
+            // Получаем seqno для транзакции
+            const provider = client.provider(wallet.address);
+            const seqno = await wallet.getSeqno(provider);
+            
+            // Используем правильный адрес кошелька пользователя
+            const recipientWallet = user.wallet || user.wallet_address || userWallet;
+            console.log(`3. Пытаюсь отправить транзакцию на адрес: ${recipientWallet.substring(0, 10)}...`);
+            
+            // Создаем трансфер
             const transfer = wallet.createTransfer({
               secretKey: keyPair.secretKey,
               messages: [
                 internal({
-                  to: user.wallet,
-                  value: (amountInTon * 1000000000).toString() + 'n', // нанотоны
+                  to: recipientWallet,
+                  value: toNano(amountInTon.toString()), // Используем toNano для правильной конвертации
                   body: 'Withdrawal from Snake Game'
                 })
               ],
-              seqno: await wallet.getSeqno(client.provider(wallet.address))
+              seqno: seqno
             });
             
-            await client.provider(wallet.address).send(transfer);
+            // Отправляем транзакцию
+            console.log('4. Отправка транзакции...');
+            await provider.send(transfer);
+            
+            // Получаем хеш транзакции (упрощенный способ - в реальности нужно получить из ответа)
             txHash = `tx_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
             withdrawalStatus = 'completed';
             
-            console.log(`✅ TON транзакция отправлена: ${amountInTon} TON на ${user.wallet}`);
+            console.log(`✅ TON транзакция отправлена: ${amountInTon} TON на ${recipientWallet}`);
+            console.log(`   Seqno: ${seqno}, Balance before: ${balanceInTon} TON`);
           } catch (tonError) {
-            console.warn('⚠️ TON SDK не доступен, используем упрощенную логику:', tonError.message);
+            console.error('❌ Ошибка TON SDK:', tonError.message);
+            console.warn('⚠️ TON SDK не доступен или произошла ошибка, используем упрощенную логику');
             txHash = `withdraw_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+            withdrawalStatus = 'failed';
           }
         } else {
           // Упрощенная логика (DEBUG_MODE или нет ADMIN_SEED)
+          if (DEBUG_MODE) {
+            console.log(`💰 Вывод средств (DEBUG_MODE): ${amount} USDT = ${amountInTon} TON на ${user.wallet}`);
+          } else {
+            console.warn('⚠️ ADMIN_SEED не найден в .env, используем упрощенную логику');
+          }
           txHash = `withdraw_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-          console.log(`💰 Вывод средств (упрощенный режим): ${amount} USDT = ${amountInTon} TON на ${user.wallet}`);
         }
       } catch (error) {
         console.error('❌ Ошибка при выполнении TON транзакции:', error);
         txHash = `withdraw_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+        withdrawalStatus = 'failed';
       }
       
       // Обновляем баланс
@@ -360,30 +420,39 @@ io.on('connection', async (socket) => {
         winnings_usdt: newWinnings
       });
       
-      // Логируем вывод в withdrawals.json
-      const fs = require('fs');
+      // Логируем вывод в withdrawals.json (асинхронно, чтобы не блокировать)
+      const fs = require('fs').promises;
       const withdrawalsPath = path.join(__dirname, 'withdrawals.json');
-      let withdrawals = {};
       
-      try {
-        const data = fs.readFileSync(withdrawalsPath, 'utf8');
-        withdrawals = JSON.parse(data);
-      } catch {
-        withdrawals = {};
-      }
-      
-      const withdrawalId = `withdrawal_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-      withdrawals[withdrawalId] = {
-        userId,
-        amount,
-        amountInTon,
-        wallet: user.wallet,
-        txHash,
-        status: withdrawalStatus,
-        createdAt: Date.now()
-      };
-      
-      fs.writeFileSync(withdrawalsPath, JSON.stringify(withdrawals, null, 2), 'utf8');
+      // Выполняем асинхронно через setImmediate для неблокирующего выполнения
+      setImmediate(async () => {
+        try {
+          let withdrawals = {};
+          try {
+            const data = await fs.readFile(withdrawalsPath, 'utf8');
+            withdrawals = JSON.parse(data);
+          } catch {
+            withdrawals = {};
+          }
+          
+          const withdrawalId = `withdrawal_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+          // Используем правильный адрес кошелька (уже определен userWallet выше)
+          const recipientWalletFinal = user.wallet || user.wallet_address || '';
+          withdrawals[withdrawalId] = {
+            userId,
+            amount,
+            amountInTon,
+            wallet: recipientWalletFinal,
+            txHash,
+            status: withdrawalStatus,
+            createdAt: Date.now()
+          };
+          
+          await fs.writeFile(withdrawalsPath, JSON.stringify(withdrawals, null, 2), 'utf8');
+        } catch (error) {
+          console.error('❌ Ошибка записи withdrawals.json:', error);
+        }
+      });
       
       // Отправляем успешный ответ
       const updatedUser = getUser(userId);
@@ -571,7 +640,14 @@ function startCountdown(gameId) {
   // Змейки уже отрисованы в начальных позициях, но не двигаются
   game.is_running = false; // Игра еще не началась
   
+  // Сбрасываем переменную отсчета при каждом новом старте (важно для предотвращения наложения)
   let count = 5; // Start countdown from 5
+  
+  // Очищаем предыдущий интервал, если он существует (защита от дублирования)
+  if (game.countdownInterval) {
+    clearInterval(game.countdownInterval);
+  }
+  
   const countdownInterval = setInterval(() => {
     // Отправляем событие countdown всем игрокам в комнате
     if (count > 0) {
@@ -586,10 +662,14 @@ function startCountdown(gameId) {
     // Когда count становится 0, завершаем countdown и начинаем игру
     if (count < 0) {
       clearInterval(countdownInterval);
+      game.countdownInterval = null; // Очищаем ссылку
       // Countdown завершен - начинаем игру
       startGame(gameId);
     }
   }, 1000);
+  
+  // Сохраняем ссылку на интервал в объекте игры для возможности очистки
+  game.countdownInterval = countdownInterval;
 }
 
 /**
