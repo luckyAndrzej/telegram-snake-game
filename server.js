@@ -132,6 +132,15 @@ io.on('connection', async (socket) => {
     await handleFindMatch(socket, userId);
   });
   
+  // Отмена поиска соперника
+  socket.on('cancel_search', () => {
+    if (waitingPlayers.has(userId)) {
+      waitingPlayers.delete(userId);
+      console.log(`❌ Игрок ${userId} отменил поиск соперника`);
+      socket.emit('search_cancelled');
+    }
+  });
+  
   // Готовность к игре
   socket.on('ready', async () => {
     await handleReady(socket, userId);

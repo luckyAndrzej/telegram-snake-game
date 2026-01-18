@@ -108,6 +108,13 @@ function initSocket() {
     showScreen('lobby');
   });
   
+  // Отмена поиска
+  socket.on('search_cancelled', () => {
+    console.log('✅ Search cancelled');
+    showScreen('menu');
+    currentGame = null;
+  });
+  
   // Screen 3: Opponent found (Match Found) - immediately switch to game-screen
   socket.on('match_found', (data) => {
     console.log('🎮 Opponent found (client):', data);
@@ -385,6 +392,17 @@ function initEventListeners() {
       showScreen('lobby');
       // Отправляем запрос на поиск соперника
       socket.emit('find_match');
+    }
+  });
+  
+  // "Cancel Search" button - cancel search and return to menu
+  document.getElementById('cancel-search-btn')?.addEventListener('click', () => {
+    if (socket && socket.connected) {
+      console.log('❌ Cancelling search...');
+      socket.emit('cancel_search');
+      // Сразу переключаемся на меню (сервер ответит search_cancelled)
+      showScreen('menu');
+      currentGame = null;
     }
   });
   

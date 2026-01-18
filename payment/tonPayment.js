@@ -7,14 +7,13 @@ const fs = require('fs').promises;
 const path = require('path');
 const { getUser, updateUser } = require('../db/users');
 
-// Конфигурация из .env (будет загружена в server.js)
+// Конфигурация из .env (будет загружена через initConfig в server.js)
+// Значения по умолчанию (будут переопределены через initConfig)
 let TON_CONFIG = {
-  IS_TESTNET: process.env.IS_TESTNET === 'true',
-  TON_API_URL: process.env.IS_TESTNET === 'true' 
-    ? 'https://testnet.toncenter.com/api/v2' 
-    : 'https://toncenter.com/api/v2',
-  TON_WALLET_ADDRESS: process.env.TON_WALLET_ADDRESS || '',
-  TON_API_KEY: process.env.TON_API_KEY || ''
+  IS_TESTNET: false,
+  TON_API_URL: 'https://toncenter.com/api/v2',
+  TON_WALLET_ADDRESS: '',
+  TON_API_KEY: ''
 };
 
 // Пути к файлам для хранения платежей и транзакций
@@ -188,8 +187,14 @@ async function scanTransactions(io) {
       return;
     }
 
+    const walletAddress = TON_CONFIG.TON_WALLET_ADDRESS;
+    console.log(`🔍 Проверяю транзакции для кошелька: ${walletAddress}`);
+    console.log(`   Используется API: ${TON_CONFIG.TON_API_URL}`);
+
     // Получаем транзакции кошелька
-    const transactions = await getWalletTransactions(TON_CONFIG.TON_WALLET_ADDRESS);
+    const transactions = await getWalletTransactions(walletAddress);
+    
+    console.log(`📊 Получено транзакций: ${transactions.length}`);
 
     // Читаем processed_tx.json (обработанные транзакции)
     let processedTx = {};
@@ -213,12 +218,19 @@ async function scanTransactions(io) {
     for (const tx of transactions) {
       const txHash = tx.transaction_id?.hash || tx.hash || tx.txHash;
       
-      if (!txHash) continue;
+      if (!txHash) {
+        console.log('⚠️ Транзакция без хеша, пропускаем');
+        continue;
+      }
 
       // Пропускаем, если транзакция уже обработана
       if (processedTx[txHash]) {
         continue;
       }
+
+      // Логирование каждой найденной транзакции
+      const txComment = tx.in_msg?.message || tx.in_msg?.msg_data?.text || 'нет комментария';
+      console.log(`📨 Найдена транзакция: ${txHash.substring(0, 10)}... с комментарием: ${typeof txComment === 'string' ? txComment : JSON.stringify(txComment)}`);
 
       // Логирование полной структуры транзакции для отладки
       console.log('📨 Full transaction data:', JSON.stringify(tx, null, 2));
@@ -342,10 +354,11 @@ async function scanTransactions(io) {
       // Всё верно! Обрабатываем платеж
       try {
         const user = await getUser(foundPayment.userId);
+        const newBalance = user.games_balance + foundPayment.games;
         
         // Пополняем баланс игр
         await updateUser(foundPayment.userId, {
-          games_balance: user.games_balance + foundPayment.games
+          games_balance: newBalance
         });
 
         // Удаляем из pending_payments
@@ -364,15 +377,24 @@ async function scanTransactions(io) {
         await fs.writeFile(PENDING_PAYMENTS_FILE, JSON.stringify(pendingPayments, null, 2));
         await fs.writeFile(PROCESSED_TX_FILE, JSON.stringify(processedTx, null, 2));
 
-        console.log(`✅ Платеж обработан: userId=${foundPayment.userId}, comment=${comment}, games=${foundPayment.games}`);
+        console.log(`✅ Платеж обработан:`);
+        console.log(`   userId: ${foundPayment.userId}`);
+        console.log(`   comment: ${comment}`);
+        console.log(`   заплачено: ${expectedAmountTon} TON`);
+        console.log(`   добавлено игр: ${foundPayment.games} (из пакета ${foundPayment.packageId})`);
+        console.log(`   баланс до: ${user.games_balance}`);
+        console.log(`   баланс после: ${newBalance}`);
 
         // Отправляем событие клиенту через Socket.io
         if (io) {
-          io.to(`user_${foundPayment.userId}`).emit('payment_success', {
+          const userRoom = `user_${foundPayment.userId}`;
+          console.log(`📤 Отправляю payment_success в комнату: ${userRoom}`);
+          io.to(userRoom).emit('payment_success', {
             paymentId: foundPaymentId,
             games: foundPayment.games,
-            new_balance: user.games_balance + foundPayment.games
+            new_balance: newBalance
           });
+          console.log(`✅ Событие payment_success отправлено: games=${foundPayment.games}, new_balance=${newBalance}`);
         }
 
       } catch (error) {
@@ -388,8 +410,22 @@ async function scanTransactions(io) {
  * Инициализация конфигурации (вызывается из server.js)
  */
 function initConfig(config) {
-  TON_CONFIG = { ...TON_CONFIG, ...config };
-  console.log(`🔧 TON Config: IS_TESTNET=${TON_CONFIG.IS_TESTNET}, API_URL=${TON_CONFIG.TON_API_URL}`);
+  // Явно обрабатываем IS_TESTNET как строку 'true' или булево значение
+  const isTestnet = config.IS_TESTNET === 'true' || config.IS_TESTNET === true;
+  
+  TON_CONFIG = {
+    IS_TESTNET: isTestnet,
+    TON_API_URL: isTestnet 
+      ? 'https://testnet.toncenter.com/api/v2' 
+      : 'https://toncenter.com/api/v2',
+    TON_WALLET_ADDRESS: config.TON_WALLET_ADDRESS || '',
+    TON_API_KEY: config.TON_API_KEY || ''
+  };
+  
+  console.log(`🔧 TON Config initialized:`);
+  console.log(`   IS_TESTNET: ${TON_CONFIG.IS_TESTNET} (from config: ${config.IS_TESTNET})`);
+  console.log(`   API_URL: ${TON_CONFIG.TON_API_URL}`);
+  console.log(`   WALLET_ADDRESS: ${TON_CONFIG.TON_WALLET_ADDRESS ? TON_CONFIG.TON_WALLET_ADDRESS.substring(0, 10) + '...' : 'NOT SET'}`);
 }
 
 module.exports = {
