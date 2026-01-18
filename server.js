@@ -1,5 +1,12 @@
 // Загрузка переменных окружения ДО всех остальных импортов
-require('dotenv').config();
+const path = require('path');
+const result = require('dotenv').config({ path: path.join(__dirname, '.env') });
+if (result.error) {
+  console.error('❌ ОШИБКА: Файл .env не найден по пути: ' + path.join(__dirname, '.env'));
+  console.error('   Подробности:', result.error.message);
+} else {
+  console.log('✅ Файл .env успешно загружен из: ' + path.join(__dirname, '.env'));
+}
 
 /**
  * Сервер для мультиплеерной игры "Змейка" (Telegram Mini App)
@@ -10,7 +17,6 @@ const express = require('express');
 const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
-const path = require('path');
 const db = require('./db/database');
 const { initUser, getUser, updateUser } = require('./db/users');
 const gameLogic = require('./game/gameLogic');
@@ -68,26 +74,35 @@ db.init().then(async () => {
   if (!DEBUG_MODE) {
     await tonPayment.initPaymentFiles();
     
+    // ЖЕСТКАЯ ПРОВЕРКА: IS_TESTNET должен быть определен
+    if (process.env.IS_TESTNET === undefined || process.env.IS_TESTNET === null || process.env.IS_TESTNET === '') {
+      console.error('❌ КРИТИЧЕСКАЯ ОШИБКА: IS_TESTNET не определен в переменных окружения!');
+      console.error('   Please setup your .env file with IS_TESTNET=true or IS_TESTNET=false');
+      console.error('   Сервер остановлен для предотвращения работы в Mainnet без настройки.');
+      process.exit(1);
+    }
+    
     // Логирование переменных окружения для отладки
     console.log('🔍 Проверка переменных окружения:');
     console.log(`   process.env.IS_TESTNET = "${process.env.IS_TESTNET}" (type: ${typeof process.env.IS_TESTNET})`);
     console.log(`   process.env.TON_WALLET_ADDRESS = "${process.env.TON_WALLET_ADDRESS ? process.env.TON_WALLET_ADDRESS.substring(0, 10) + '...' : 'undefined'}"`);
-    console.log(`   process.env.TON_API_KEY = "${process.env.TON_API_KEY ? '***' + process.env.TON_API_KEY.slice(-4) : 'undefined'}"`);
     console.log(`   process.env.TONCENTER_API_KEY = "${process.env.TONCENTER_API_KEY ? '***' + process.env.TONCENTER_API_KEY.slice(-4) : 'undefined'}"`);
     
     // Читаем IS_TESTNET из переменных окружения (строка 'true' или булево)
     // Жесткая проверка: если в .env написано 'true', то IS_TESTNET = true
     const isTestnet = process.env.IS_TESTNET === 'true' || process.env.IS_TESTNET === true || process.env.IS_TESTNET === 'TRUE';
     
-    // Проверяем оба варианта названия API ключа (TON_API_KEY и TONCENTER_API_KEY)
-    const apiKey = process.env.TON_API_KEY || process.env.TONCENTER_API_KEY || '';
+    // Используем ТОЛЬКО TONCENTER_API_KEY (как в .env)
+    const apiKey = process.env.TONCENTER_API_KEY || '';
     const walletAddress = process.env.TON_WALLET_ADDRESS || '';
+    
+    console.log(`✅ ПРОВЕРКА: IS_TESTNET из файла = ${isTestnet}`);
     
     // Инициализация конфигурации TON
     tonPayment.initConfig({
       IS_TESTNET: isTestnet,
       TON_WALLET_ADDRESS: walletAddress,
-      TON_API_KEY: apiKey
+      TON_API_KEY: apiKey  // Передаем как TON_API_KEY для совместимости с tonPayment.js
     });
     
     console.log(`🌐 TON Config: IS_TESTNET=${isTestnet} (from env: ${process.env.IS_TESTNET})`);
