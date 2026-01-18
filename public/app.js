@@ -18,6 +18,7 @@ let gameCanvas = null;
 let gameCtx = null;
 let debugMode = false;
 let currentDirection = null; // Current snake direction (updated from game_state)
+let canvasLogicalSize = 800; // Логический размер canvas (без DPR) для корректной отрисовки
 
 // Инициализация
 document.addEventListener('DOMContentLoaded', () => {
@@ -42,14 +43,18 @@ document.addEventListener('DOMContentLoaded', () => {
         const containerHeight = window.innerHeight * 0.5;
         const maxCanvasSize = Math.min(containerWidth - 40, containerHeight, 800);
         
-        // Устанавливаем логический размер с учетом DPR (для четкости на Retina)
+        // Сохраняем логический размер
+        canvasLogicalSize = maxCanvasSize;
+        
+        // Устанавливаем физический размер с учетом DPR (для четкости на Retina)
         const logicalWidth = maxCanvasSize * dpr;
         const logicalHeight = maxCanvasSize * dpr;
         
         gameCanvas.width = logicalWidth;
         gameCanvas.height = logicalHeight;
         
-        // Масштабируем контекст для корректного отображения
+        // Масштабируем контекст (сбрасываем трансформацию перед scale для избежания накопления)
+        gameCtx.setTransform(1, 0, 0, 1, 0, 0);
         gameCtx.scale(dpr, dpr);
         
         // CSS размер для отображения (без DPR)
@@ -323,12 +328,22 @@ function initSocket() {
   });
   
   socket.on('game_state', (data) => {
+    // Логирование для диагностики
+    console.log('Данные игры получены:', data);
+    
     // Обновляем состояние игры только если игра активна (после countdown)
     // Проверяем и 'playing' и 'countdown', чтобы не пропустить первые обновления
     if (currentGame && (gameState === 'playing' || gameState === 'countdown')) {
       // Если пришло game_state, значит игра уже началась - переключаем на playing
       if (gameState === 'countdown') {
         gameState = 'playing';
+        
+        // Принудительно очищаем все overlay при первом game_state (первый кадр)
+        const countdownOverlay = document.getElementById('countdown-overlay');
+        if (countdownOverlay) {
+          countdownOverlay.style.display = 'none';
+        }
+        console.log('✅ Overlay очищен при первом game_state');
       }
       updateGameState(data);
     } else {
@@ -844,16 +859,22 @@ function initCanvas() {
   const containerHeight = window.innerHeight * 0.5; // Максимум 50% высоты экрана
   const maxCanvasSize = Math.min(containerWidth - 40, containerHeight, 800); // Ограничиваем 800px
   
-  // Устанавливаем логический размер с учетом DPR для четкости
+  // Сохраняем логический размер для использования в отрисовке
+  canvasLogicalSize = maxCanvasSize;
+  
+  // Устанавливаем физический размер с учетом DPR для четкости
   gameCanvas.width = maxCanvasSize * dpr;
   gameCanvas.height = maxCanvasSize * dpr;
   
-  // Масштабируем контекст для корректного отображения
+  // Масштабируем контекст для корректного отображения (применяем один раз)
+  gameCtx.setTransform(1, 0, 0, 1, 0, 0); // Сброс трансформации перед scale
   gameCtx.scale(dpr, dpr);
   
   // CSS размер (для отображения на экране)
   gameCanvas.style.width = maxCanvasSize + 'px';
   gameCanvas.style.height = maxCanvasSize + 'px';
+  
+  console.log(`🎨 Canvas инициализирован: логический размер=${canvasLogicalSize}px, DPR=${dpr}, физический=${gameCanvas.width}x${gameCanvas.height}`);
   
   // Инициализируем canvas для countdown (если есть)
   const countdownCanvas = document.getElementById('countdown-canvas');
@@ -1213,6 +1234,22 @@ let animationFrameId = null;
 
 // Функция для сохранения данных от сервера (не блокирует отрисовку)
 function updateGameState(data) {
+  // Проверка данных змеек
+  if (!data || !data.my_snake || !data.opponent_snake) {
+    console.warn('⚠️ Ошибка: данные змейки не получены!', { data });
+    return;
+  }
+  
+  if (!data.my_snake.body || !Array.isArray(data.my_snake.body) || data.my_snake.body.length === 0) {
+    console.warn('⚠️ Ошибка: массив сегментов my_snake пуст или undefined!', { my_snake: data.my_snake });
+    return;
+  }
+  
+  if (!data.opponent_snake.body || !Array.isArray(data.opponent_snake.body) || data.opponent_snake.body.length === 0) {
+    console.warn('⚠️ Ошибка: массив сегментов opponent_snake пуст или undefined!', { opponent_snake: data.opponent_snake });
+    return;
+  }
+  
   // Сохраняем данные для отрисовки
   gameStateData = data;
   lastGameStateUpdate = performance.now();
@@ -1257,12 +1294,12 @@ function startRenderLoop() {
     
     // Отрисовываем только если есть данные
     if (gameStateData && gameStateData.my_snake && gameStateData.opponent_snake) {
-      // Эффективная очистка canvas
-      gameCtx.clearRect(0, 0, gameCanvas.width, gameCanvas.height);
+      // Эффективная очистка canvas (используем логический размер после ctx.scale)
+      gameCtx.clearRect(0, 0, canvasLogicalSize, canvasLogicalSize);
       
-      // Фон для игрового поля
+      // Фон для игрового поля (используем логический размер)
       gameCtx.fillStyle = '#0a0e27';
-      gameCtx.fillRect(0, 0, gameCanvas.width, gameCanvas.height);
+      gameCtx.fillRect(0, 0, canvasLogicalSize, canvasLogicalSize);
       
       // Рисуем сетку
       drawGrid();
@@ -1291,9 +1328,10 @@ function stopRenderLoop() {
  * Рисование сетки (современный дизайн)
  */
 function drawGrid() {
-  const tileSize = gameCanvas.width / 30; // 30 клеток по ширине (обновлено для большего поля)
-  const width = gameCanvas.width;
-  const height = gameCanvas.height;
+  // Используем логический размер canvas (без DPR) для корректной отрисовки
+  const tileSize = canvasLogicalSize / 30; // 30 клеток по ширине
+  const width = canvasLogicalSize;
+  const height = canvasLogicalSize;
   
   // Более яркие линии сетки для лучшей видимости
   gameCtx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
@@ -1320,7 +1358,8 @@ function drawGrid() {
 function drawSnake(snake, color1, color2) {
   if (!snake || !snake.body || snake.body.length === 0) return;
   
-  const tileSize = gameCanvas.width / 30; // 30 клеток по ширине (обновлено для большего поля)
+  // Используем логический размер canvas (без DPR) для корректной отрисовки
+  const tileSize = canvasLogicalSize / 30; // 30 клеток по ширине
   
   // Определяем направление змейки для глаз
   let direction = snake.direction;

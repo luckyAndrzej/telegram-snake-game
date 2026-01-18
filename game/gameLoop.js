@@ -77,7 +77,15 @@ function broadcastGameState(io, game, gameId) {
   };
   
   // Отправляем каждому игроку его персональный view
-  const room = io.sockets.adapter.rooms.get(`game_${gameId}`);
+  const roomName = `game_${gameId}`;
+  const room = io.sockets.adapter.rooms.get(roomName);
+  
+  // Логирование для диагностики (только если комната пуста или есть проблемы)
+  if (!room || room.size === 0) {
+    console.warn(`⚠️ Комната ${roomName} пуста или не найдена при отправке game_state (tick: ${game.tick_number})`);
+    return;
+  }
+  
   if (room) {
     room.forEach(socketId => {
       const socket = io.sockets.sockets.get(socketId);

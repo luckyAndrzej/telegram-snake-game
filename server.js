@@ -39,7 +39,11 @@ const io = new Server(server, {
   cors: {
     origin: "*",
     methods: ["GET", "POST"]
-  }
+  },
+  // Включаем compression для быстрой передачи game_state пакетов
+  transports: ['websocket', 'polling'],
+  compression: true,
+  maxHttpBufferSize: 1e6
 });
 
 app.use(cors());
@@ -780,18 +784,46 @@ function startCountdown(gameId) {
  */
 async function startGame(gameId) {
   const game = activeGames.get(gameId);
-  if (!game) return;
+  if (!game) {
+    console.error(`❌ Игра ${gameId} не найдена в activeGames!`);
+    return;
+  }
+  
+  // Проверяем, что змейки инициализированы корректно
+  if (!game.snake1 || !game.snake1.body || game.snake1.body.length === 0) {
+    console.error(`❌ Ошибка: snake1 не инициализирована в игре ${gameId}`);
+  }
+  if (!game.snake2 || !game.snake2.body || game.snake2.body.length === 0) {
+    console.error(`❌ Ошибка: snake2 не инициализирована в игре ${gameId}`);
+  }
   
   game.is_running = true;
   game.start_time = Date.now();
   
-  // Уведомляем игроков о начале игры
-  io.to(`game_${gameId}`).emit('game_start', {
-    gameId,
-    start_time: game.start_time
+  // Получаем комнату игры для отправки initial_state
+  const room = io.sockets.adapter.rooms.get(`game_${gameId}`);
+  if (!room) {
+    console.error(`❌ Комната game_${gameId} не найдена!`);
+  } else {
+    console.log(`📤 Отправляю состояние игры для комнаты: game_${gameId} (игроков: ${room.size})`);
+  }
+  
+  // Отправляем начальное состояние каждому игроку
+  room?.forEach(socketId => {
+    const socket = io.sockets.sockets.get(socketId);
+    if (socket) {
+      const playerNumber = socket.playerNumber;
+      const snapshot = gameLogic.getGameSnapshot(game, playerNumber === 1 ? game.player1_id : game.player2_id);
+      
+      socket.emit('game_start', {
+        gameId,
+        start_time: game.start_time,
+        initial_state: snapshot // Добавляем initial_state для корректной отрисовки
+      });
+    }
   });
   
-  console.log(`🚀 Игра ${gameId} началась!`);
+  console.log(`🚀 Игра ${gameId} началась! Змейки: snake1=${game.snake1?.body?.length || 0} сегментов, snake2=${game.snake2?.body?.length || 0} сегментов`);
 }
 
 /**
