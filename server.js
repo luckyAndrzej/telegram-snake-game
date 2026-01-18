@@ -524,14 +524,16 @@ async function endGame(gameId, winnerId, loserId) {
   if (game.winnings_paid) {
     console.log(`⚠️ Попытка повторного начисления по матчу [${gameId}]. Отклонено.`);
     // Все равно отправляем событие game_end, если оно еще не было отправлено
+    // Используем сохраненный prize из game.prize (если был установлен)
     if (!game.end_event_sent) {
       const roomName = `game_${gameId}`;
+      const savedPrize = game.prize !== undefined ? game.prize : 0;
       io.to(roomName).emit('game_end', {
         winnerId,
-        prize: 0,
+        prize: savedPrize, // Используем сохраненный prize
         game_stats: {
           duration: game.end_time - game.start_time,
-          pool: 0
+          pool: savedPrize > 0 ? GAME_CONFIG.ENTRY_PRICE * 2 : 0
         }
       });
       game.end_event_sent = true;
@@ -551,42 +553,60 @@ async function endGame(gameId, winnerId, loserId) {
       prize = 0;
     } else {
       try {
-        const winner = await getUser(winnerId);
+        // Прямое чтение users.json через fs
+        const fs = require('fs');
+        const dbPath = path.join(__dirname, 'db', 'db.json');
         
-        // Проверяем, что это не бот (боты не имеют записи в БД или имеют специальный ID)
+        // Загружаем users.json напрямую
+        let usersData = {};
+        try {
+          const dbData = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
+          usersData = dbData.users || {};
+        } catch (readError) {
+          console.error(`⚠️ Ошибка при чтении ${dbPath}:`, readError.message);
+          prize = 0;
+          throw readError;
+        }
+        
+        // Находим победителя (приводим winnerId к строке)
+        const winnerIdStr = String(winnerId);
+        const winner = usersData[winnerIdStr];
+        
+        // Проверяем, что это не бот (боты не имеют записи в БД)
         // Начисляем выигрыш только реальному игроку
         if (winner && winner.tg_id) {
-          // Начисляем выигрыш
+          // Инициализируем поля, если их нет
           const oldWinnings = winner.winnings_usdt || 0;
+          const oldTotalEarned = winner.totalEarned || 0;
+          
+          // Прибавляем 1.5 к winnings_usdt (используем как withdrawalBalance)
           const newWinnings = oldWinnings + winAmount;
+          const newTotalEarned = oldTotalEarned + winAmount;
           
-          // Обновляем пользователя через updateUser (lowdb автоматически сохраняет)
-          updateUser(winnerId, {
-            winnings_usdt: newWinnings
-          });
+          // Обновляем данные пользователя
+          usersData[winnerIdStr].winnings_usdt = newWinnings;
+          usersData[winnerIdStr].totalEarned = newTotalEarned;
           
-          // Принудительное сохранение через fs.writeFileSync для гарантии
-          const fs = require('fs');
-          const dbPath = path.join(__dirname, 'db', 'db.json');
-          try {
-            const dbData = JSON.parse(fs.readFileSync(dbPath, 'utf8'));
-            const userIdStr = winnerId.toString();
-            if (dbData.users && dbData.users[userIdStr]) {
-              dbData.users[userIdStr].winnings_usdt = newWinnings;
-              fs.writeFileSync(dbPath, JSON.stringify(dbData, null, 2), 'utf8');
-              console.log(`✅ Данные сохранены через fs.writeFileSync в ${dbPath}`);
-            }
-          } catch (fsError) {
-            console.error(`⚠️ Ошибка при принудительном сохранении через fs:`, fsError.message);
-          }
+          // Принудительное сохранение через fs.writeFileSync
+          const dbDataToSave = {
+            users: usersData
+          };
+          fs.writeFileSync(dbPath, JSON.stringify(dbDataToSave, null, 2), 'utf8');
           
           prize = winAmount;
           
           // Жирное логирование начисления
           console.log('\n========================================');
-          console.log(`💰 НАЧИСЛЕНО ${winAmount}$ ИГРОКУ [${winnerId}]`);
-          console.log(`   Баланс выигрышей до: ${oldWinnings}, после: ${newWinnings}`);
+          console.log(`💰 ВЫИГРЫШ ЗАЧИСЛЕН: Игрок ${winnerId}, новый баланс: ${newWinnings}`);
+          console.log(`   withdrawalBalance (winnings_usdt): ${oldWinnings} -> ${newWinnings}`);
+          console.log(`   totalEarned: ${oldTotalEarned} -> ${newTotalEarned}`);
           console.log('========================================\n');
+          
+          // Обновляем данные в lowdb для синхронизации
+          updateUser(winnerId, {
+            winnings_usdt: newWinnings,
+            totalEarned: newTotalEarned
+          });
           
           // Сразу отправляем обновленный баланс игроку через Socket.io
           const updatedUser = getUser(winnerId);
@@ -594,6 +614,10 @@ async function endGame(gameId, winnerId, loserId) {
             games_balance: updatedUser.games_balance,
             winnings_usdt: updatedUser.winnings_usdt
           });
+          
+          // Дополнительное событие для обновления баланса
+          io.to(`user_${winnerId}`).emit('updateBalance', winAmount);
+          
           console.log(`📤 Отправлен обновленный баланс игроку ${winnerId}: winnings=${updatedUser.winnings_usdt}`);
         } else {
           console.log(`⚠️ Победитель ${winnerId} не найден в БД или является ботом. Выигрыш не начисляется.`);
@@ -609,6 +633,9 @@ async function endGame(gameId, winnerId, loserId) {
     prize = 0;
   }
   
+  // Сохраняем prize в объекте игры для использования при повторных вызовах
+  game.prize = prize;
+  
   // Помечаем, что выигрыш обработан (защита от повторного начисления)
   game.winnings_paid = true;
   
@@ -619,10 +646,10 @@ async function endGame(gameId, winnerId, loserId) {
     
     const eventData = {
       winnerId,
-      prize: prize, // Используем рассчитанный prize (может быть 1.5 или 0)
+      prize: prize, // Используем рассчитанный prize (1.5 если есть победитель, иначе 0)
       game_stats: {
         duration: game.end_time - game.start_time,
-        pool: GAME_CONFIG.ENTRY_PRICE * 2
+        pool: prize > 0 ? GAME_CONFIG.ENTRY_PRICE * 2 : 0
       }
     };
     
@@ -630,6 +657,7 @@ async function endGame(gameId, winnerId, loserId) {
     game.end_event_sent = true; // Помечаем, что событие отправлено
     
     console.log(`✅ game_end отправлено игрокам в комнате ${roomName}:`, eventData);
+    console.log(`   prize=${prize}, winnerId=${winnerId}`);
   } else {
     console.log(`⚠️ Событие game_end уже было отправлено ранее, пропускаем`);
   }
