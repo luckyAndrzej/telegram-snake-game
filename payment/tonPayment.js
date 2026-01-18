@@ -58,13 +58,13 @@ function generateComment() {
 }
 
 /**
- * Пакеты игр (1$ = 1 игра = 1 TON, 5$ = 5 игр = 5 TON, 10$ = 10 игр = 10 TON)
- * Цены отображаются в долларах, платежи принимаются в TON
+ * Пакеты игр (1 TON = 1 игра, 5 TON = 5 игр, 10 TON = 10 игр)
+ * Все расчеты в TON
  */
 const PACKAGES = {
-  pkg_1: { amount: 1, games: 1, priceUsd: 1 },    // $1 = 1 игра = 1 TON
-  pkg_5: { amount: 5, games: 5, priceUsd: 5 },    // $5 = 5 игр = 5 TON
-  pkg_10: { amount: 10, games: 10, priceUsd: 10 }  // $10 = 10 игр = 10 TON
+  pkg_1: { amount: 1, games: 1, priceUsd: 1 },    // 1 TON = 1 игра
+  pkg_5: { amount: 5, games: 5, priceUsd: 5 },    // 5 TON = 5 игр
+  pkg_10: { amount: 10, games: 10, priceUsd: 10 }  // 10 TON = 10 игр
 };
 
 /**
@@ -412,7 +412,7 @@ async function scanTransactions(io) {
             paymentId: foundPaymentId,
             games: foundPayment.games,
             new_balance: newBalance,
-            winnings_usdt: updatedUser.winnings_usdt
+            winnings_ton: updatedUser.winnings_ton
           });
           console.log(`✅ Событие payment_success отправлено: games=${foundPayment.games}, new_balance=${newBalance}`);
         }

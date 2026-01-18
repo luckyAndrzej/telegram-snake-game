@@ -106,7 +106,7 @@ async function verifyTONTransaction(transactionData) {
 async function withdrawWinnings(userId, amount) {
   const user = await getUser(userId);
   
-  if (user.winnings_usdt < amount) {
+  if (user.winnings_ton < amount) {
     return { success: false, error: 'Недостаточно средств для вывода' };
   }
   

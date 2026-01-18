@@ -143,7 +143,7 @@ function initSocket() {
   
   socket.on('user_data', (data) => {
     debugMode = data.debug_mode;
-    updateBalance(data.games_balance, data.winnings_usdt);
+    updateBalance(data.games_balance, data.winnings_ton);
     
     // Показываем TEST MODE badge если DEBUG_MODE активен
     const badge = document.getElementById('test-mode-badge');
@@ -359,7 +359,7 @@ function initSocket() {
   // Обновление баланса после начисления выигрыша
   socket.on('balance_updated', (data) => {
     console.log('💰 Баланс обновлен:', data);
-    updateBalance(data.games_balance, data.winnings_usdt);
+    updateBalance(data.games_balance, data.winnings_ton);
   });
   
   socket.on('error', (error) => {
@@ -376,7 +376,7 @@ function initSocket() {
     console.log('✅ Payment successful:', data);
     
     // Обновляем баланс
-    updateBalance(data.new_balance, data.winnings_usdt);
+    updateBalance(data.new_balance, data.winnings_ton);
     
     // Закрываем модальное окно платежа
     const paymentModal = document.getElementById('payment-modal');
@@ -409,12 +409,12 @@ function initSocket() {
     }
     
     // Обновляем баланс
-    updateBalance(data.games_balance, data.winnings_usdt);
+    updateBalance(data.games_balance, data.winnings_ton);
     
     // Показываем уведомление
     const message = data.txHash 
-      ? `✅ Деньги отправлены! ${data.amount} USDT отправлено на ваш кошелек. TX: ${data.txHash.substring(0, 10)}...`
-      : `✅ Деньги отправлены! ${data.amount} USDT отправлено на ваш кошелек.`;
+      ? `✅ Деньги отправлены! ${data.amount} TON отправлено на ваш кошелек. TX: ${data.txHash.substring(0, 10)}...`
+      : `✅ Деньги отправлены! ${data.amount} TON отправлено на ваш кошелек.`;
       
     if (window.Telegram && window.Telegram.WebApp) {
       window.Telegram.WebApp.showAlert(message);
@@ -1031,7 +1031,7 @@ function updatePingDisplay(ping) {
  */
 function handleWithdraw() {
   const winningsEl = document.getElementById('winnings-balance');
-  const currentBalance = parseFloat(winningsEl?.textContent?.replace(' USDT', '') || '0');
+  const currentBalance = parseFloat(winningsEl?.textContent?.replace(' TON', '') || '0');
   
   if (currentBalance <= 0) {
     if (window.Telegram && window.Telegram.WebApp) {
@@ -1055,7 +1055,7 @@ function handleWithdraw() {
   }
   
   // Устанавливаем сумму к выводу (вся доступная сумма)
-  withdrawalAmountDisplay.textContent = `${currentBalance.toFixed(2)} USDT`;
+  withdrawalAmountDisplay.textContent = `${currentBalance.toFixed(2)} TON`;
   
   // Очищаем поле адреса и ошибки
   withdrawalAddressInput.value = '';
@@ -1079,7 +1079,7 @@ function confirmWithdrawal() {
   const winningsEl = document.getElementById('winnings-balance');
   
   const userAddress = withdrawalAddressInput?.value?.trim() || '';
-  const currentBalance = parseFloat(winningsEl?.textContent?.replace(' USDT', '') || '0');
+  const currentBalance = parseFloat(winningsEl?.textContent?.replace(' TON', '') || '0');
   
   // Валидация адреса
   if (!isValidTonAddress(userAddress)) {
@@ -1146,12 +1146,12 @@ function confirmWithdrawal() {
 /**
  * Обновление баланса
  */
-function updateBalance(gamesBalance, winningsUsdt) {
+function updateBalance(gamesBalance, winningsTon) {
   const gamesEl = document.getElementById('games-balance');
   const winningsEl = document.getElementById('winnings-balance');
   
   if (gamesEl) gamesEl.textContent = gamesBalance || 0;
-  if (winningsEl) winningsEl.textContent = `${(winningsUsdt || 0).toFixed(2)} USDT`;
+  if (winningsEl) winningsEl.textContent = `${(winningsTon || 0).toFixed(2)} TON`;
 }
 
 /**
@@ -1163,7 +1163,7 @@ async function addGamesBalance(amount) {
     const data = await response.json();
     
     if (data.success) {
-      updateBalance(data.games_balance, data.winnings_usdt);
+      updateBalance(data.games_balance, data.winnings_ton);
       tg.showAlert(`✅ Баланс пополнен на ${amount} игр`);
     } else {
       tg.showAlert(`❌ Ошибка: ${data.error}`);
@@ -1690,7 +1690,7 @@ function endGame(data) {
   if (resultMessage) {
     if (data && data.winnerId) {
       resultMessage.textContent = isWinner 
-        ? `You won ${prize.toFixed(2)} USDT!` 
+        ? `You won ${prize.toFixed(2)} TON!` 
         : 'You lost';
     } else {
       // If connection lost or data didn't arrive
@@ -1699,7 +1699,7 @@ function endGame(data) {
   }
   
   if (resultPrize) {
-    resultPrize.textContent = isWinner ? `💰 +${prize.toFixed(2)} USDT` : '💰 0 USDT';
+    resultPrize.textContent = isWinner ? `💰 +${prize.toFixed(2)} TON` : '💰 0 TON';
   }
   
   // Баланс обновляется через socket.on('balance_updated') от сервера

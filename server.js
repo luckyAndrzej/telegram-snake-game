@@ -200,7 +200,7 @@ io.on('connection', async (socket) => {
     userId,
     username,
     games_balance: user.games_balance,
-    winnings_usdt: user.winnings_usdt,
+    winnings_ton: user.winnings_ton,
     debug_mode: DEBUG_MODE
   });
   
@@ -305,20 +305,20 @@ io.on('connection', async (socket) => {
       
       // Получаем пользователя
       const user = await getUser(userId);
-      console.log('1. Проверка баланса пройдена:', { winnings_usdt: user.winnings_usdt, requested: amount });
+      console.log('1. Проверка баланса пройдена:', { winnings_ton: user.winnings_ton, requested: amount });
       
       // Проверяем баланс
-      if (!user.winnings_usdt || user.winnings_usdt < amount) {
+      if (!user.winnings_ton || user.winnings_ton < amount) {
         socket.emit('withdrawal_error', {
-          message: `Недостаточно средств для вывода. Доступно: ${user.winnings_usdt || 0} USDT, запрошено: ${amount} USDT`
+          message: `Недостаточно средств для вывода. Доступно: ${user.winnings_ton || 0} TON, запрошено: ${amount} TON`
         });
         return;
       }
       
-      // Минимальная сумма вывода 1.5 USDT
+      // Минимальная сумма вывода 1.5 TON
       if (amount < 1.5) {
         socket.emit('withdrawal_error', {
-          message: 'Минимальная сумма вывода: 1.5 USDT'
+          message: 'Минимальная сумма вывода: 1.5 TON'
         });
         return;
       }
@@ -334,10 +334,10 @@ io.on('connection', async (socket) => {
         return;
       }
       
-      // 2. Проверка: winnings_usdt не должен превышать totalEarned (допускаем небольшую погрешность для округления)
-      const winningsDiff = (user.winnings_usdt || 0) - (user.totalEarned || 0);
-      if (winningsDiff > 0.01) { // Допускаем погрешность 0.01 USDT
-        console.error(`⚠️ ПОДОЗРЕНИЕ НА ВЗЛОМ БАЛАНСА: Игрок ${userId}. winnings_usdt (${user.winnings_usdt}) > totalEarned (${user.totalEarned})`);
+      // 2. Проверка: winnings_ton не должен превышать totalEarned (допускаем небольшую погрешность для округления)
+      const winningsDiff = (user.winnings_ton || 0) - (user.totalEarned || 0);
+      if (winningsDiff > 0.01) { // Допускаем погрешность 0.01 TON
+        console.error(`⚠️ ПОДОЗРЕНИЕ НА ВЗЛОМ БАЛАНСА: Игрок ${userId}. winnings_ton (${user.winnings_ton}) > totalEarned (${user.totalEarned})`);
         socket.emit('withdrawal_error', {
           message: 'Ошибка проверки баланса. Пожалуйста, обратитесь в поддержку.'
         });
@@ -357,7 +357,7 @@ io.on('connection', async (socket) => {
       
       console.log('✅ Анти-фрод проверки пройдены:', {
         totalEarned: user.totalEarned,
-        winnings_usdt: user.winnings_usdt,
+        winnings_ton: user.winnings_ton,
         requested: amount,
         maxPossibleEarnings
       });
@@ -389,8 +389,8 @@ io.on('connection', async (socket) => {
         return;
       }
       
-      // Конвертируем USDT в TON (1 USDT ≈ 0.5 TON, можно настроить через курс)
-      const amountInTon = amount * 0.5;
+      // Курс 1:1 (1 TON = 1 TON)
+      const amountInTon = parseFloat(amount);
       
       let txHash = null;
       let withdrawalStatus = 'pending';
@@ -468,7 +468,7 @@ io.on('connection', async (socket) => {
                     to: recipientAddress,
                     value: toNano(amountInTon.toFixed(9)),
                     bounce: false,
-                    body: `Snake Game Prize: ${amount} USDT`
+                    body: `Snake Game Prize: ${amount} TON`
                   })
                 ]
               });
@@ -491,7 +491,7 @@ io.on('connection', async (socket) => {
           }
         } else if (DEBUG_MODE) {
           // DEBUG_MODE: симулируем успешную транзакцию
-          console.log(`💰 Вывод средств (DEBUG_MODE): ${amount} USDT = ${amountInTon} TON на ${userWallet}`);
+          console.log(`💰 Вывод средств (DEBUG_MODE): ${amount} TON на ${userWallet}`);
           transactionSuccess = true;
           txHash = `debug_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
           withdrawalStatus = 'completed';
@@ -509,12 +509,12 @@ io.on('connection', async (socket) => {
       
       // БЕЗОПАСНЫЙ ВЫВОД: Списываем баланс ТОЛЬКО после успешной отправки транзакции
       if (transactionSuccess) {
-        const newWinnings = Math.max(0, (user.winnings_usdt || 0) - amount);
+        const newWinnings = Math.max(0, (user.winnings_ton || 0) - amount);
         updateUser(userId, {
-          winnings_usdt: newWinnings
+          winnings_ton: newWinnings
         });
         console.log('💰 Баланс списан ПОСЛЕ успешной отправки транзакции:', { 
-          old: user.winnings_usdt, 
+          old: user.winnings_ton, 
           new: newWinnings 
         });
       } else {
@@ -566,7 +566,7 @@ io.on('connection', async (socket) => {
         amount,
         txHash,
         games_balance: updatedUser.games_balance,
-        winnings_usdt: updatedUser.winnings_usdt
+        winnings_ton: updatedUser.winnings_ton
       });
       
     } catch (error) {
@@ -940,16 +940,16 @@ async function endGame(gameId, winnerId, loserId) {
         // Начисляем выигрыш только реальному игроку
         if (winner && winner.tg_id) {
           // Инициализируем поля, если их нет
-          const oldWinnings = winner.winnings_usdt || 0;
+          const oldWinnings = winner.winnings_ton || 0;
           const oldTotalEarned = winner.totalEarned || 0;
           
-          // Прибавляем 1.5 к winnings_usdt (используем как withdrawalBalance)
+          // Прибавляем 1.5 TON к winnings_ton (используем как withdrawalBalance)
           const newWinnings = oldWinnings + winAmount;
           const newTotalEarned = oldTotalEarned + winAmount;
           
           // Обновляем данные через updateUser (lowdb автоматически сохраняет через .write())
           updateUser(winnerId, {
-            winnings_usdt: newWinnings,
+            winnings_ton: newWinnings,
             totalEarned: newTotalEarned
           });
           
@@ -957,22 +957,22 @@ async function endGame(gameId, winnerId, loserId) {
           
           // Жирное логирование начисления
           console.log('\n========================================');
-          console.log(`💰 ВЫИГРЫШ ЗАЧИСЛЕН: Игрок ${winnerId}, новый баланс: ${newWinnings}`);
-          console.log(`   withdrawalBalance (winnings_usdt): ${oldWinnings} -> ${newWinnings}`);
-          console.log(`   totalEarned: ${oldTotalEarned} -> ${newTotalEarned}`);
+          console.log(`💰 ВЫИГРЫШ ЗАЧИСЛЕН: Игрок ${winnerId}, новый баланс: ${newWinnings} TON`);
+          console.log(`   withdrawalBalance (winnings_ton): ${oldWinnings} -> ${newWinnings} TON`);
+          console.log(`   totalEarned: ${oldTotalEarned} -> ${newTotalEarned} TON`);
           console.log('========================================\n');
           
           // Сразу отправляем обновленный баланс игроку через Socket.io
           const updatedUser = getUser(winnerId);
           io.to(`user_${winnerId}`).emit('balance_updated', {
             games_balance: updatedUser.games_balance,
-            winnings_usdt: updatedUser.winnings_usdt
+            winnings_ton: updatedUser.winnings_ton
           });
           
           // Дополнительное событие для обновления баланса
           io.to(`user_${winnerId}`).emit('updateBalance', winAmount);
           
-          console.log(`📤 Отправлен обновленный баланс игроку ${winnerId}: winnings=${updatedUser.winnings_usdt}`);
+          console.log(`📤 Отправлен обновленный баланс игроку ${winnerId}: winnings=${updatedUser.winnings_ton} TON`);
         } else {
           console.log(`⚠️ Победитель ${winnerId} не найден в БД или является ботом. Выигрыш не начисляется.`);
           prize = 0;
@@ -1007,7 +1007,7 @@ async function endGame(gameId, winnerId, loserId) {
         duration: game.end_time - game.start_time,
         pool: prize > 0 ? GAME_CONFIG.ENTRY_PRICE * 2 : 0
       },
-      ...(!winnerId ? { message: 'Ничья! Оба игрока погибли. Приз остается в банке.' } : {})
+      ...(!winnerId ? { message: 'Ничья! Оба игрока погибли. Приз остается в банке.' } : { message: `Вы выиграли ${prize.toFixed(2)} TON!` })
     };
     
     io.to(roomName).emit('game_end', eventData);
@@ -1072,7 +1072,7 @@ app.get('/api/user/:userId', async (req, res) => {
     res.json({
       userId,
       games_balance: user.games_balance,
-      winnings_usdt: user.winnings_usdt,
+      winnings_ton: user.winnings_ton,
       debug_mode: DEBUG_MODE
     });
   } catch (error) {
@@ -1100,7 +1100,7 @@ app.get('/api/add-games/:userId', async (req, res) => {
       res.json({
         success: true,
         games_balance: user.games_balance,
-        winnings_usdt: user.winnings_usdt,
+        winnings_ton: user.winnings_ton,
         added: amount
       });
     } else {

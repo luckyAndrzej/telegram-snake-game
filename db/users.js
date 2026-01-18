@@ -20,7 +20,7 @@ async function initUser(userId, username, debugMode) {
       username: username || `User_${userId}`,
       wallet: '',
       games_balance: initialBalance,
-      winnings_usdt: 0, // Используется как withdrawalBalance
+      winnings_ton: 0, // Используется как withdrawalBalance (в TON)
       totalEarned: 0,
       is_tester: debugMode,
       created_at: Date.now()
