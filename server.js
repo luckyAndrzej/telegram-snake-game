@@ -139,9 +139,9 @@ db.init().then(async () => {
     // Первая проверка сразу после запуска (асинхронно)
     runScanner();
     
-    // Периодическая проверка каждые 20 секунд
-    setInterval(runScanner, 20000); // 20 секунд
-    console.log('✅ Сканер блокчейна TON запущен (интервал: 20 сек, асинхронный режим)');
+    // Периодическая проверка каждые 30 секунд (увеличено для предотвращения 429)
+    setInterval(runScanner, 30000); // 30 секунд
+    console.log('✅ Сканер блокчейна TON запущен (интервал: 30 сек, асинхронный режим)');
   }
   
   // Запускаем игровой цикл (передаем endGame как callback)
@@ -411,7 +411,8 @@ io.on('connection', async (socket) => {
             const { TonClient, WalletContractV4, WalletContractV3R2, internal, toNano } = require('@ton/ton');
             const { mnemonicToWalletKey } = require('@ton/crypto');
             
-            const isTestnet = process.env.IS_TESTNET === 'true' || process.env.IS_TESTNET === true;
+            // Используем ту же логику, что и в сканере (синхронизация сетей)
+            const isTestnet = process.env.IS_TESTNET === 'true' || process.env.IS_TESTNET === true || process.env.IS_TESTNET === 'TRUE' || true; // Fallback: true (тестнет)
             // Убеждаемся, что используется правильный endpoint для тестнета
             const endpoint = isTestnet 
               ? 'https://testnet.toncenter.com/api/v2/jsonRPC'
@@ -442,9 +443,9 @@ io.on('connection', async (socket) => {
             let wallet = WalletContractV4.create({ publicKey: keyPair.publicKey, workchain: 0 });
             let walletVersion = 'V4';
             
-            // Корректный вывод адреса с параметрами
+            // Корректный вывод адреса с параметрами (для тестнета используем testOnly: true)
             const walletAddress = wallet.address.toString({ 
-              testOnly: isTestnet, 
+              testOnly: true, // Принудительно true для тестнета
               bounceable: false, 
               urlSafe: true 
             });
@@ -464,7 +465,12 @@ io.on('connection', async (socket) => {
             try {
               contractState = await client.getContractState(wallet.address);
               console.log('📊 Account State:', contractState.state);
-              console.log('📊 Account State (full):', JSON.stringify(contractState, null, 2));
+              // Исправление BigInt: конвертируем balance в строку перед JSON.stringify
+              const stateForLog = {
+                ...contractState,
+                balance: contractState.balance ? contractState.balance.toString() : contractState.balance
+              };
+              console.log('📊 Account State (full):', JSON.stringify(stateForLog, null, 2));
               
               if (contractState.state === 'uninitialized') {
                 console.warn('⚠️ ВНИМАНИЕ: Адрес кошелька не инициализирован (uninitialized). Возможно, используется неправильная версия кошелька или адрес не совпадает.');
@@ -473,7 +479,7 @@ io.on('connection', async (socket) => {
                 wallet = WalletContractV3R2.create({ publicKey: keyPair.publicKey, workchain: 0 });
                 walletVersion = 'V3R2';
                 const walletAddressV3 = wallet.address.toString({ 
-                  testOnly: isTestnet, 
+                  testOnly: true, // Принудительно true для тестнета
                   bounceable: false, 
                   urlSafe: true 
                 });
@@ -507,9 +513,9 @@ io.on('connection', async (socket) => {
             
             const balanceInTon = parseFloat(balance.toString()) / 1000000000;
             
-            // Обновляем walletAddress если использовали V3R2
+            // Обновляем walletAddress если использовали V3R2 (принудительно testOnly: true)
             const finalWalletAddress = walletVersion === 'V3R2' 
-              ? wallet.address.toString({ testOnly: isTestnet, bounceable: false, urlSafe: true })
+              ? wallet.address.toString({ testOnly: true, bounceable: false, urlSafe: true })
               : walletAddress;
             
             console.log(`💰 Баланс кошелька админа (${walletVersion}): ${balanceInTon} TON (${balance.toString()} nanotons)`);
