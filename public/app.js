@@ -530,6 +530,25 @@ function initEventListeners() {
     });
   });
   
+  // Withdrawal modal buttons
+  document.getElementById('confirm-withdrawal-btn')?.addEventListener('click', () => {
+    confirmWithdrawal();
+  });
+  
+  document.getElementById('close-withdrawal-btn')?.addEventListener('click', () => {
+    const withdrawalModal = document.getElementById('withdrawal-modal');
+    if (withdrawalModal) {
+      withdrawalModal.style.display = 'none';
+    }
+  });
+  
+  // Close withdrawal modal when clicking outside
+  document.getElementById('withdrawal-modal')?.addEventListener('click', (e) => {
+    if (e.target.id === 'withdrawal-modal') {
+      e.target.style.display = 'none';
+    }
+  });
+  
   // Payment modal buttons
   document.getElementById('pay-tonkeeper-btn')?.addEventListener('click', () => {
     const addressEl = document.getElementById('payment-address');
@@ -880,10 +899,19 @@ function showScreen(screenName) {
 }
 
 /**
+ * Валидация TON адреса кошелька
+ */
+function isValidTonAddress(address) {
+  if (!address || typeof address !== 'string') return false;
+  const trimmed = address.trim();
+  // TON адреса начинаются с EQ или UQ (user-friendly формат)
+  return trimmed.length > 20 && (trimmed.startsWith('EQ') || trimmed.startsWith('UQ') || trimmed.startsWith('0Q'));
+}
+
+/**
  * Обработка вывода средств
  */
 function handleWithdraw() {
-  const withdrawBtn = document.getElementById('withdraw-btn');
   const winningsEl = document.getElementById('winnings-balance');
   const currentBalance = parseFloat(winningsEl?.textContent?.replace(' USDT', '') || '0');
   
@@ -896,60 +924,103 @@ function handleWithdraw() {
     return;
   }
   
-  const withdrawMessage = `Withdraw ${currentBalance.toFixed(2)} USDT?`;
+  // Показываем модальное окно вывода
+  const withdrawalModal = document.getElementById('withdrawal-modal');
+  const withdrawalAmountDisplay = document.getElementById('withdrawal-amount-display');
+  const withdrawalAddressInput = document.getElementById('withdrawal-address-input');
+  const withdrawalAddressError = document.getElementById('withdrawal-address-error');
+  const withdrawalStatus = document.getElementById('withdrawal-status');
   
-  // Показываем подтверждение
-  const onConfirm = (confirmed) => {
-    if (confirmed) {
-      console.log('📤 Отправляю запрос на вывод через сокет...', { amount: currentBalance, socketConnected: socket?.connected });
-      
-      // Блокируем кнопку и показываем спиннер
-      if (withdrawBtn) {
-        const originalText = withdrawBtn.innerHTML;
-        withdrawBtn.disabled = true;
-        withdrawBtn.innerHTML = '<span>⏳ Processing...</span>';
-        withdrawBtn.style.opacity = '0.6';
-        withdrawBtn.style.cursor = 'not-allowed';
-        
-        // Сохраняем оригинальный текст для восстановления
-        withdrawBtn.dataset.originalText = originalText;
-      }
-      
-      // Отправляем запрос на вывод средств
-      if (socket && socket.connected) {
-        socket.emit('requestWithdraw', {
-          amount: currentBalance
-        });
-        
-        // Показываем уведомление
-        if (window.Telegram && window.Telegram.WebApp) {
-          window.Telegram.WebApp.showAlert('Запрос отправлен, ожидайте транзакцию');
-        } else {
-          alert('Запрос отправлен, ожидайте транзакцию');
-        }
-      } else {
-        // Восстанавливаем кнопку при ошибке
-        if (withdrawBtn) {
-          withdrawBtn.disabled = false;
-          withdrawBtn.innerHTML = withdrawBtn.dataset.originalText || '<span>💸 Withdraw Funds</span>';
-          withdrawBtn.style.opacity = '1';
-          withdrawBtn.style.cursor = 'pointer';
-        }
-        
-        if (window.Telegram && window.Telegram.WebApp) {
-          window.Telegram.WebApp.showAlert('Ошибка: нет подключения к серверу');
-        } else {
-          alert('Ошибка: нет подключения к серверу');
-        }
-      }
-    }
-  };
+  if (!withdrawalModal || !withdrawalAmountDisplay || !withdrawalAddressInput) {
+    console.error('Withdrawal modal elements not found');
+    return;
+  }
   
-  if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.showConfirm) {
-    window.Telegram.WebApp.showConfirm(withdrawMessage, onConfirm);
+  // Устанавливаем сумму к выводу (вся доступная сумма)
+  withdrawalAmountDisplay.textContent = `${currentBalance.toFixed(2)} USDT`;
+  
+  // Очищаем поле адреса и ошибки
+  withdrawalAddressInput.value = '';
+  withdrawalAddressError.style.display = 'none';
+  withdrawalAddressError.textContent = '';
+  withdrawalStatus.textContent = '';
+  
+  // Показываем модальное окно
+  withdrawalModal.style.display = 'flex';
+}
+
+/**
+ * Подтверждение вывода средств
+ */
+function confirmWithdrawal() {
+  const withdrawBtn = document.getElementById('withdraw-btn');
+  const withdrawalModal = document.getElementById('withdrawal-modal');
+  const withdrawalAddressInput = document.getElementById('withdrawal-address-input');
+  const withdrawalAddressError = document.getElementById('withdrawal-address-error');
+  const withdrawalStatus = document.getElementById('withdrawal-status');
+  const winningsEl = document.getElementById('winnings-balance');
+  
+  const userAddress = withdrawalAddressInput?.value?.trim() || '';
+  const currentBalance = parseFloat(winningsEl?.textContent?.replace(' USDT', '') || '0');
+  
+  // Валидация адреса
+  if (!isValidTonAddress(userAddress)) {
+    withdrawalAddressError.textContent = 'Invalid TON wallet address. Must start with EQ or UQ.';
+    withdrawalAddressError.style.display = 'block';
+    return;
+  }
+  
+  // Скрываем ошибку валидации
+  withdrawalAddressError.style.display = 'none';
+  
+  console.log('📤 Отправляю запрос на вывод через сокет...', { 
+    amount: currentBalance, 
+    address: userAddress.substring(0, 10) + '...',
+    socketConnected: socket?.connected 
+  });
+  
+  // Блокируем кнопки и показываем статус
+  if (withdrawBtn) {
+    const originalText = withdrawBtn.innerHTML;
+    withdrawBtn.disabled = true;
+    withdrawBtn.innerHTML = '<span>⏳ Processing...</span>';
+    withdrawBtn.style.opacity = '0.6';
+    withdrawBtn.style.cursor = 'not-allowed';
+    withdrawBtn.dataset.originalText = originalText;
+  }
+  
+  withdrawalStatus.textContent = 'Processing withdrawal request...';
+  withdrawalStatus.style.color = '#667eea';
+  
+  // Отправляем запрос на вывод средств с адресом и всей суммой
+  if (socket && socket.connected) {
+    socket.emit('requestWithdraw', {
+      address: userAddress,
+      amount: currentBalance // Вся доступная сумма
+    });
+    
+    // Закрываем модальное окно через небольшую задержку (чтобы пользователь видел статус)
+    setTimeout(() => {
+      if (withdrawalModal) {
+        withdrawalModal.style.display = 'none';
+      }
+    }, 1000);
   } else {
-    if (confirm(withdrawMessage)) {
-      onConfirm(true);
+    // Восстанавливаем кнопку при ошибке
+    if (withdrawBtn) {
+      withdrawBtn.disabled = false;
+      withdrawBtn.innerHTML = withdrawBtn.dataset.originalText || '<span>💸 Withdraw Funds</span>';
+      withdrawBtn.style.opacity = '1';
+      withdrawBtn.style.cursor = 'pointer';
+    }
+    
+    withdrawalStatus.textContent = 'Error: No connection to server';
+    withdrawalStatus.style.color = '#ff4444';
+    
+    if (window.Telegram && window.Telegram.WebApp) {
+      window.Telegram.WebApp.showAlert('Ошибка: нет подключения к серверу');
+    } else {
+      alert('Ошибка: нет подключения к серверу');
     }
   }
 }

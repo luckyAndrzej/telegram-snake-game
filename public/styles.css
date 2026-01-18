@@ -526,9 +526,16 @@ body::before {
     }
 }
 
+/* Ноутбуки и Full Screen: 80% высоты, чтобы кнопки управления оставались видимыми */
+@media (min-width: 1024px) and (min-height: 600px) {
+    #game-canvas {
+        max-height: 80vh;
+    }
+}
+
 @media (min-width: 1920px) {
     #game-canvas {
-        max-height: 60vh;
+        max-height: 80vh;
     }
 }
 

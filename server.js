@@ -255,7 +255,7 @@ io.on('connection', async (socket) => {
     console.log('   Данные запроса:', data);
     
     try {
-      const { amount } = data;
+      const { amount, address } = data;
       
       if (!amount || amount <= 0) {
         socket.emit('withdrawal_error', {
@@ -295,12 +295,51 @@ io.on('connection', async (socket) => {
         return;
       }
       
-      // Проверяем наличие кошелька (используем user.wallet, как в структуре БД)
-      const userWallet = user.wallet || user.wallet_address || '';
-      if (!userWallet || userWallet.trim() === '') {
-        console.log('❌ Кошелек не найден в user:', { wallet: user.wallet, wallet_address: user.wallet_address });
+      // АНТИ-ФРОД ПРОВЕРКИ
+      // 1. Проверка лимита адекватности: сумма вывода не должна превышать максимально возможный заработок
+      const maxPossibleEarnings = (user.totalEarned || 0); // Максимум = общий заработок
+      if (amount > maxPossibleEarnings) {
+        console.error(`⚠️ ПОДОЗРЕНИЕ НА ВЗЛОМ БАЛАНСА: Игрок ${userId}. Запрошено: ${amount}, максимум возможный: ${maxPossibleEarnings}`);
         socket.emit('withdrawal_error', {
-          message: 'Кошелек не указан. Пожалуйста, укажите адрес кошелька в настройках.'
+          message: 'Ошибка проверки баланса. Пожалуйста, обратитесь в поддержку.'
+        });
+        return;
+      }
+      
+      // 2. Проверка: winnings_usdt не должен превышать totalEarned (допускаем небольшую погрешность для округления)
+      const winningsDiff = (user.winnings_usdt || 0) - (user.totalEarned || 0);
+      if (winningsDiff > 0.01) { // Допускаем погрешность 0.01 USDT
+        console.error(`⚠️ ПОДОЗРЕНИЕ НА ВЗЛОМ БАЛАНСА: Игрок ${userId}. winnings_usdt (${user.winnings_usdt}) > totalEarned (${user.totalEarned})`);
+        socket.emit('withdrawal_error', {
+          message: 'Ошибка проверки баланса. Пожалуйста, обратитесь в поддержку.'
+        });
+        return;
+      }
+      
+      // 3. Проверка количества побед: максимальная сумма = количество побед * 1.5
+      const expectedWinningsPerWin = 1.5;
+      const maxWinningsByWins = (user.totalEarned || 0) / expectedWinningsPerWin * expectedWinningsPerWin;
+      if (amount > maxWinningsByWins + 0.01) {
+        console.error(`⚠️ ПОДОЗРЕНИЕ НА ВЗЛОМ БАЛАНСА: Игрок ${userId}. Сумма вывода (${amount}) превышает возможную по количеству побед (${maxWinningsByWins})`);
+        socket.emit('withdrawal_error', {
+          message: 'Ошибка проверки баланса. Пожалуйста, обратитесь в поддержку.'
+        });
+        return;
+      }
+      
+      console.log('✅ Анти-фрод проверки пройдены:', {
+        totalEarned: user.totalEarned,
+        winnings_usdt: user.winnings_usdt,
+        requested: amount,
+        maxPossibleEarnings
+      });
+      
+      // Используем адрес из запроса или из БД
+      const userWallet = (address && address.trim()) || user.wallet || user.wallet_address || '';
+      if (!userWallet || userWallet.trim() === '') {
+        console.log('❌ Кошелек не найден в запросе и в БД:', { address, wallet: user.wallet, wallet_address: user.wallet_address });
+        socket.emit('withdrawal_error', {
+          message: 'Кошелек не указан. Пожалуйста, укажите адрес кошелька.'
         });
         return;
       }
@@ -308,6 +347,16 @@ io.on('connection', async (socket) => {
       
       // Обновляем время последнего запроса
       lastWithdrawRequest.set(userId, now);
+      
+      // ВАЖНО: Обнуляем баланс ДО отправки транзакции, чтобы избежать double-spend атак
+      const newWinnings = Math.max(0, (user.winnings_usdt || 0) - amount);
+      updateUser(userId, {
+        winnings_usdt: newWinnings
+      });
+      console.log('💰 Баланс обнулен ДО отправки транзакции:', { 
+        old: user.winnings_usdt, 
+        new: newWinnings 
+      });
       
       // Конвертируем USDT в TON (1 USDT ≈ 0.5 TON, можно настроить через курс)
       const amountInTon = amount * 0.5;
@@ -366,9 +415,12 @@ io.on('connection', async (socket) => {
             const provider = client.provider(wallet.address);
             const seqno = await wallet.getSeqno(provider);
             
-            // Используем правильный адрес кошелька пользователя
-            const recipientWallet = user.wallet || user.wallet_address || userWallet;
+            // Используем адрес из запроса или из БД
+            const recipientWallet = userWallet;
             console.log(`3. Пытаюсь отправить транзакцию на адрес: ${recipientWallet.substring(0, 10)}...`);
+            
+            // Комментарий к транзакции с ID пользователя
+            const transactionComment = `Withdrawal for User ${userId} via Snake Game`;
             
             // Создаем трансфер
             const transfer = wallet.createTransfer({
@@ -377,7 +429,7 @@ io.on('connection', async (socket) => {
                 internal({
                   to: recipientWallet,
                   value: toNano(amountInTon.toString()), // Используем toNano для правильной конвертации
-                  body: 'Withdrawal from Snake Game'
+                  body: transactionComment
                 })
               ],
               seqno: seqno
@@ -410,15 +462,16 @@ io.on('connection', async (socket) => {
         }
       } catch (error) {
         console.error('❌ Ошибка при выполнении TON транзакции:', error);
+        // Если транзакция не удалась, возвращаем баланс обратно
+        const restoredWinnings = (user.winnings_usdt || 0) + amount;
+        updateUser(userId, {
+          winnings_usdt: restoredWinnings
+        });
+        console.log('🔄 Баланс восстановлен из-за ошибки транзакции:', restoredWinnings);
+        
         txHash = `withdraw_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         withdrawalStatus = 'failed';
       }
-      
-      // Обновляем баланс
-      const newWinnings = user.winnings_usdt - amount;
-      updateUser(userId, {
-        winnings_usdt: newWinnings
-      });
       
       // Логируем вывод в withdrawals.json (асинхронно, чтобы не блокировать)
       const fs = require('fs').promises;
@@ -436,8 +489,8 @@ io.on('connection', async (socket) => {
           }
           
           const withdrawalId = `withdrawal_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
-          // Используем правильный адрес кошелька (уже определен userWallet выше)
-          const recipientWalletFinal = user.wallet || user.wallet_address || '';
+          // Используем адрес из запроса или из БД
+          const recipientWalletFinal = userWallet;
           withdrawals[withdrawalId] = {
             userId,
             amount,

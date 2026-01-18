@@ -106,6 +106,24 @@
                         <span>💸 Withdraw Funds</span>
                     </button>
                     
+                    <!-- Withdrawal Modal -->
+                    <div id="withdrawal-modal" class="payment-modal" style="display: none;">
+                        <div class="payment-modal-content">
+                            <h3>Withdraw Funds</h3>
+                            <div id="withdrawal-info">
+                                <p style="margin-bottom: 15px;"><strong>Amount to withdraw:</strong> <span id="withdrawal-amount-display" style="color: #667eea; font-weight: bold; font-size: 18px;">0.00 USDT</span></p>
+                                <p style="margin-bottom: 10px;"><strong>TON Wallet Address:</strong></p>
+                                <input type="text" id="withdrawal-address-input" placeholder="EQ... or UQ..." style="width: 100%; padding: 12px; border-radius: 8px; border: 2px solid rgba(102, 126, 234, 0.3); background: rgba(10, 10, 26, 0.8); color: #e0e0ff; font-size: 14px; font-family: monospace; margin-bottom: 10px;" />
+                                <p id="withdrawal-address-error" style="color: #ff4444; font-size: 12px; margin-top: 5px; display: none;"></p>
+                            </div>
+                            <div style="margin-top: 20px; display: flex; gap: 10px; justify-content: center;">
+                                <button id="confirm-withdrawal-btn" class="btn btn-primary">Confirm</button>
+                                <button id="close-withdrawal-btn" class="btn btn-secondary">Cancel</button>
+                            </div>
+                            <p id="withdrawal-status" style="margin-top: 15px; text-align: center; color: #667eea; font-weight: bold;"></p>
+                        </div>
+                    </div>
+                    
                     <button id="start-game-btn" class="btn btn-primary">
                         <span>🎮 Find Match</span>
                     </button>
