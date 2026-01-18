@@ -30,6 +30,28 @@ document.addEventListener('DOMContentLoaded', () => {
   initCanvas();
   initEventListeners();
   
+  // Добавляем обработчик изменения размера окна для адаптивности canvas
+  let resizeTimeout;
+  window.addEventListener('resize', () => {
+    clearTimeout(resizeTimeout);
+    resizeTimeout = setTimeout(() => {
+      // Пересчитываем размер canvas при изменении размера окна
+      if (gameCanvas) {
+        const containerWidth = gameCanvas.parentElement?.clientWidth || window.innerWidth;
+        const containerHeight = window.innerHeight * 0.5;
+        const maxCanvasSize = Math.min(containerWidth - 40, containerHeight, 800);
+        
+        gameCanvas.width = maxCanvasSize;
+        gameCanvas.height = maxCanvasSize;
+        
+        // Если игра активна, перерисовываем состояние
+        if (gameState === 'playing' && currentGame) {
+          // Canvas будет обновлен следующим game_state событием
+        }
+      }
+    }, 100); // Debounce для производительности
+  });
+  
   // Инициализация сокета в try-catch, чтобы ошибки не блокировали интерфейс
   try {
     initSocket();
