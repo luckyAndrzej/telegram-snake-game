@@ -48,8 +48,13 @@ function start(io, activeGames, config, endGameCallback) {
         
         // Если игра завершена - уведомляем
         if (result.finished && endGameCallback) {
-          const loserId = result.winner === game.player1_id ? game.player2_id : game.player1_id;
-          endGameCallback(gameId, result.winner, loserId);
+          // Если ничья (result.winner === null), передаем null для обоих параметров
+          if (result.winner === null) {
+            endGameCallback(gameId, null, null);
+          } else {
+            const loserId = result.winner === game.player1_id ? game.player2_id : game.player1_id;
+            endGameCallback(gameId, result.winner, loserId);
+          }
         }
       }
     });

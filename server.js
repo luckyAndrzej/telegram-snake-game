@@ -458,11 +458,11 @@ io.on('connection', async (socket) => {
               // Конвертируем адрес получателя
               const recipientAddress = Address.parse(userWallet);
               
-              console.log(`🚀 Отправка транзакции: seqno=${seqno}, сумма=${amountInTon} TON`);
+              console.log(`🚀 Подготовка транзакции: seqno=${String(seqno)}, сумма=${amountInTon} TON`);
               
-              const transfer = wallet.createTransfer({
-                secretKey: keyPair.secretKey,
+              await wallet.sendTransfer(provider, {
                 seqno: seqno,
+                secretKey: keyPair.secretKey,
                 messages: [
                   internal({
                     to: recipientAddress,
@@ -473,14 +473,12 @@ io.on('connection', async (socket) => {
                 ]
               });
               
-              await provider.send(transfer);
-              
-              // Транзакция успешно отправлена
+              console.log('✅ Транзакция успешно отправлена в сеть!');
               transactionSuccess = true;
               withdrawalStatus = 'completed';
               txHash = `tx_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
             } catch (e) {
-              console.error('❌ Ошибка при provider.send:', e.message);
+              console.error('❌ Ошибка при отправке через sendTransfer:', e.message);
               transactionSuccess = false;
               txHash = `withdraw_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
               withdrawalStatus = 'failed';
@@ -985,6 +983,7 @@ async function endGame(gameId, winnerId, loserId) {
       }
     }
   } else {
+    // Ничья: лобовое столкновение или оба игрока проиграли одновременно
     console.log(`🏁 Игра ${gameId} завершена ничьей`);
     prize = 0;
   }
@@ -1000,20 +999,22 @@ async function endGame(gameId, winnerId, loserId) {
     const roomName = `game_${gameId}`;
     console.log(`📤 Отправка game_end в комнату: ${roomName}`);
     
+    // Если ничья (winnerId === null), отправляем специальное сообщение
     const eventData = {
       winnerId,
-      prize: prize, // Используем рассчитанный prize (1.5 если есть победитель, иначе 0)
+      prize: prize, // Всегда 0 при ничьей
       game_stats: {
         duration: game.end_time - game.start_time,
         pool: prize > 0 ? GAME_CONFIG.ENTRY_PRICE * 2 : 0
-      }
+      },
+      ...(!winnerId ? { message: 'Ничья! Оба игрока погибли. Приз остается в банке.' } : {})
     };
     
     io.to(roomName).emit('game_end', eventData);
     game.end_event_sent = true; // Помечаем, что событие отправлено
     
     console.log(`✅ game_end отправлено игрокам в комнате ${roomName}:`, eventData);
-    console.log(`   prize=${prize}, winnerId=${winnerId}`);
+    console.log(`   prize=${prize}, winnerId=${winnerId || 'null (ничья)'}`);
   } else {
     console.log(`⚠️ Событие game_end уже было отправлено ранее, пропускаем`);
   }
