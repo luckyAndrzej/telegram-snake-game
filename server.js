@@ -539,36 +539,34 @@ async function endGame(gameId, winnerId, loserId) {
     return;
   }
   
-  // Рассчитываем приз: (стоимость_входа * 2) * 0.75 = 1 * 2 * 0.75 = 1.5
-  const pool = GAME_CONFIG.ENTRY_PRICE * 2; // Два входа
+  // Фиксированная сумма выигрыша
+  const winAmount = 1.5;
   let prize = 0; // По умолчанию приз = 0
   
-  // Начисляем приз победителю только если все проверки пройдены
-  if (winnerId && shouldSendEvent) {
+  // Начисляем приз победителю
+  if (winnerId) {
     // Проверка активности матча: выигрыш начисляется только если был хотя бы один тик
     if (game.tick_number === 0 || !game.tick_number) {
       console.log(`⚠️ Игра ${gameId} не имела тиков движения (tick_number=0). Выигрыш не начисляется.`);
       prize = 0;
     } else {
-      // Рассчитываем приз
-      prize = pool * GAME_CONFIG.WINNER_PERCENTAGE; // 75% победителю = 1.5
-      
       try {
         const winner = await getUser(winnerId);
         
-        // Проверяем наличие игр (хотя баланс уже списан при входе, но проверка на всякий случай)
-        if (winner.games_balance < 0) {
-          console.log(`⚠️ У победителя ${winnerId} отрицательный баланс игр. Выигрыш не начисляется.`);
-          prize = 0;
-        } else {
+        // Проверяем, что это не бот (боты не имеют записи в БД или имеют специальный ID)
+        // Начисляем выигрыш только реальному игроку
+        if (winner && winner.tg_id) {
           // Начисляем выигрыш
-          const newWinnings = winner.winnings_usdt + prize;
+          const newWinnings = (winner.winnings_usdt || 0) + winAmount;
           await updateUser(winnerId, {
             winnings_usdt: newWinnings
           });
           
-          console.log(`🏆 Победа подтверждена! Игрок [${winnerId}] получает ${prize} USDT.`);
-          console.log(`   Баланс выигрышей до: ${winner.winnings_usdt}, после: ${newWinnings}`);
+          prize = winAmount;
+          
+          console.log(`🏆 Победа подтверждена! Игрок [${winnerId}] получает ${winAmount} USDT.`);
+          console.log(`   Баланс выигрышей до: ${winner.winnings_usdt || 0}, после: ${newWinnings}`);
+          console.log(`💰 Баланс игрока ${winnerId} обновлен на ${winAmount}$`);
           
           // Сразу отправляем обновленный баланс игроку через Socket.io
           const updatedUser = getUser(winnerId);
@@ -577,13 +575,16 @@ async function endGame(gameId, winnerId, loserId) {
             winnings_usdt: updatedUser.winnings_usdt
           });
           console.log(`📤 Отправлен обновленный баланс игроку ${winnerId}: winnings=${updatedUser.winnings_usdt}`);
+        } else {
+          console.log(`⚠️ Победитель ${winnerId} не найден в БД или является ботом. Выигрыш не начисляется.`);
+          prize = 0;
         }
       } catch (error) {
         console.error(`❌ Ошибка при начислении приза:`, error);
         prize = 0;
       }
     }
-  } else if (!winnerId && shouldSendEvent) {
+  } else {
     console.log(`🏁 Игра ${gameId} завершена ничьей`);
     prize = 0;
   }
@@ -598,10 +599,10 @@ async function endGame(gameId, winnerId, loserId) {
     
     const eventData = {
       winnerId,
-      prize: winnerId ? prize : 0,
+      prize: prize, // Используем рассчитанный prize (может быть 1.5 или 0)
       game_stats: {
         duration: game.end_time - game.start_time,
-        pool
+        pool: GAME_CONFIG.ENTRY_PRICE * 2
       }
     };
     
