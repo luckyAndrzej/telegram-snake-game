@@ -20,11 +20,12 @@ let debugMode = false;
 let currentDirection = null; // Current snake direction (updated from game_state)
 let canvasLogicalSize = 800; // Логический размер canvas (без DPR) для корректной отрисовки
 
-// Client-side Prediction: локальное состояние змейки для мгновенного отклика
-let predictedSnakeState = null; // Локально предсказанное состояние моей змейки
-let lastServerState = null; // Последнее состояние от сервера для reconciliation
-let pendingDirections = []; // Очередь направлений, отправленных на сервер
-let lastDirectionSentTime = 0; // Время последней отправки направления
+// Состояние игры для интерполяции (чистая интерполяция без предсказания)
+let gameStateData = null;
+let previousGameStateData = null; // Предыдущее состояние для интерполяции
+let lastGameStateUpdate = 0;
+let animationFrameId = null;
+let interpolationTime = 0; // Время с последнего обновления состояния
 
 /**
  * Универсальная функция для открытия/закрытия модальных окон
@@ -307,12 +308,6 @@ function initSocket() {
     
     // Сбрасываем текущее направление при старте игры
     currentDirection = null;
-    
-    // CLIENT-SIDE PREDICTION: инициализируем предсказанное состояние
-    predictedSnakeState = null;
-    lastServerState = null;
-    pendingDirections = [];
-    lastDirectionSentTime = 0;
     
     // Очищаем старое начальное состояние сразу после скрытия overlay
     currentGame.initialState = null;
@@ -998,15 +993,14 @@ function initWaitingCanvas() {
 }
 
 /**
- * Отправка команды направления с проверкой на поворот на 180° (моментальный отклик)
- * + Client-side Prediction: мгновенное обновление локального состояния
+ * Отправка команды направления - упрощенная версия (только emit)
+ * Чистая интерполяция без локальных изменений состояния
  */
 function sendDirection(direction) {
-  // Моментальная проверка - без задержек
   if (!socket || !socket.connected) return;
-  if (gameState !== 'playing' && gameState !== 'countdown') return; // Разрешаем во время countdown
+  if (gameState !== 'playing' && gameState !== 'countdown') return;
   
-  // Карта противоположных направлений (быстрая проверка)
+  // Проверка на поворот на 180° (запрещено)
   const opposites = {
     'up': 'down',
     'down': 'up',
@@ -1014,56 +1008,12 @@ function sendDirection(direction) {
     'right': 'left'
   };
   
-  // Мгновенная проверка на поворот на 180° (запрещено) - без логирования для скорости
   if (currentDirection && direction === opposites[currentDirection]) {
-    return; // Мгновенно прерываем - не отправляем команду
+    return; // Запрещаем поворот на 180°
   }
   
-  // CLIENT-SIDE PREDICTION: мгновенно обновляем локальное состояние змейки для визуального отклика
-  // Змейка поворачивает локально, не дожидаясь ответа от сервера
-  if (gameStateData && gameStateData.my_snake) {
-    const newDirection = {
-      'up': { dx: 0, dy: -1 },
-      'down': { dx: 0, dy: 1 },
-      'left': { dx: -1, dy: 0 },
-      'right': { dx: 1, dy: 0 }
-    }[direction];
-    
-    if (newDirection) {
-      // Инициализируем предсказанное состояние, если его еще нет
-      if (!predictedSnakeState) {
-        predictedSnakeState = JSON.parse(JSON.stringify(gameStateData.my_snake));
-      }
-      
-      // МГНОВЕННО обновляем направление в предсказанном состоянии
-      // Это заставит змейку визуально повернуться сразу же, без ожидания сервера
-      predictedSnakeState.direction = newDirection;
-      
-      // Также обновляем направление в текущем gameStateData для мгновенного отображения
-      if (gameStateData.my_snake) {
-        gameStateData.my_snake.direction = newDirection;
-      }
-      
-      // Сохраняем команду в очередь для reconciliation
-      const commandId = Date.now();
-      pendingDirections.push({
-        id: commandId,
-        direction: newDirection,
-        timestamp: performance.now()
-      });
-      
-      // Обновляем currentDirection для следующей проверки
-      currentDirection = direction;
-      
-      // НЕ делаем принудительную перерисовку здесь - это вызывает дергание
-      // Основной цикл отрисовки (startRenderLoop) сам обработает обновление через requestAnimationFrame
-      // Это обеспечит плавное обновление без конфликтов
-    }
-  }
-  
-  // Отправляем только факт смены направления на сервер (без задержек)
+  // Только отправка на сервер, без локальных изменений состояния
   socket.emit('direction', direction);
-  lastDirectionSentTime = performance.now();
 }
 
 /**
@@ -1409,19 +1359,9 @@ function startGame(data) {
 }
 
 /**
- * Обновление состояния игры с оптимизацией и requestAnimationFrame
+ * Обновление состояния игры - упрощенная версия (только сохранение состояния)
+ * Чистая интерполяция без client-side prediction
  */
-// Состояние игры для интерполяции
-let gameStateData = null;
-let previousGameStateData = null; // Предыдущее состояние для интерполяции
-let lastGameStateUpdate = 0;
-let animationFrameId = null;
-let interpolationTime = 0; // Время с последнего обновления состояния
-let previousDirection = null; // Предыдущее направление для плавного поворота
-
-// Функция для сохранения данных от сервера (не блокирует отрисовку)
-// + Server Reconciliation: плавная коррекция позиции при расхождении
-// ОПТИМИЗАЦИЯ: Серверное состояние приоритетное
 function updateGameState(data) {
   // Проверка данных змеек
   if (!data || !data.my_snake || !data.opponent_snake) {
@@ -1439,48 +1379,14 @@ function updateGameState(data) {
     return;
   }
   
-  // Сохраняем предыдущее состояние для интерполяции (только для отрисовки)
+  // Сохраняем предыдущее состояние для интерполяции
   if (gameStateData) {
     previousGameStateData = JSON.parse(JSON.stringify(gameStateData));
   }
   
-  // Удаляем обработанные команды из очереди (без резких коррекций)
-  const now = performance.now();
-  pendingDirections = pendingDirections.filter(cmd => (now - cmd.timestamp) < 1000);
-  
-  // ПЛАВНОЕ СМЕШИВАНИЕ: не заменяем predictedSnakeState мгновенно
-  // Используем плавное смешивание через интерполяцию в render
-  if (data.my_snake) {
-    // Сохраняем текущее направление если есть pending команды
-    const currentPredictedDirection = predictedSnakeState?.direction;
-    
-    // Обновляем базовое состояние для предсказания (но не мгновенно)
-    if (!predictedSnakeState) {
-      predictedSnakeState = JSON.parse(JSON.stringify(data.my_snake));
-    } else {
-      // Плавно синхронизируем с сервером (не мгновенная замена)
-      predictedSnakeState = JSON.parse(JSON.stringify(data.my_snake));
-    }
-    
-    // Если есть pending команды, применяем их направление для предсказания
-    if (pendingDirections.length > 0) {
-      const latestCommand = pendingDirections[pendingDirections.length - 1];
-      if (latestCommand && latestCommand.direction) {
-        predictedSnakeState.direction = latestCommand.direction;
-      }
-    } else if (currentPredictedDirection) {
-      // Сохраняем направление если нет pending команд
-      predictedSnakeState.direction = currentPredictedDirection;
-    }
-  }
-  
-  // Сохраняем серверное состояние для reconciliation
-  lastServerState = JSON.parse(JSON.stringify(data));
-  
-  // Сохраняем данные для отрисовки (серверное состояние - приоритетное)
+  // Сохраняем новое состояние
   gameStateData = data;
   lastGameStateUpdate = performance.now();
-  interpolationTime = 0;
   
   // Обновляем текущее направление из серверного состояния
   if (data && data.my_snake && data.my_snake.direction) {
@@ -1511,8 +1417,7 @@ function updateGameState(data) {
 }
 
 // Цикл отрисовки с requestAnimationFrame (60 FPS)
-// + Client-side Prediction: используем предсказанное состояние для мгновенного отклика
-// + Interpolation: плавное движение между обновлениями сервера
+// Чистая интерполяция без client-side prediction
 function startRenderLoop() {
   if (animationFrameId) return; // Уже запущен
   
@@ -1522,81 +1427,33 @@ function startRenderLoop() {
       return;
     }
     
-    // Обновляем время интерполяции (для плавного движения между обновлениями сервера)
+    // Рассчитываем время интерполяции
     const currentTime = performance.now();
     if (lastGameStateUpdate > 0) {
       // Строго 1000 / 9 = 111.11ms между обновлениями при TICK_RATE = 9
-      const serverUpdateInterval = 111.11;
-      // Убираем ограничение Math.min - позволяем значению быть чуть больше 1 для предотвращения остановок
-      interpolationTime = (currentTime - lastGameStateUpdate) / serverUpdateInterval;
-    }
-    
-    // CLIENT-SIDE PREDICTION: обновляем предсказанное состояние локально
-    // Применяем локальное движение на основе текущего направления для мгновенного отклика
-    if (predictedSnakeState && predictedSnakeState.direction && predictedSnakeState.body && predictedSnakeState.body.length > 0) {
-      // Вычисляем время с последнего обновления сервера
-      const timeSinceLastUpdate = (currentTime - lastGameStateUpdate) / 1000; // в секундах
-      
-      // Если прошло достаточно времени (> 30ms), применяем локальное движение
-      // Используем коэффициент скорости равный точному расстоянию за один тик: 9.0
-      if (timeSinceLastUpdate > 0.03 && lastServerState && lastServerState.my_snake) {
-        const dir = predictedSnakeState.direction;
-        const head = predictedSnakeState.body[0];
-        
-        // Формула: head.x + dir.dx * (timeSinceLastUpdate * 9.0)
-        // Это обеспечивает точное расстояние за один тик без накопления ошибки
-        const newHead = {
-          x: head.x + dir.dx * (timeSinceLastUpdate * 9.0),
-          y: head.y + dir.dy * (timeSinceLastUpdate * 9.0)
-        };
-        
-        // Округляем до ближайшей клетки
-        newHead.x = Math.round(newHead.x);
-        newHead.y = Math.round(newHead.y);
-        
-        // Обновляем предсказанное состояние
-        if (predictedSnakeState.body.length > 0) {
-          predictedSnakeState.body.unshift(newHead);
-          const serverLength = lastServerState.my_snake.body ? lastServerState.my_snake.body.length : predictedSnakeState.body.length;
-          if (predictedSnakeState.body.length > serverLength) {
-            predictedSnakeState.body.pop();
-          }
-        }
-      }
+      interpolationTime = (currentTime - lastGameStateUpdate) / 111.11;
     }
     
     // Отрисовываем только если есть данные
     if (gameStateData && gameStateData.my_snake && gameStateData.opponent_snake) {
-      // Эффективная очистка canvas (используем логический размер после ctx.scale)
+      // Полная очистка canvas перед каждым кадром
       gameCtx.clearRect(0, 0, canvasLogicalSize, canvasLogicalSize);
       
-      // Фон для игрового поля (используем логический размер)
+      // Фон для игрового поля
       gameCtx.fillStyle = '#0a0e27';
       gameCtx.fillRect(0, 0, canvasLogicalSize, canvasLogicalSize);
       
       // Рисуем сетку
       drawGrid();
       
-      // INTERPOLATION: плавное движение между обновлениями сервера (только для отрисовки)
-      // Используем lerp только для визуализации, не меняем координаты в объектах данных
-      // Плавное смешивание: snakeToDraw = interpolateSnake(previousState, serverState, interpolationTime)
-      const interpolatedMySnake = interpolateSnake(previousGameStateData?.my_snake, gameStateData.my_snake, interpolationTime);
-      const interpolatedOpponentSnake = interpolateSnake(previousGameStateData?.opponent_snake, gameStateData.opponent_snake, interpolationTime);
+      // INTERPOLATION: плавное движение между обновлениями сервера
+      // Используем одинаковую логику интерполяции для обеих змеек
+      const snakeToDraw = interpolateSnake(previousGameStateData?.my_snake, gameStateData.my_snake, interpolationTime);
+      const opponentSnakeToDraw = interpolateSnake(previousGameStateData?.opponent_snake, gameStateData.opponent_snake, interpolationTime);
       
-      // CLIENT-SIDE PREDICTION: используем предсказанное состояние для моей змейки
-      // Плавное смешивание предсказанного состояния с интерполированным серверным
-      let snakeToDraw = interpolatedMySnake || gameStateData.my_snake;
-      
-      if (predictedSnakeState && predictedSnakeState.body && predictedSnakeState.body.length > 0 && previousGameStateData?.my_snake) {
-        // Плавно смешиваем предсказанное состояние с серверным через интерполяцию
-        // Используем interpolationTime для плавного перехода
-        const blendFactor = Math.min(interpolationTime, 1.0);
-        snakeToDraw = mergePredictedWithServer(predictedSnakeState, interpolatedMySnake, blendFactor);
-      }
-      
-      // Отрисовываем змейки (lerp только для визуализации)
-      drawSnake(snakeToDraw, '#ff4444', '#ff6666');
-      drawSnake(interpolatedOpponentSnake || gameStateData.opponent_snake, '#4444ff', '#6666ff');
+      // Отрисовываем змейки
+      drawSnake(snakeToDraw || gameStateData.my_snake, '#ff4444', '#ff6666');
+      drawSnake(opponentSnakeToDraw || gameStateData.opponent_snake, '#4444ff', '#6666ff');
     }
     
     // Продолжаем цикл
@@ -1604,51 +1461,6 @@ function startRenderLoop() {
   }
   
   animationFrameId = requestAnimationFrame(render);
-}
-
-/**
- * Объединение предсказанного состояния с серверным для плавного перехода
- */
-function mergePredictedWithServer(predicted, server, t) {
-  if (!predicted || !server || !predicted.body || !server.body) {
-    return server;
-  }
-  
-  // Увеличен порог Reconciliation до 30px для избежания резких прыжков
-  const tileSize = canvasLogicalSize / 30;
-  const predictedHead = predicted.body[0];
-  const serverHead = server.body[0];
-  
-  if (predictedHead && serverHead) {
-    const dx = (serverHead.x - predictedHead.x) * tileSize;
-    const dy = (serverHead.y - predictedHead.y) * tileSize;
-    const distance = Math.sqrt(dx * dx + dy * dy);
-    
-    // Если расхождение меньше 30px, используем предсказанное состояние (без резких прыжков)
-    if (distance < 30) {
-      return predicted;
-    }
-    
-    // Иначе плавно интерполируем между предсказанным и серверным
-    const blendFactor = Math.min(t * 2, 1); // Ускоряем переход при большом расхождении
-    const merged = JSON.parse(JSON.stringify(server));
-    
-    if (merged.body && predicted.body && merged.body.length === predicted.body.length) {
-      merged.body = merged.body.map((segment, i) => {
-        if (i < predicted.body.length) {
-          return {
-            x: predicted.body[i].x + (segment.x - predicted.body[i].x) * blendFactor,
-            y: predicted.body[i].y + (segment.y - predicted.body[i].y) * blendFactor
-          };
-        }
-        return segment;
-      });
-    }
-    
-    return merged;
-  }
-  
-  return server;
 }
 
 // Останавливаем цикл отрисовки
