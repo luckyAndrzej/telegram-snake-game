@@ -46,6 +46,11 @@ function toggleModal(modalId, show) {
   if (!modal) return;
   
   if (show) {
+    // Очистка инлайновых стилей перед показом
+    modal.style.display = '';
+    modal.style.opacity = '';
+    modal.style.transform = '';
+    
     modal.classList.add('modal-visible');
     // Отключаем game-controls при открытом модальном окне
     const gameControls = document.querySelector('.game-controls');
@@ -55,6 +60,11 @@ function toggleModal(modalId, show) {
     }
   } else {
     modal.classList.remove('modal-visible');
+    // Очистка инлайновых стилей после скрытия
+    modal.style.display = '';
+    modal.style.opacity = '';
+    modal.style.transform = '';
+    
     // Включаем game-controls обратно при закрытии модального окна
     const gameControls = document.querySelector('.game-controls');
     if (gameControls) {
@@ -67,6 +77,14 @@ function toggleModal(modalId, show) {
 // Инициализация
 document.addEventListener('DOMContentLoaded', () => {
   console.log('🚀 Инициализация приложения...');
+  
+  // Принудительная очистка стилей модальных окон при загрузке
+  document.querySelectorAll('.payment-modal').forEach(m => {
+    m.classList.remove('modal-visible');
+    m.style.display = ''; // Очистка инлайновых стилей
+    m.style.opacity = '';
+    m.style.transform = '';
+  });
   
   // Явно скрываем все модальные окна при загрузке
   toggleModal('withdrawal-modal', false);
@@ -1522,9 +1540,8 @@ function startRenderLoop() {
     
     // Рассчитываем локальную переменную t для интерполяции с учетом задержки
     let t = (renderTime - lastGameStateUpdate) / 111.11;
-    // Жесткое ограничение: предотвращает "вылет" змейки за пределы текущего сегмента
-    if (t > 1) t = 1;
-    if (t < 0) t = 0; // Защита от отрицательных значений
+    // Защита от отрицательных значений
+    if (t < 0) t = 0;
     
     // Отрисовываем только если есть данные
     if (gameStateData && gameStateData.my_snake && gameStateData.opponent_snake) {
@@ -1610,6 +1627,10 @@ function interpolateSnake(previousSnake, currentSnake, t) {
   if (previousSnake.body.length !== currentSnake.body.length) {
     return currentSnake;
   }
+  
+  // Ограничиваем t значением от 0 до 1 (предотвращает "вылет" змейки за пределы текущего сегмента)
+  t = Math.min(t, 1);
+  if (t < 0) t = 0;
   
   // Клонируем текущую змейку
   const interpolated = JSON.parse(JSON.stringify(currentSnake));

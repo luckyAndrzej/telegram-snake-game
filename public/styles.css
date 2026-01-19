@@ -793,9 +793,9 @@ body::before {
     backdrop-filter: blur(20px);
     display: none;
     justify-content: center;
-    align-items: center;
+    align-items: flex-start; /* Окно будет расти сверху */
+    padding-top: 10vh; /* Отступ от верхнего края */
     z-index: 99999 !important;
-    -webkit-tap-highlight-color: transparent;
     opacity: 0;
     transition: opacity 0.3s ease;
 }
@@ -806,31 +806,25 @@ body::before {
 }
 
 .payment-modal-content {
-    position: fixed;
-    left: 50% !important;
-    top: 50% !important;
-    transform: translate(-50%, -50%) !important;
+    position: relative; /* Убираем fixed и top 50% */
     background: rgba(10, 10, 26, 0.95);
     backdrop-filter: blur(30px);
     border: 2px solid var(--neon-cyan);
     border-radius: 16px;
     padding: 30px 25px;
-    width: calc(100% - 40px);
+    width: 90%;
     max-width: 400px;
     max-height: 80vh;
     overflow-y: auto;
-    box-shadow: 
-        0 4px 24px rgba(0, 0, 0, 0.3),
-        0 0 60px rgba(0, 245, 255, 0.5),
-        inset 0 0 60px rgba(176, 38, 255, 0.1);
-    transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+    box-shadow: 0 0 60px rgba(0, 245, 255, 0.5);
     opacity: 0;
-    z-index: 100000 !important;
+    transform: translateY(20px); /* Анимация появления сверху вниз */
+    transition: all 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
 }
 
 .payment-modal.modal-visible .payment-modal-content {
     opacity: 1 !important;
-    transform: translate(-50%, -50%) !important;
+    transform: translateY(0) !important;
 }
 
 .payment-modal-content h3 {
@@ -1044,15 +1038,6 @@ body::before {
     font-size: 16px !important;
 }
 
-/* Медиа-запрос: если высота экрана уменьшается (открыта клавиатура), центрируем модалку */
-@media (max-height: 600px) {
-    .payment-modal-content,
-    #withdrawal-modal .payment-modal-content {
-        top: 50% !important;
-        transform: translate(-50%, -50%) !important;
-        max-height: 85vh;
-    }
-}
 
 /* Telegram-совместимые цвета (fallback если переменные Telegram не доступны) */
 :root {
