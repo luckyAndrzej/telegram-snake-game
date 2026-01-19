@@ -767,11 +767,17 @@ body::before {
     height: 100vh !important;
     background: rgba(0, 0, 0, 0.85) !important;
     backdrop-filter: blur(20px) !important;
-    display: flex !important;
+    display: none !important; /* Скрыто по умолчанию */
     justify-content: center !important;
     align-items: center !important;
     z-index: 10001 !important;
     -webkit-tap-highlight-color: transparent;
+}
+
+/* Когда модальное окно открыто (через JavaScript устанавливается display: flex) */
+.payment-modal[style*="display: flex"],
+.payment-modal[style*="display:flex"] {
+    display: flex !important;
 }
 
 .payment-modal-content {
@@ -955,8 +961,7 @@ body::before {
     top: 50% !important;
     left: 50% !important;
     transform: translate(-50%, -50%) !important;
-    padding-bottom: 20vh; /* Дополнительный отступ снизу для клавиатуры */
-    transition: top 0.3s ease !important;
+    transition: top 0.3s ease, transform 0.3s ease !important;
     z-index: 99999 !important;
     background: rgba(10, 10, 26, 0.95) !important;
     backdrop-filter: blur(30px) !important;
@@ -971,7 +976,7 @@ body::before {
         0 4px 24px rgba(0, 0, 0, 0.3),
         0 0 60px rgba(0, 245, 255, 0.5),
         inset 0 0 60px rgba(176, 38, 255, 0.1) !important;
-    margin: 0 auto !important;
+    margin: 0 !important; /* Убрано auto, так как позиционирование через transform */
 }
 
 /* Поле ввода адреса - предотвращение авто-зума на iPhone */

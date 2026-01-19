@@ -30,6 +30,24 @@ let lastDirectionSentTime = 0; // Время последней отправки
 document.addEventListener('DOMContentLoaded', () => {
   console.log('🚀 Инициализация приложения...');
   
+  // Явно скрываем все модальные окна при загрузке
+  const withdrawalModal = document.getElementById('withdrawal-modal');
+  if (withdrawalModal) {
+    withdrawalModal.style.display = 'none';
+    // Сбрасываем все стили
+    const modalContent = withdrawalModal.querySelector('.payment-modal-content');
+    if (modalContent) {
+      modalContent.classList.remove('input-focused');
+      modalContent.style.top = '';
+      modalContent.style.transform = '';
+    }
+  }
+  
+  const paymentModal = document.getElementById('payment-modal');
+  if (paymentModal) {
+    paymentModal.style.display = 'none';
+  }
+  
   // СНАЧАЛА показываем меню, чтобы интерфейс не блокировался
   showScreen('menu');
   
@@ -663,24 +681,28 @@ function initEventListeners() {
   document.getElementById('close-withdrawal-btn')?.addEventListener('click', () => {
     const withdrawalModal = document.getElementById('withdrawal-modal');
     if (withdrawalModal) {
-      withdrawalModal.style.display = 'none';
-      // Убираем класс input-focused при закрытии
+      // Сбрасываем все стили перед закрытием
       const modalContent = withdrawalModal.querySelector('.payment-modal-content');
       if (modalContent) {
         modalContent.classList.remove('input-focused');
+        modalContent.style.top = '';
+        modalContent.style.transform = '';
       }
+      withdrawalModal.style.display = 'none';
     }
   });
   
   // Close withdrawal modal when clicking outside
   document.getElementById('withdrawal-modal')?.addEventListener('click', (e) => {
     if (e.target.id === 'withdrawal-modal') {
-      e.target.style.display = 'none';
-      // Убираем класс input-focused при закрытии
+      // Сбрасываем все стили перед закрытием
       const modalContent = e.target.querySelector('.payment-modal-content');
       if (modalContent) {
         modalContent.classList.remove('input-focused');
+        modalContent.style.top = '';
+        modalContent.style.transform = '';
       }
+      e.target.style.display = 'none';
     }
   });
   
@@ -1272,20 +1294,24 @@ function handleWithdraw() {
   withdrawalAddressError.textContent = '';
   withdrawalStatus.textContent = '';
   
-  // Показываем модальное окно (устанавливаем display: flex для отображения)
-  withdrawalModal.style.display = 'flex';
+  // Убеждаемся, что модальное окно скрыто перед открытием (на случай если оно было открыто ранее)
+  withdrawalModal.style.display = 'none';
   
-  // Убеждаемся, что модальное окно в правильной начальной позиции
-  const modalContent = withdrawalModal.querySelector('.payment-modal-content');
-  if (modalContent) {
+  // Небольшая задержка перед показом для сброса всех стилей
+  setTimeout(() => {
     // Сбрасываем все inline стили для позиции, чтобы CSS работал правильно
-    modalContent.style.top = '50%';
-    modalContent.style.transform = 'translate(-50%, -50%)';
-    modalContent.classList.remove('input-focused');
-  }
+    const modalContent = withdrawalModal.querySelector('.payment-modal-content');
+    if (modalContent) {
+      modalContent.style.top = '';
+      modalContent.style.transform = '';
+      modalContent.classList.remove('input-focused');
+    }
+    
+    // Показываем модальное окно (устанавливаем display: flex для отображения)
+    withdrawalModal.style.display = 'flex';
+  }, 10);
   
   // setupWithdrawalInputHandlers уже настроит обработчики фокуса/блура
-  // Не нужно дублировать логику здесь
 }
 
 /**
@@ -1341,6 +1367,13 @@ function confirmWithdrawal() {
     // Закрываем модальное окно через небольшую задержку (чтобы пользователь видел статус)
     setTimeout(() => {
       if (withdrawalModal) {
+        // Сбрасываем все стили перед закрытием
+        const modalContent = withdrawalModal.querySelector('.payment-modal-content');
+        if (modalContent) {
+          modalContent.classList.remove('input-focused');
+          modalContent.style.top = '';
+          modalContent.style.transform = '';
+        }
         withdrawalModal.style.display = 'none';
       }
     }, 1000);
