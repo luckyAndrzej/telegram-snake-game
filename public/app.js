@@ -25,7 +25,6 @@ let gameStateData = null;
 let previousGameStateData = null; // Предыдущее состояние для интерполяции
 let lastGameStateUpdate = 0;
 let animationFrameId = null;
-let interpolationTime = 0; // Время с последнего обновления состояния
 
 /**
  * Универсальная функция для открытия/закрытия модальных окон
@@ -1359,56 +1358,13 @@ function startGame(data) {
 }
 
 /**
- * Обновление состояния игры - упрощенная версия (только сохранение состояния)
- * Чистая интерполяция без client-side prediction
+ * Обновление состояния игры - максимально простая версия
+ * Только сохранение состояния для интерполяции
  */
 function updateGameState(data) {
-  // Проверка данных змеек
-  if (!data || !data.my_snake || !data.opponent_snake) {
-    console.warn('⚠️ Ошибка: данные змейки не получены!', { data });
-    return;
-  }
-  
-  if (!data.my_snake.body || !Array.isArray(data.my_snake.body) || data.my_snake.body.length === 0) {
-    console.warn('⚠️ Ошибка: массив сегментов my_snake пуст или undefined!', { my_snake: data.my_snake });
-    return;
-  }
-  
-  if (!data.opponent_snake.body || !Array.isArray(data.opponent_snake.body) || data.opponent_snake.body.length === 0) {
-    console.warn('⚠️ Ошибка: массив сегментов opponent_snake пуст или undefined!', { opponent_snake: data.opponent_snake });
-    return;
-  }
-  
-  // Сохраняем предыдущее состояние для интерполяции
-  if (gameStateData) {
-    previousGameStateData = JSON.parse(JSON.stringify(gameStateData));
-  }
-  
-  // Сохраняем новое состояние
-  gameStateData = data;
+  previousGameStateData = gameStateData; // Переносим старое в previous
+  gameStateData = data; // Записываем новое
   lastGameStateUpdate = performance.now();
-  
-  // Обновляем текущее направление из серверного состояния
-  if (data && data.my_snake && data.my_snake.direction) {
-    const dir = data.my_snake.direction;
-    if (dir.dx === 1 && dir.dy === 0) {
-      currentDirection = 'right';
-    } else if (dir.dx === -1 && dir.dy === 0) {
-      currentDirection = 'left';
-    } else if (dir.dx === 0 && dir.dy === 1) {
-      currentDirection = 'down';
-    } else if (dir.dx === 0 && dir.dy === -1) {
-      currentDirection = 'up';
-    }
-  }
-  
-  // Обновляем статусы игроков
-  if (data && data.my_snake && data.opponent_snake) {
-    const player1Status = document.getElementById('player1-status');
-    const player2Status = document.getElementById('player2-status');
-    if (player1Status) player1Status.textContent = `You: ${data.my_snake.alive ? 'Alive' : 'Dead'}`;
-    if (player2Status) player2Status.textContent = `Opponent: ${data.opponent_snake.alive ? 'Alive' : 'Dead'}`;
-  }
   
   // Запускаем цикл отрисовки если он еще не запущен
   if (!animationFrameId && gameState === 'playing') {
@@ -1427,12 +1383,10 @@ function startRenderLoop() {
       return;
     }
     
-    // Рассчитываем время интерполяции
-    const currentTime = performance.now();
-    if (lastGameStateUpdate > 0) {
-      // Строго 1000 / 9 = 111.11ms между обновлениями при TICK_RATE = 9
-      interpolationTime = (currentTime - lastGameStateUpdate) / 111.11;
-    }
+    // Рассчитываем локальную переменную t для интерполяции
+    let t = (performance.now() - lastGameStateUpdate) / 111.11;
+    // Жесткое ограничение: предотвращает "вылет" змейки за пределы текущего сегмента
+    if (t > 1) t = 1;
     
     // Отрисовываем только если есть данные
     if (gameStateData && gameStateData.my_snake && gameStateData.opponent_snake) {
@@ -1447,13 +1401,13 @@ function startRenderLoop() {
       drawGrid();
       
       // INTERPOLATION: плавное движение между обновлениями сервера
-      // Используем одинаковую логику интерполяции для обеих змеек
-      const snakeToDraw = interpolateSnake(previousGameStateData?.my_snake, gameStateData.my_snake, interpolationTime);
-      const opponentSnakeToDraw = interpolateSnake(previousGameStateData?.opponent_snake, gameStateData.opponent_snake, interpolationTime);
+      // Рисуем только результат функции interpolateSnake
+      const mySnake = interpolateSnake(previousGameStateData?.my_snake, gameStateData?.my_snake, t);
+      const opponentSnake = interpolateSnake(previousGameStateData?.opponent_snake, gameStateData?.opponent_snake, t);
       
       // Отрисовываем змейки
-      drawSnake(snakeToDraw || gameStateData.my_snake, '#ff4444', '#ff6666');
-      drawSnake(opponentSnakeToDraw || gameStateData.opponent_snake, '#4444ff', '#6666ff');
+      drawSnake(mySnake, '#ff4444', '#ff6666');
+      drawSnake(opponentSnake, '#4444ff', '#6666ff');
     }
     
     // Продолжаем цикл
