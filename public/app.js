@@ -463,11 +463,13 @@ function initSocket() {
     // Обновляем баланс на экране без перезагрузки
     updateBalance(data.games_balance, data.winnings_ton);
     
-    // Восстанавливаем кнопку: разблокируем и возвращаем оригинальный текст
+    // Восстанавливаем кнопку: разблокируем и возвращаем оригинальный текст (текст цены)
     const buyBtn = document.getElementById('buy-games-with-winnings-btn');
     if (buyBtn) {
       buyBtn.disabled = false;
-      buyBtn.innerHTML = buyBtn.dataset.originalText || '<span>🔄 Buy Games with Winnings (1 TON = 1 Game)</span>';
+      // Восстанавливаем оригинальный текст из dataset или используем дефолтный
+      const originalText = buyBtn.dataset.originalText || '🔄 Buy Games with Winnings (1 TON = 1 Game)';
+      buyBtn.innerHTML = originalText;
       buyBtn.style.opacity = '1';
       buyBtn.style.cursor = 'pointer';
     }
@@ -1329,9 +1331,10 @@ function handleBuyGamesWithWinnings(amount = 1) {
   
   const buyBtn = document.getElementById('buy-games-with-winnings-btn');
   if (buyBtn) {
-    // Сохраняем оригинальный текст
-    const originalText = buyBtn.innerHTML;
-    buyBtn.dataset.originalText = originalText;
+    // Сохраняем оригинальный текст только если еще не сохранен
+    if (!buyBtn.dataset.originalText) {
+      buyBtn.dataset.originalText = buyBtn.innerHTML;
+    }
     
     // Блокируем кнопку и меняем текст
     buyBtn.disabled = true;
@@ -1706,32 +1709,38 @@ function stopRenderLoop() {
 }
 
 /**
- * Интерполяция змейки для плавного движения
+ * Интерполяция змейки для плавного движения между обновлениями сервера
+ * Использует линейную интерполяцию (lerp) для сглаживания движения
  */
 function interpolateSnake(previousSnake, currentSnake, t) {
   if (!previousSnake || !currentSnake || !previousSnake.body || !currentSnake.body) {
     return currentSnake;
   }
   
+  // Если длина изменилась, не интерполируем (просто возвращаем текущее состояние)
+  if (previousSnake.body.length !== currentSnake.body.length) {
+    return currentSnake;
+  }
+  
   // Клонируем текущую змейку
   const interpolated = JSON.parse(JSON.stringify(currentSnake));
   
-  // Интерполируем каждую позицию сегмента
+  // Интерполируем каждую позицию сегмента для плавного движения
   if (interpolated.body && previousSnake.body) {
-    const maxLength = Math.max(interpolated.body.length, previousSnake.body.length);
-    
-    for (let i = 0; i < maxLength; i++) {
-      if (i < interpolated.body.length && i < previousSnake.body.length) {
-        const prev = previousSnake.body[i];
-        const curr = interpolated.body[i];
-        
-        // Линейная интерполяция координат
-        interpolated.body[i] = {
-          x: prev.x + (curr.x - prev.x) * t,
-          y: prev.y + (curr.y - prev.y) * t
-        };
-      }
-    }
+    interpolated.body = currentSnake.body.map((segment, index) => {
+      if (index >= previousSnake.body.length) return segment;
+      
+      const prevSegment = previousSnake.body[index];
+      const currSegment = segment;
+      
+      // Плавная линейная интерполяция позиции (lerp)
+      // Используем easing для более естественного движения
+      const easedT = t * t * (3 - 2 * t); // Smoothstep для более плавного движения
+      return {
+        x: prevSegment.x + (currSegment.x - prevSegment.x) * easedT,
+        y: prevSegment.y + (currSegment.y - prevSegment.y) * easedT
+      };
+    });
   }
   
   return interpolated;

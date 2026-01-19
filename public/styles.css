@@ -922,23 +922,38 @@ body::before {
 
 /* Withdrawal Modal - Адаптивность и корректная работа с клавиатурой */
 #withdrawal-modal {
-    z-index: 10001;
+    z-index: 10000;
     background: rgba(0, 0, 0, 0.85);
 }
 
 #withdrawal-modal .payment-modal-content {
     position: fixed;
-    top: 40%;
+    top: 45%;
     left: 50%;
     transform: translate(-50%, -50%);
     padding-bottom: 20vh; /* Дополнительный отступ снизу для клавиатуры */
     transition: transform 0.3s ease;
+    z-index: 10000;
 }
 
-/* Сдвиг модального окна вывода вверх при фокусе на input */
+/* Сдвиг модального окна вывода вверх при фокусе на input или уменьшении высоты экрана (клавиатура) */
 #withdrawal-modal .payment-modal-content:has(input:focus),
 #withdrawal-modal .payment-modal-content.input-focused {
     transform: translate(-50%, -60%) !important;
+}
+
+/* Медиа-запрос: если высота экрана уменьшается (открыта клавиатура), поднимаем модалку */
+@media (max-height: 600px) {
+    #withdrawal-modal .payment-modal-content {
+        top: 30% !important;
+        transform: translate(-50%, -50%) !important;
+    }
+    
+    #withdrawal-modal .payment-modal-content:has(input:focus),
+    #withdrawal-modal .payment-modal-content.input-focused {
+        top: 25% !important;
+        transform: translate(-50%, -50%) !important;
+    }
 }
 
 #withdrawal-address-input {
