@@ -314,12 +314,6 @@ body::before {
     transform: scale(0.98);
     transition: transform 0.1s ease;
 }
-    box-shadow: 
-        0 4px 20px rgba(0, 245, 255, 0.4),
-        0 0 40px rgba(0, 245, 255, 0.2),
-        inset 0 0 20px rgba(255, 255, 255, 0.1);
-    border: 1px solid rgba(0, 245, 255, 0.5);
-}
 
 .btn-primary:hover {
     transform: translateY(-3px);
