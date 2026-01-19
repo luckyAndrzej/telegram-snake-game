@@ -752,7 +752,7 @@ body::before {
     left: 0;
     width: 100vw;
     height: 100vh;
-    background: rgba(0, 0, 0, 0.7);
+    background: rgba(0, 0, 0, 0.85);
     backdrop-filter: blur(20px);
     display: flex;
     justify-content: center;
@@ -763,7 +763,7 @@ body::before {
 
 .payment-modal-content {
     position: fixed;
-    top: 50%;
+    top: 40%;
     left: 50%;
     transform: translate(-50%, -50%);
     background: rgba(10, 10, 26, 0.95);
@@ -779,11 +779,13 @@ body::before {
         0 4px 24px rgba(0, 0, 0, 0.3),
         0 0 60px rgba(0, 245, 255, 0.5),
         inset 0 0 60px rgba(176, 38, 255, 0.1);
+    transition: transform 0.3s ease;
 }
 
 /* Сдвиг модального окна вверх при фокусе на input (для клавиатуры на мобильных) */
-.payment-modal-content:has(input:focus) {
-    transform: translate(-50%, -30%) !important;
+.payment-modal-content:has(input:focus),
+.payment-modal-content.input-focused {
+    transform: translate(-50%, -60%) !important;
 }
 
 .payment-modal-content h3 {
@@ -919,8 +921,24 @@ body::before {
 }
 
 /* Withdrawal Modal - Адаптивность и корректная работа с клавиатурой */
+#withdrawal-modal {
+    z-index: 10001;
+    background: rgba(0, 0, 0, 0.85);
+}
+
 #withdrawal-modal .payment-modal-content {
+    position: fixed;
+    top: 40%;
+    left: 50%;
+    transform: translate(-50%, -50%);
     padding-bottom: 20vh; /* Дополнительный отступ снизу для клавиатуры */
+    transition: transform 0.3s ease;
+}
+
+/* Сдвиг модального окна вывода вверх при фокусе на input */
+#withdrawal-modal .payment-modal-content:has(input:focus),
+#withdrawal-modal .payment-modal-content.input-focused {
+    transform: translate(-50%, -60%) !important;
 }
 
 #withdrawal-address-input {
@@ -977,79 +995,6 @@ body::before {
     #buy-games-with-winnings-btn {
         font-size: 12px;
         padding: 10px 16px;
-    }
-}
-
-/* Улучшенная адаптивность для очень маленьких экранов */
-@media (max-width: 320px) {
-    .btn {
-        font-size: 12px;
-        padding: 8px 12px;
-    }
-    
-    .payment-modal-content {
-        padding: 15px;
-    }
-    
-    .payment-modal-content h3 {
-        font-size: 18px;
-    }
-}
-
-/* Withdrawal Modal - Адаптивность и корректная работа с клавиатурой */
-#withdrawal-modal .payment-modal-content {
-    padding-bottom: 20vh; /* Дополнительный отступ снизу для клавиатуры */
-}
-
-#withdrawal-address-input {
-    font-family: 'Courier New', monospace;
-}
-
-/* Telegram-совместимые цвета (fallback если переменные Telegram не доступны) */
-:root {
-    --tg-button-color: var(--tg-theme-button-color, #2481cc);
-    --tg-bg-color: var(--tg-theme-bg-color, #ffffff);
-    --tg-text-color: var(--tg-theme-text-color, #000000);
-    --tg-hint-color: var(--tg-theme-hint-color, #999999);
-}
-
-/* Адаптивность для маленьких экранов */
-@media (max-width: 360px) {
-    .btn {
-        font-size: 13px;
-        padding: 10px 16px;
-        min-width: auto;
-        max-width: 100%;
-        word-wrap: break-word;
-        white-space: normal;
-    }
-    
-    .payment-modal-content {
-        width: 95%;
-        padding: 20px;
-        max-width: 95%;
-    }
-    
-    .payment-modal-content h3 {
-        font-size: 20px;
-    }
-    
-    .payment-modal-content p {
-        font-size: 13px;
-    }
-    
-    #buy-games-section {
-        padding: 15px;
-    }
-    
-    #buy-games-section strong {
-        font-size: 16px;
-    }
-    
-    .btn-buy {
-        font-size: 12px;
-        padding: 10px 16px;
-        min-width: 100px;
     }
 }
 

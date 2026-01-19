@@ -5,6 +5,9 @@ FROM node:18-alpine
 
 WORKDIR /app
 
+# Устанавливаем инструменты сборки для компиляции бинарных зависимостей (PostgreSQL, etc.)
+RUN apk add --no-cache python3 make g++
+
 # Копируем package files
 COPY package*.json ./
 

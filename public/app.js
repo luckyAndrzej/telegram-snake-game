@@ -459,13 +459,17 @@ function initSocket() {
   // Обработчик успешной покупки игр с выигрышного баланса
   socket.on('buy_games_success', (data) => {
     console.log('✅ Игры куплены за выигрыши:', data);
+    
+    // Обновляем баланс на экране без перезагрузки
     updateBalance(data.games_balance, data.winnings_ton);
     
-    // Восстанавливаем текст кнопки
+    // Восстанавливаем кнопку: разблокируем и возвращаем оригинальный текст
     const buyBtn = document.getElementById('buy-games-with-winnings-btn');
     if (buyBtn) {
       buyBtn.disabled = false;
-      buyBtn.innerHTML = '<span>🔄 Buy Games with Winnings (1 TON = 1 Game)</span>';
+      buyBtn.innerHTML = buyBtn.dataset.originalText || '<span>🔄 Buy Games with Winnings (1 TON = 1 Game)</span>';
+      buyBtn.style.opacity = '1';
+      buyBtn.style.cursor = 'pointer';
     }
     
     tg.showAlert(`✅ Куплено ${data.games_purchased} игр за ${data.games_purchased} TON выигрышей!`);
@@ -475,11 +479,13 @@ function initSocket() {
   socket.on('buy_games_error', (data) => {
     const errorMessage = data.message || 'Ошибка при покупке игр';
     
-    // Восстанавливаем текст кнопки при ошибке
+    // Восстанавливаем кнопку при ошибке: разблокируем и возвращаем оригинальный текст
     const buyBtn = document.getElementById('buy-games-with-winnings-btn');
     if (buyBtn) {
       buyBtn.disabled = false;
-      buyBtn.innerHTML = '<span>🔄 Buy Games with Winnings (1 TON = 1 Game)</span>';
+      buyBtn.innerHTML = buyBtn.dataset.originalText || '<span>🔄 Buy Games with Winnings (1 TON = 1 Game)</span>';
+      buyBtn.style.opacity = '1';
+      buyBtn.style.cursor = 'pointer';
     }
     
     tg.showAlert(`❌ Ошибка: ${errorMessage}`);
@@ -621,7 +627,10 @@ function initEventListeners() {
   
   // Buy Games with Winnings button
   document.getElementById('buy-games-with-winnings-btn')?.addEventListener('click', () => {
-    handleBuyGamesWithWinnings(1); // По умолчанию 1 игра за 1 TON
+    const buyBtn = document.getElementById('buy-games-with-winnings-btn');
+    if (buyBtn && !buyBtn.disabled) {
+      handleBuyGamesWithWinnings(1); // По умолчанию 1 игра за 1 TON
+    }
   });
   
   // Withdrawal modal buttons
@@ -976,8 +985,8 @@ function sendDirection(direction) {
     return; // Мгновенно прерываем - не отправляем команду
   }
   
-  // CLIENT-SIDE PREDICTION: мгновенно обновляем локальное состояние змейки
-  if (predictedSnakeState && gameStateData && gameStateData.my_snake) {
+  // CLIENT-SIDE PREDICTION: мгновенно обновляем локальное состояние змейки для визуального отклика
+  if (gameStateData && gameStateData.my_snake) {
     const newDirection = {
       'up': { dx: 0, dy: -1 },
       'down': { dx: 0, dy: 1 },
@@ -986,8 +995,19 @@ function sendDirection(direction) {
     }[direction];
     
     if (newDirection) {
-      // Обновляем направление в предсказанном состоянии
+      // Инициализируем предсказанное состояние, если его еще нет
+      if (!predictedSnakeState) {
+        predictedSnakeState = JSON.parse(JSON.stringify(gameStateData.my_snake));
+      }
+      
+      // МГНОВЕННО обновляем направление в предсказанном состоянии
+      // Это заставит змейку визуально повернуться сразу же
       predictedSnakeState.direction = newDirection;
+      
+      // Также обновляем направление в текущем gameStateData для мгновенного отображения
+      if (gameStateData.my_snake) {
+        gameStateData.my_snake.direction = newDirection;
+      }
       
       // Сохраняем команду в очередь для reconciliation
       const commandId = Date.now();
@@ -999,6 +1019,27 @@ function sendDirection(direction) {
       
       // Обновляем currentDirection для следующей проверки
       currentDirection = direction;
+      
+      // Принудительно перерисовываем кадр для мгновенного визуального отклика
+      if (animationFrameId) {
+        // Запускаем немедленную перерисовку
+        requestAnimationFrame(() => {
+          if (gameCanvas && gameCtx && gameStateData) {
+            const tileSize = canvasLogicalSize / 30;
+            gameCtx.clearRect(0, 0, canvasLogicalSize, canvasLogicalSize);
+            gameCtx.fillStyle = '#0a0e27';
+            gameCtx.fillRect(0, 0, canvasLogicalSize, canvasLogicalSize);
+            drawGrid();
+            
+            // Рисуем с обновленным направлением
+            const snakeToDraw = predictedSnakeState || gameStateData.my_snake;
+            drawSnake(snakeToDraw, '#ff4444', '#ff6666');
+            if (gameStateData.opponent_snake) {
+              drawSnake(gameStateData.opponent_snake, '#4444ff', '#6666ff');
+            }
+          }
+        });
+      }
     }
   }
   
@@ -1108,21 +1149,22 @@ function setupWithdrawalInputHandlers() {
   const withdrawalModal = document.getElementById('withdrawal-modal');
   
   if (withdrawalInput && withdrawalModal) {
-    // При фокусе на input прокручиваем модалку в видимую область
+    // При фокусе на input сдвигаем модалку вверх для видимости поля ввода
     withdrawalInput.addEventListener('focus', () => {
       setTimeout(() => {
         const modalContent = withdrawalModal.querySelector('.payment-modal-content');
         if (modalContent) {
-          modalContent.scrollIntoView({ behavior: 'smooth', block: 'center' });
+          // Добавляем класс для сдвига вверх через CSS
+          modalContent.classList.add('input-focused');
         }
-      }, 300); // Небольшая задержка для появления клавиатуры
+      }, 100); // Небольшая задержка для появления клавиатуры
     });
     
-    // При потере фокуса возвращаем модалку в центр
+    // При потере фокуса возвращаем модалку в исходное положение
     withdrawalInput.addEventListener('blur', () => {
       const modalContent = withdrawalModal.querySelector('.payment-modal-content');
       if (modalContent) {
-        modalContent.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        modalContent.classList.remove('input-focused');
       }
     });
   }
@@ -1287,8 +1329,15 @@ function handleBuyGamesWithWinnings(amount = 1) {
   
   const buyBtn = document.getElementById('buy-games-with-winnings-btn');
   if (buyBtn) {
+    // Сохраняем оригинальный текст
+    const originalText = buyBtn.innerHTML;
+    buyBtn.dataset.originalText = originalText;
+    
+    // Блокируем кнопку и меняем текст
     buyBtn.disabled = true;
     buyBtn.innerHTML = '<span>⏳ Processing...</span>';
+    buyBtn.style.opacity = '0.6';
+    buyBtn.style.cursor = 'not-allowed';
   }
   
   console.log(`📤 Отправляю запрос на покупку ${amount} игр за выигрыши...`);
