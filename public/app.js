@@ -512,11 +512,13 @@ function initSocket() {
     const buyBtn = document.getElementById('buy-games-with-winnings-btn');
     if (buyBtn) {
       buyBtn.disabled = false;
+      buyBtn.classList.remove('processing');
       // Восстанавливаем оригинальный текст из dataset или используем дефолтный
       const originalText = buyBtn.dataset.originalText || '🔄 Buy Games with Winnings (1 TON = 1 Game)';
       buyBtn.innerHTML = originalText;
       buyBtn.style.opacity = '1';
       buyBtn.style.cursor = 'pointer';
+      buyBtn.style.transform = '';
     }
     
     tg.showAlert(`✅ Куплено ${data.games_purchased} игр за ${data.games_purchased} TON выигрышей!`);
@@ -535,10 +537,12 @@ function initSocket() {
     const buyBtn = document.getElementById('buy-games-with-winnings-btn');
     if (buyBtn) {
       buyBtn.disabled = false;
+      buyBtn.classList.remove('processing');
       const originalText = buyBtn.dataset.originalText || '🔄 Buy Games with Winnings (1 TON = 1 Game)';
       buyBtn.innerHTML = originalText;
       buyBtn.style.opacity = '1';
       buyBtn.style.cursor = 'pointer';
+      buyBtn.style.transform = '';
     }
   });
   
@@ -550,9 +554,11 @@ function initSocket() {
     const buyBtn = document.getElementById('buy-games-with-winnings-btn');
     if (buyBtn) {
       buyBtn.disabled = false;
+      buyBtn.classList.remove('processing');
       buyBtn.innerHTML = buyBtn.dataset.originalText || '<span>🔄 Buy Games with Winnings (1 TON = 1 Game)</span>';
       buyBtn.style.opacity = '1';
       buyBtn.style.cursor = 'pointer';
+      buyBtn.style.transform = '';
     }
     
     tg.showAlert(`❌ Ошибка: ${errorMessage}`);
@@ -1350,14 +1356,37 @@ function handleBuyGamesWithWinnings(amount = 1) {
       buyBtn.dataset.originalText = buyBtn.innerHTML;
     }
     
-    // Блокируем кнопку и меняем текст
+    // ВИЗУАЛЬНАЯ ИНДИКАЦИЯ: блокируем кнопку и показываем состояние загрузки
     buyBtn.disabled = true;
+    buyBtn.classList.add('processing');
     buyBtn.innerHTML = '<span>⏳ Processing...</span>';
-    buyBtn.style.opacity = '0.6';
+    buyBtn.style.opacity = '0.7';
     buyBtn.style.cursor = 'not-allowed';
+    buyBtn.style.transform = 'scale(0.98)'; // Визуальный отклик нажатия
+    
+    // Восстанавливаем transform через небольшую задержку для плавности
+    setTimeout(() => {
+      if (buyBtn) {
+        buyBtn.style.transform = '';
+      }
+    }, 150);
   }
   
   console.log(`📤 Отправляю запрос на покупку ${amount} игр за выигрыши...`);
+  
+  // Проверяем подключение сокета
+  if (!socket || !socket.connected) {
+    tg.showAlert('❌ Нет подключения к серверу. Пожалуйста, обновите страницу.');
+    // Восстанавливаем кнопку при ошибке подключения
+    if (buyBtn) {
+      buyBtn.disabled = false;
+      buyBtn.classList.remove('processing');
+      buyBtn.innerHTML = buyBtn.dataset.originalText || '<span>🔄 Buy Games with Winnings (1 TON = 1 Game)</span>';
+      buyBtn.style.opacity = '1';
+      buyBtn.style.cursor = 'pointer';
+    }
+    return;
+  }
   
   // Отправляем запрос без callback (ответ придет через socket.on)
   socket.emit('buyGamesWithWinnings', { amount });

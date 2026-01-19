@@ -287,6 +287,33 @@ body::before {
 .btn-primary {
     background: linear-gradient(135deg, var(--neon-cyan) 0%, var(--neon-blue) 100%);
     color: #0a0a1a;
+}
+
+/* Индикация обработки для кнопок покупки */
+.btn.processing,
+#buy-games-with-winnings-btn.processing {
+    position: relative;
+    pointer-events: none;
+    animation: processing-pulse 1.5s ease-in-out infinite;
+}
+
+@keyframes processing-pulse {
+    0%, 100% {
+        opacity: 0.7;
+        box-shadow: 0 0 20px rgba(0, 245, 255, 0.5);
+    }
+    50% {
+        opacity: 0.9;
+        box-shadow: 0 0 30px rgba(0, 245, 255, 0.8);
+    }
+}
+
+/* Визуальный отклик на нажатие кнопки */
+.btn:active,
+#buy-games-with-winnings-btn:active {
+    transform: scale(0.98);
+    transition: transform 0.1s ease;
+}
     box-shadow: 
         0 4px 20px rgba(0, 245, 255, 0.4),
         0 0 40px rgba(0, 245, 255, 0.2),
@@ -773,7 +800,7 @@ body::before {
     display: none;
     justify-content: center;
     align-items: center;
-    z-index: 10001;
+    z-index: 99999 !important;
     -webkit-tap-highlight-color: transparent;
     opacity: 0;
     transition: opacity 0.3s ease;
@@ -781,14 +808,14 @@ body::before {
 
 .payment-modal.modal-visible {
     display: flex !important;
-    opacity: 1;
+    opacity: 1 !important;
 }
 
 .payment-modal-content {
     position: fixed;
-    left: 50%;
-    top: 15% !important;
-    transform: translateX(-50%) !important;
+    left: 50% !important;
+    top: 50% !important;
+    transform: translate(-50%, -50%) !important;
     background: rgba(10, 10, 26, 0.95);
     backdrop-filter: blur(30px);
     border: 2px solid var(--neon-cyan);
@@ -796,7 +823,7 @@ body::before {
     padding: 30px 25px;
     width: calc(100% - 40px);
     max-width: 400px;
-    max-height: 70vh;
+    max-height: 80vh;
     overflow-y: auto;
     box-shadow: 
         0 4px 24px rgba(0, 0, 0, 0.3),
@@ -804,10 +831,12 @@ body::before {
         inset 0 0 60px rgba(176, 38, 255, 0.1);
     transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
     opacity: 0;
+    z-index: 100000 !important;
 }
 
 .payment-modal.modal-visible .payment-modal-content {
-    opacity: 1;
+    opacity: 1 !important;
+    transform: translate(-50%, -50%) !important;
 }
 
 .payment-modal-content h3 {
@@ -973,10 +1002,10 @@ body::before {
 
 #withdrawal-modal .payment-modal-content {
     position: fixed;
-    left: 50%;
-    top: 15% !important;
-    transform: translateX(-50%) !important;
-    z-index: 99999;
+    left: 50% !important;
+    top: 50% !important;
+    transform: translate(-50%, -50%) !important;
+    z-index: 100000 !important;
     background: rgba(10, 10, 26, 0.95);
     backdrop-filter: blur(30px);
     border: 2px solid var(--neon-cyan);
@@ -990,12 +1019,13 @@ body::before {
         0 4px 24px rgba(0, 0, 0, 0.3),
         0 0 60px rgba(0, 245, 255, 0.5),
         inset 0 0 60px rgba(176, 38, 255, 0.1);
-    transition: opacity 0.3s ease;
+    transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
     opacity: 0;
 }
 
 #withdrawal-modal.modal-visible .payment-modal-content {
-    opacity: 1;
+    opacity: 1 !important;
+    transform: translate(-50%, -50%) !important;
 }
 
 /* Поле ввода адреса - предотвращение авто-зума на iPhone */
@@ -1020,11 +1050,13 @@ body::before {
     font-size: 16px !important;
 }
 
-/* Медиа-запрос: если высота экрана уменьшается (открыта клавиатура), поднимаем модалку */
+/* Медиа-запрос: если высота экрана уменьшается (открыта клавиатура), центрируем модалку */
 @media (max-height: 600px) {
     .payment-modal-content,
     #withdrawal-modal .payment-modal-content {
-        top: 15%;
+        top: 50% !important;
+        transform: translate(-50%, -50%) !important;
+        max-height: 85vh;
     }
 }
 
