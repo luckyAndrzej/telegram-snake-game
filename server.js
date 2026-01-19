@@ -22,7 +22,10 @@ const http = require('http');
 const { Server } = require('socket.io');
 const cors = require('cors');
 const db = require('./db/database');
-const { initUser, getUser, updateUser } = require('./db/users');
+const { initUser, getUser, updateUser, buyGamesWithWinnings } = require('./db/users');
+const { initializeDatabase } = require('./models/User');
+const { migrateUsersFromJSON } = require('./db/migrate');
+const { User } = require('./models/User');
 const gameLogic = require('./game/gameLogic');
 const gameLoop = require('./game/gameLoop');
 const paymentModule = require('./payment/paymentHandler');
@@ -77,7 +80,18 @@ const GAME_CONFIG = {
 
 // Инициализация базы данных
 db.init().then(async () => {
-  console.log('✅ База данных инициализирована');
+  console.log('✅ База данных (lowdb) инициализирована');
+  
+  // Инициализация PostgreSQL (если DATABASE_URL задана)
+  const pgInitialized = await initializeDatabase();
+  
+  if (pgInitialized) {
+    // Миграция пользователей из JSON в PostgreSQL
+    console.log('📋 Начинаем миграцию пользователей из JSON в PostgreSQL...');
+    await migrateUsersFromJSON();
+  } else {
+    console.warn('⚠️ PostgreSQL не инициализирован, используется lowdb (JSON)');
+  }
   
   // Инициализация файлов для TON платежей (если не DEBUG_MODE)
   if (!DEBUG_MODE) {
@@ -273,6 +287,46 @@ io.on('connection', async (socket) => {
     } catch (error) {
       socket.emit('error', {
         message: error.message || 'Error initiating purchase'
+      });
+    }
+  });
+  
+  // Обработчик покупки игр с выигрышного баланса (Реинвест)
+  socket.on('buyGamesWithWinnings', async (data) => {
+    try {
+      const { amount = 1 } = data;
+      
+      if (!amount || amount <= 0 || !Number.isInteger(amount)) {
+        socket.emit('buy_games_error', {
+          message: 'Некорректное количество игр (должно быть целое число >= 1)'
+        });
+        return;
+      }
+      
+      console.log(`📥 Запрос на покупку ${amount} игр за выигрыши от пользователя: ${userId}`);
+      
+      // Используем функцию buyGamesWithWinnings с транзакцией
+      const result = await buyGamesWithWinnings(userId, amount);
+      
+      if (result.success) {
+        // Отправляем успешный ответ с обновленными данными
+        socket.emit('buy_games_success', {
+          games_purchased: result.gamesPurchased,
+          games_balance: result.user.games_balance,
+          winnings_ton: result.user.winnings_ton
+        });
+        
+        console.log(`✅ Игрок ${userId} успешно купил ${result.gamesPurchased} игр за выигрыши`);
+      } else {
+        socket.emit('buy_games_error', {
+          message: result.error || 'Ошибка при покупке игр'
+        });
+        console.log(`❌ Ошибка покупки игр для игрока ${userId}: ${result.error}`);
+      }
+    } catch (error) {
+      console.error(`❌ Ошибка при покупке игр за выигрыши:`, error);
+      socket.emit('buy_games_error', {
+        message: error.message || 'Ошибка при покупке игр'
       });
     }
   });
@@ -510,7 +564,7 @@ io.on('connection', async (socket) => {
       // БЕЗОПАСНЫЙ ВЫВОД: Списываем баланс ТОЛЬКО после успешной отправки транзакции
       if (transactionSuccess) {
         const newWinnings = Math.max(0, (user.winnings_ton || 0) - amount);
-        updateUser(userId, {
+        await updateUser(userId, {
           winnings_ton: newWinnings
         });
         console.log('💰 Баланс списан ПОСЛЕ успешной отправки транзакции:', { 
@@ -561,7 +615,7 @@ io.on('connection', async (socket) => {
       });
       
       // Отправляем успешный ответ
-      const updatedUser = getUser(userId);
+      const updatedUser = await getUser(userId);
       socket.emit('withdrawal_success', {
         amount,
         txHash,
@@ -933,37 +987,36 @@ async function endGame(gameId, winnerId, loserId) {
       prize = 0;
     } else {
       try {
-        // Получаем пользователя через getUser
-        const winner = getUser(winnerId);
+        // Получаем пользователя через Sequelize
+        const winnerModel = await User.findByPk(winnerId.toString());
         
         // Проверяем, что это не бот (боты не имеют записи в БД)
         // Начисляем выигрыш только реальному игроку
-        if (winner && winner.tg_id) {
-          // Инициализируем поля, если их нет
-          const oldWinnings = winner.winnings_ton || 0;
-          const oldTotalEarned = winner.totalEarned || 0;
+        if (winnerModel) {
+          // Получаем текущие значения
+          const oldWinnings = winnerModel.winningsTon || 0;
+          const oldTotalEarned = winnerModel.totalEarned || 0;
           
-          // Прибавляем 1.5 TON к winnings_ton (используем как withdrawalBalance)
-          const newWinnings = oldWinnings + winAmount;
-          const newTotalEarned = oldTotalEarned + winAmount;
+          // Начисляем выигрыш напрямую в базу через increment
+          await winnerModel.increment('winningsTon', { by: winAmount });
+          await winnerModel.increment('totalEarned', { by: winAmount });
           
-          // Обновляем данные через updateUser (lowdb автоматически сохраняет через .write())
-          updateUser(winnerId, {
-            winnings_ton: newWinnings,
-            totalEarned: newTotalEarned
-          });
+          // Обновляем модель после increment
+          await winnerModel.reload();
           
           prize = winAmount;
           
           // Жирное логирование начисления
           console.log('\n========================================');
-          console.log(`💰 ВЫИГРЫШ ЗАЧИСЛЕН: Игрок ${winnerId}, новый баланс: ${newWinnings} TON`);
-          console.log(`   withdrawalBalance (winnings_ton): ${oldWinnings} -> ${newWinnings} TON`);
-          console.log(`   totalEarned: ${oldTotalEarned} -> ${newTotalEarned} TON`);
+          console.log(`💰 ВЫИГРЫШ ЗАЧИСЛЕН: Игрок ${winnerId}, новый баланс: ${winnerModel.winningsTon} TON`);
+          console.log(`   withdrawalBalance (winnings_ton): ${oldWinnings} -> ${winnerModel.winningsTon} TON`);
+          console.log(`   totalEarned: ${oldTotalEarned} -> ${winnerModel.totalEarned} TON`);
           console.log('========================================\n');
           
+          // Получаем обновленного пользователя для отправки
+          const updatedUser = await getUser(winnerId);
+          
           // Сразу отправляем обновленный баланс игроку через Socket.io
-          const updatedUser = getUser(winnerId);
           io.to(`user_${winnerId}`).emit('balance_updated', {
             games_balance: updatedUser.games_balance,
             winnings_ton: updatedUser.winnings_ton
@@ -974,8 +1027,39 @@ async function endGame(gameId, winnerId, loserId) {
           
           console.log(`📤 Отправлен обновленный баланс игроку ${winnerId}: winnings=${updatedUser.winnings_ton} TON`);
         } else {
-          console.log(`⚠️ Победитель ${winnerId} не найден в БД или является ботом. Выигрыш не начисляется.`);
-          prize = 0;
+          console.log(`⚠️ Победитель ${winnerId} не найден в PostgreSQL. Попытка через getUser...`);
+          // Попытка получить через getUser (fallback на JSON если используется)
+          try {
+            const winner = await getUser(winnerId);
+            
+            if (winner && winner.tg_id) {
+              const oldWinnings = winner.winnings_ton || 0;
+              const oldTotalEarned = winner.totalEarned || 0;
+              const newWinnings = oldWinnings + winAmount;
+              const newTotalEarned = oldTotalEarned + winAmount;
+              
+              await updateUser(winnerId, {
+                winnings_ton: newWinnings,
+                totalEarned: newTotalEarned
+              });
+              
+              prize = winAmount;
+              const updatedUser = await getUser(winnerId);
+              
+              console.log(`💰 ВЫИГРЫШ ЗАЧИСЛЕН (JSON fallback): Игрок ${winnerId}, новый баланс: ${updatedUser.winnings_ton} TON`);
+              
+              io.to(`user_${winnerId}`).emit('balance_updated', {
+                games_balance: updatedUser.games_balance,
+                winnings_ton: updatedUser.winnings_ton
+              });
+            } else {
+              console.log(`⚠️ Победитель ${winnerId} не найден в БД или является ботом. Выигрыш не начисляется.`);
+              prize = 0;
+            }
+          } catch (error) {
+            console.error(`❌ Ошибка получения пользователя ${winnerId} через getUser:`, error.message);
+            prize = 0;
+          }
         }
       } catch (error) {
         console.error(`❌ Ошибка при начислении приза:`, error);

@@ -446,6 +446,19 @@ function initSocket() {
       alert(message);
     }
   });
+  
+  // Обработчик успешной покупки игр с выигрышного баланса
+  socket.on('buy_games_success', (data) => {
+    console.log('✅ Игры куплены за выигрыши:', data);
+    updateBalance(data.games_balance, data.winnings_ton);
+    tg.showAlert(`✅ Куплено ${data.games_purchased} игр за ${data.games_purchased} TON выигрышей!`);
+  });
+  
+  // Обработчик ошибки покупки игр с выигрышного баланса
+  socket.on('buy_games_error', (data) => {
+    const errorMessage = data.message || 'Ошибка при покупке игр';
+    tg.showAlert(`❌ Ошибка: ${errorMessage}`);
+  });
 }
 
 /**
@@ -576,6 +589,11 @@ function initEventListeners() {
       const packageId = document.getElementById(btnId).getAttribute('data-package');
       createPayment(packageId);
     });
+  });
+  
+  // Buy Games with Winnings button
+  document.getElementById('buy-games-with-winnings-btn')?.addEventListener('click', () => {
+    handleBuyGamesWithWinnings(1); // По умолчанию 1 игра за 1 TON
   });
   
   // Withdrawal modal buttons
@@ -1144,6 +1162,38 @@ function confirmWithdrawal() {
 }
 
 /**
+ * Покупка игр с выигрышного баланса
+ */
+function handleBuyGamesWithWinnings(amount = 1) {
+  const winningsEl = document.getElementById('winnings-balance');
+  const currentWinnings = parseFloat(winningsEl?.textContent?.replace(' TON', '') || '0');
+  
+  if (currentWinnings < amount) {
+    tg.showAlert(`❌ Недостаточно выигрышей! Доступно: ${currentWinnings.toFixed(2)} TON, требуется: ${amount} TON`);
+    return;
+  }
+  
+  const buyBtn = document.getElementById('buy-games-with-winnings-btn');
+  if (buyBtn) {
+    buyBtn.disabled = true;
+    buyBtn.innerHTML = '<span>⏳ Processing...</span>';
+  }
+  
+  console.log(`📤 Отправляю запрос на покупку ${amount} игр за выигрыши...`);
+  
+  socket.emit('buyGamesWithWinnings', { amount }, (response) => {
+    if (buyBtn) {
+      buyBtn.disabled = false;
+      buyBtn.innerHTML = '<span>🔄 Buy Games with Winnings (1 TON = 1 Game)</span>';
+    }
+    
+    if (response && response.success === false) {
+      tg.showAlert(`❌ Ошибка: ${response.error || 'Ошибка при покупке игр'}`);
+    }
+  });
+}
+
+/**
  * Обновление баланса
  */
 function updateBalance(gamesBalance, winningsTon) {
@@ -1152,6 +1202,13 @@ function updateBalance(gamesBalance, winningsTon) {
   
   if (gamesEl) gamesEl.textContent = gamesBalance || 0;
   if (winningsEl) winningsEl.textContent = `${(winningsTon || 0).toFixed(2)} TON`;
+  
+  // Показываем/скрываем кнопку покупки игр с выигрышного баланса
+  const buyWithWinningsBtn = document.getElementById('buy-games-with-winnings-btn');
+  if (buyWithWinningsBtn) {
+    const hasWinnings = winningsTon && winningsTon >= 1;
+    buyWithWinningsBtn.style.display = hasWinnings ? 'block' : 'none';
+  }
 }
 
 /**
