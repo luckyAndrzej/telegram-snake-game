@@ -664,6 +664,11 @@ function initEventListeners() {
     const withdrawalModal = document.getElementById('withdrawal-modal');
     if (withdrawalModal) {
       withdrawalModal.style.display = 'none';
+      // Убираем класс input-focused при закрытии
+      const modalContent = withdrawalModal.querySelector('.payment-modal-content');
+      if (modalContent) {
+        modalContent.classList.remove('input-focused');
+      }
     }
   });
   
@@ -671,6 +676,11 @@ function initEventListeners() {
   document.getElementById('withdrawal-modal')?.addEventListener('click', (e) => {
     if (e.target.id === 'withdrawal-modal') {
       e.target.style.display = 'none';
+      // Убираем класс input-focused при закрытии
+      const modalContent = e.target.querySelector('.payment-modal-content');
+      if (modalContent) {
+        modalContent.classList.remove('input-focused');
+      }
     }
   });
   
@@ -1268,7 +1278,7 @@ function handleWithdraw() {
   withdrawalAddressInput.addEventListener('focus', handleInputFocus);
   withdrawalAddressInput.addEventListener('blur', handleInputBlur);
   
-  // Показываем модальное окно
+  // Показываем модальное окно (устанавливаем display: flex для отображения)
   withdrawalModal.style.display = 'flex';
   
   // Прокручиваем к полю ввода если нужно

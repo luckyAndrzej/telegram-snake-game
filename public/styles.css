@@ -929,9 +929,15 @@ body::before {
     height: 100vh !important;
     z-index: 99999 !important;
     background: rgba(0, 0, 0, 0.8) !important;
-    display: flex !important;
+    display: none !important; /* Скрыто по умолчанию, открывается только при нажатии кнопки */
     justify-content: center !important;
     align-items: center !important;
+}
+
+/* Когда модальное окно открыто (через JavaScript устанавливается display: flex) */
+#withdrawal-modal[style*="display: flex"],
+#withdrawal-modal[style*="display:flex"] {
+    display: flex !important;
 }
 
 #withdrawal-modal .payment-modal-content {
