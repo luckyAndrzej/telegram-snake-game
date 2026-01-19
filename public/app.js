@@ -1492,6 +1492,7 @@ let previousGameStateData = null; // Предыдущее состояние д�
 let lastGameStateUpdate = 0;
 let animationFrameId = null;
 let interpolationTime = 0; // Время с последнего обновления состояния
+let previousDirection = null; // Предыдущее направление для плавного поворота
 
 // Функция для сохранения данных от сервера (не блокирует отрисовку)
 // + Server Reconciliation: плавная коррекция позиции при расхождении
@@ -1757,7 +1758,7 @@ function stopRenderLoop() {
 
 /**
  * Интерполяция змейки для плавного движения между обновлениями сервера
- * Использует линейную интерполяцию (lerp) для сглаживания движения
+ * Использует линейную интерполяцию (lerp) для сглаживания движения и направления
  */
 function interpolateSnake(previousSnake, currentSnake, t) {
   if (!previousSnake || !currentSnake || !previousSnake.body || !currentSnake.body) {
@@ -1772,8 +1773,34 @@ function interpolateSnake(previousSnake, currentSnake, t) {
   // Клонируем текущую змейку
   const interpolated = JSON.parse(JSON.stringify(currentSnake));
   
+  // Плавная интерполяция направления для плавного поворота
+  if (previousSnake.direction && currentSnake.direction) {
+    const prevDir = previousSnake.direction;
+    const currDir = currentSnake.direction;
+    
+    // Если направление изменилось, плавно интерполируем
+    if (prevDir.dx !== currDir.dx || prevDir.dy !== currDir.dy) {
+      // Используем easing для более плавного поворота
+      const easedT = t * t * (3 - 2 * t); // Smoothstep
+      interpolated.direction = {
+        dx: prevDir.dx + (currDir.dx - prevDir.dx) * easedT,
+        dy: prevDir.dy + (currDir.dy - prevDir.dy) * easedT
+      };
+      
+      // Нормализуем направление (оно должно быть единичным вектором)
+      const length = Math.sqrt(interpolated.direction.dx * interpolated.direction.dx + 
+                               interpolated.direction.dy * interpolated.direction.dy);
+      if (length > 0) {
+        interpolated.direction.dx /= length;
+        interpolated.direction.dy /= length;
+      }
+    }
+  }
+  
   // Интерполируем каждую позицию сегмента для плавного движения
   if (interpolated.body && previousSnake.body) {
+    // Используем easing для более естественного движения
+    const easedT = t * t * (3 - 2 * t); // Smoothstep для более плавного движения
     interpolated.body = currentSnake.body.map((segment, index) => {
       if (index >= previousSnake.body.length) return segment;
       
@@ -1781,8 +1808,6 @@ function interpolateSnake(previousSnake, currentSnake, t) {
       const currSegment = segment;
       
       // Плавная линейная интерполяция позиции (lerp)
-      // Используем easing для более естественного движения
-      const easedT = t * t * (3 - 2 * t); // Smoothstep для более плавного движения
       return {
         x: prevSegment.x + (currSegment.x - prevSegment.x) * easedT,
         y: prevSegment.y + (currSegment.y - prevSegment.y) * easedT
@@ -1821,37 +1846,6 @@ function drawGrid() {
   }
 }
 
-/**
- * Интерполяция змейки между двумя состояниями для плавного движения
- */
-function interpolateSnake(previousSnake, currentSnake, t) {
-  if (!previousSnake || !currentSnake || !previousSnake.body || !currentSnake.body) {
-    return currentSnake; // Если нет предыдущего состояния, возвращаем текущее
-  }
-  
-  if (previousSnake.body.length !== currentSnake.body.length) {
-    return currentSnake; // Если длина изменилась, не интерполируем
-  }
-  
-  // Клонируем текущую змейку
-  const interpolated = JSON.parse(JSON.stringify(currentSnake));
-  
-  // Интерполируем каждую позицию сегмента
-  interpolated.body = currentSnake.body.map((segment, index) => {
-    if (index >= previousSnake.body.length) return segment;
-    
-    const prevSegment = previousSnake.body[index];
-    const currSegment = segment;
-    
-    // Плавная интерполяция позиции (lerp)
-    return {
-      x: prevSegment.x + (currSegment.x - prevSegment.x) * t,
-      y: prevSegment.y + (currSegment.y - prevSegment.y) * t
-    };
-  });
-  
-  return interpolated;
-}
 
 /**
  * Рисование змейки (современный дизайн с градиентами, neon эффектом и глазами по направлению)
@@ -1862,30 +1856,37 @@ function drawSnake(snake, color1, color2) {
   // Используем логический размер canvas (без DPR) для корректной отрисовки
   const tileSize = canvasLogicalSize / 30; // 30 клеток по ширине
   
-  // Определяем направление змейки для глаз
+  // Определяем направление змейки для глаз с плавной интерполяцией
   let direction = snake.direction;
   
-  // Если direction отсутствует, используем жестко заданное направление на основе цвета змейки
-  if (!direction) {
-    // Красная змейка (игрок 1) смотрит вправо, синяя (игрок 2) - влево
-    if (color1 === '#ff4444') {
-      // Игрок 1 - красная змейка, смотрит вправо (лицом к сопернику)
-      direction = { dx: 1, dy: 0 };
-    } else if (color1 === '#4444ff') {
-      // Игрок 2 - синяя змейка, смотрит влево (лицом к сопернику)
-      direction = { dx: -1, dy: 0 };
-    } else if (snake.body.length > 1) {
-      // Если цвет не определен, вычисляем из первых двух сегментов
+  // Если direction отсутствует или некорректно, вычисляем из позиций сегментов
+  if (!direction || (direction.dx === 0 && direction.dy === 0)) {
+    if (snake.body.length > 1) {
+      // Вычисляем направление из первых двух сегментов для более точного отображения
       const head = snake.body[0];
       const next = snake.body[1];
-      direction = {
-        dx: head.x - next.x,
-        dy: head.y - next.y
-      };
+      const dx = head.x - next.x;
+      const dy = head.y - next.y;
+      const length = Math.sqrt(dx * dx + dy * dy);
+      
+      if (length > 0) {
+        direction = { dx: dx / length, dy: dy / length };
+      } else {
+        // Если сегменты на одной позиции, используем направление по умолчанию
+        direction = color1 === '#ff4444' ? { dx: 1, dy: 0 } : { dx: -1, dy: 0 };
+      }
     } else {
-      // По умолчанию вправо
-      direction = { dx: 1, dy: 0 };
+      // По умолчанию: красная змейка вправо, синяя влево
+      direction = color1 === '#ff4444' ? { dx: 1, dy: 0 } : { dx: -1, dy: 0 };
     }
+  }
+  
+  // Нормализуем направление для корректного отображения (должно быть единичным вектором)
+  const dirLength = Math.sqrt(direction.dx * direction.dx + direction.dy * direction.dy);
+  if (dirLength > 0.01) { // Проверка на ненулевое направление
+    direction = { dx: direction.dx / dirLength, dy: direction.dy / dirLength };
+  } else {
+    direction = { dx: 1, dy: 0 }; // Fallback
   }
   
   // Градиент для змейки (переливание от яркого к темному)
@@ -1932,39 +1933,41 @@ function drawSnake(snake, color1, color2) {
       const eyeOffset = size * 0.2;
       const eyeSize = size * 0.12;
       
-      if (direction) {
-        // Вычисляем позицию глаз в зависимости от направления
+      // Вычисляем позицию глаз в зависимости от направления (с учетом плавного поворота)
+      // Используем нормализованное направление для более точного позиционирования
+      const absDx = Math.abs(direction.dx);
+      const absDy = Math.abs(direction.dy);
+      
+      if (absDx > absDy) {
+        // Горизонтальное движение (влево или вправо)
         if (direction.dx > 0) {
           // Движется вправо - глаза справа
           eyeX1 = centerX + eyeOffset * 0.5;
           eyeY1 = centerY - eyeOffset * 0.5;
           eyeX2 = centerX + eyeOffset * 0.5;
           eyeY2 = centerY + eyeOffset * 0.5;
-        } else if (direction.dx < 0) {
+        } else {
           // Движется влево - глаза слева
           eyeX1 = centerX - eyeOffset * 0.5;
           eyeY1 = centerY - eyeOffset * 0.5;
           eyeX2 = centerX - eyeOffset * 0.5;
           eyeY2 = centerY + eyeOffset * 0.5;
-        } else if (direction.dy > 0) {
+        }
+      } else {
+        // Вертикальное движение (вверх или вниз)
+        if (direction.dy > 0) {
           // Движется вниз - глаза внизу
           eyeX1 = centerX - eyeOffset * 0.5;
           eyeY1 = centerY + eyeOffset * 0.5;
           eyeX2 = centerX + eyeOffset * 0.5;
           eyeY2 = centerY + eyeOffset * 0.5;
         } else {
-          // Движется вверх - глаза вверху (по умолчанию)
+          // Движется вверх - глаза вверху
           eyeX1 = centerX - eyeOffset * 0.5;
           eyeY1 = centerY - eyeOffset * 0.5;
           eyeX2 = centerX + eyeOffset * 0.5;
           eyeY2 = centerY - eyeOffset * 0.5;
         }
-      } else {
-        // По умолчанию глаза вверху
-        eyeX1 = centerX - eyeOffset * 0.5;
-        eyeY1 = centerY - eyeOffset * 0.5;
-        eyeX2 = centerX + eyeOffset * 0.5;
-        eyeY2 = centerY - eyeOffset * 0.5;
       }
       
       // Рисуем глаза (белые круги с небольшим свечением)
