@@ -760,46 +760,40 @@ body::before {
 
 /* Payment Modal - Neon */
 .payment-modal {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
-    background: rgba(0, 0, 0, 0.85);
-    backdrop-filter: blur(20px);
-    display: flex;
-    justify-content: center;
-    align-items: center;
-    z-index: 10001;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    background: rgba(0, 0, 0, 0.85) !important;
+    backdrop-filter: blur(20px) !important;
+    display: flex !important;
+    justify-content: center !important;
+    align-items: center !important;
+    z-index: 10001 !important;
     -webkit-tap-highlight-color: transparent;
 }
 
 .payment-modal-content {
-    position: fixed;
-    top: 40%;
-    left: 50%;
-    transform: translate(-50%, -50%);
-    background: rgba(10, 10, 26, 0.95);
-    backdrop-filter: blur(30px);
-    border: 2px solid var(--neon-cyan);
-    border-radius: 16px;
-    padding: 30px 25px;
-    width: calc(100% - 40px);
-    max-width: 400px;
-    max-height: 90vh;
-    overflow-y: auto;
+    position: fixed !important;
+    top: 50% !important;
+    left: 50% !important;
+    transform: translate(-50%, -50%) !important;
+    background: rgba(10, 10, 26, 0.95) !important;
+    backdrop-filter: blur(30px) !important;
+    border: 2px solid var(--neon-cyan) !important;
+    border-radius: 16px !important;
+    padding: 30px 25px !important;
+    width: calc(100% - 40px) !important;
+    max-width: 400px !important;
+    max-height: 90vh !important;
+    overflow-y: auto !important;
     box-shadow: 
         0 4px 24px rgba(0, 0, 0, 0.3),
         0 0 60px rgba(0, 245, 255, 0.5),
-        inset 0 0 60px rgba(176, 38, 255, 0.1);
-    transition: transform 0.3s ease;
-    margin: 0 auto;
-}
-
-/* Сдвиг модального окна вверх при фокусе на input (для клавиатуры на мобильных) */
-.payment-modal-content:has(input:focus),
-.payment-modal-content.input-focused {
-    transform: translate(-50%, -60%) !important;
+        inset 0 0 60px rgba(176, 38, 255, 0.1) !important;
+    transition: transform 0.3s ease, top 0.3s ease !important;
+    margin: 0 auto !important;
 }
 
 .payment-modal-content h3 {
@@ -958,18 +952,18 @@ body::before {
 
 #withdrawal-modal .payment-modal-content {
     position: fixed !important;
-    top: 30% !important;
+    top: 50% !important;
     left: 50% !important;
     transform: translate(-50%, -50%) !important;
     padding-bottom: 20vh; /* Дополнительный отступ снизу для клавиатуры */
-    transition: transform 0.3s ease, top 0.3s ease;
+    transition: top 0.3s ease !important;
     z-index: 99999 !important;
     background: rgba(10, 10, 26, 0.95) !important;
     backdrop-filter: blur(30px) !important;
     border: 2px solid var(--neon-cyan) !important;
     border-radius: 16px !important;
-    padding: 35px !important;
-    width: 90% !important;
+    padding: 30px 25px !important;
+    width: calc(100% - 40px) !important;
     max-width: 400px !important;
     max-height: 90vh !important;
     overflow-y: auto !important;
@@ -977,6 +971,7 @@ body::before {
         0 4px 24px rgba(0, 0, 0, 0.3),
         0 0 60px rgba(0, 245, 255, 0.5),
         inset 0 0 60px rgba(176, 38, 255, 0.1) !important;
+    margin: 0 auto !important;
 }
 
 /* Поле ввода адреса - предотвращение авто-зума на iPhone */
@@ -995,23 +990,36 @@ body::before {
     appearance: none !important;
 }
 
-/* Сдвиг модального окна вывода вверх при фокусе на input или уменьшении высоты экрана (клавиатура) */
+/* Сдвиг модального окна вывода вверх при фокусе на input (для клавиатуры на мобильных) */
 #withdrawal-modal .payment-modal-content:has(input:focus),
 #withdrawal-modal .payment-modal-content.input-focused {
-    top: 25% !important;
+    top: 35% !important;
     transform: translate(-50%, -50%) !important;
 }
 
 /* Медиа-запрос: если высота экрана уменьшается (открыта клавиатура), поднимаем модалку */
-@media (max-height: 600px) {
+@media (max-height: 700px) {
     #withdrawal-modal .payment-modal-content {
-        top: 25% !important;
+        top: 40% !important;
         transform: translate(-50%, -50%) !important;
     }
     
     #withdrawal-modal .payment-modal-content:has(input:focus),
     #withdrawal-modal .payment-modal-content.input-focused {
-        top: 20% !important;
+        top: 30% !important;
+        transform: translate(-50%, -50%) !important;
+    }
+}
+
+@media (max-height: 600px) {
+    #withdrawal-modal .payment-modal-content {
+        top: 35% !important;
+        transform: translate(-50%, -50%) !important;
+    }
+    
+    #withdrawal-modal .payment-modal-content:has(input:focus),
+    #withdrawal-modal .payment-modal-content.input-focused {
+        top: 25% !important;
         transform: translate(-50%, -50%) !important;
     }
 }

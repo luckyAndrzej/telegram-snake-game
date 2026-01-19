@@ -1053,26 +1053,9 @@ function sendDirection(direction) {
       // Обновляем currentDirection для следующей проверки
       currentDirection = direction;
       
-      // Принудительно перерисовываем кадр для мгновенного визуального отклика
-      if (gameCanvas && gameCtx && gameStateData) {
-        // Немедленная перерисовка без ожидания следующего кадра
-        requestAnimationFrame(() => {
-          if (gameCanvas && gameCtx && gameStateData) {
-            const tileSize = canvasLogicalSize / 30;
-            gameCtx.clearRect(0, 0, canvasLogicalSize, canvasLogicalSize);
-            gameCtx.fillStyle = '#0a0e27';
-            gameCtx.fillRect(0, 0, canvasLogicalSize, canvasLogicalSize);
-            drawGrid();
-            
-            // Рисуем с обновленным направлением (используем предсказанное состояние)
-            const snakeToDraw = predictedSnakeState || gameStateData.my_snake;
-            drawSnake(snakeToDraw, '#ff4444', '#ff6666');
-            if (gameStateData.opponent_snake) {
-              drawSnake(gameStateData.opponent_snake, '#4444ff', '#6666ff');
-            }
-          }
-        });
-      }
+      // НЕ делаем принудительную перерисовку здесь - это вызывает дергание
+      // Основной цикл отрисовки (startRenderLoop) сам обработает обновление через requestAnimationFrame
+      // Это обеспечит плавное обновление без конфликтов
     }
   }
   
@@ -1189,31 +1172,65 @@ function setupWithdrawalInputHandlers() {
       withdrawalInput.style.appearance = 'none';
     }
     
+    // Отслеживаем изменение высоты viewport (когда открывается/закрывается клавиатура)
+    let initialViewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+    let viewportHeightCheckInterval = null;
+    
+    const adjustModalPosition = () => {
+      const modalContent = withdrawalModal.querySelector('.payment-modal-content');
+      if (!modalContent) return;
+      
+      const currentViewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+      const heightDifference = initialViewportHeight - currentViewportHeight;
+      
+      // Если высота viewport уменьшилась более чем на 150px (клавиатура открыта)
+      if (heightDifference > 150) {
+        modalContent.classList.add('input-focused');
+        // Используем фиксированную позицию относительно видимого viewport
+        const topPercent = Math.max(25, 50 - (heightDifference / initialViewportHeight) * 100);
+        modalContent.style.top = `${topPercent}%`;
+        modalContent.style.transform = 'translate(-50%, -50%)';
+      } else {
+        modalContent.classList.remove('input-focused');
+        modalContent.style.top = '50%';
+        modalContent.style.transform = 'translate(-50%, -50%)';
+      }
+    };
+    
     // При фокусе на input сдвигаем модалку вверх для видимости поля ввода
-    withdrawalInput.addEventListener('focus', (e) => {
-      // Предотвращаем авто-зум и смещение экрана
-      e.preventDefault();
+    withdrawalInput.addEventListener('focus', () => {
+      initialViewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+      
+      // Начинаем отслеживать изменение высоты viewport
+      if (window.visualViewport) {
+        window.visualViewport.addEventListener('resize', adjustModalPosition);
+      } else {
+        viewportHeightCheckInterval = setInterval(adjustModalPosition, 100);
+      }
+      
+      // Немедленная корректировка позиции
+      setTimeout(adjustModalPosition, 200);
+    });
+    
+    // При потере фокуса возвращаем модалку в исходное положение
+    withdrawalInput.addEventListener('blur', () => {
+      // Останавливаем отслеживание изменения высоты viewport
+      if (window.visualViewport) {
+        window.visualViewport.removeEventListener('resize', adjustModalPosition);
+      } else if (viewportHeightCheckInterval) {
+        clearInterval(viewportHeightCheckInterval);
+        viewportHeightCheckInterval = null;
+      }
       
       setTimeout(() => {
         const modalContent = withdrawalModal.querySelector('.payment-modal-content');
         if (modalContent) {
-          // Добавляем класс для сдвига вверх через CSS
-          modalContent.classList.add('input-focused');
+          modalContent.classList.remove('input-focused');
+          modalContent.style.top = '50%';
+          modalContent.style.transform = 'translate(-50%, -50%)';
         }
-        
-        // Прокручиваем input в видимую область без зума
-        if (withdrawalInput) {
-          withdrawalInput.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
-        }
-      }, 100); // Небольшая задержка для появления клавиатуры
-    }, { passive: false });
-    
-    // При потере фокуса возвращаем модалку в исходное положение
-    withdrawalInput.addEventListener('blur', () => {
-      const modalContent = withdrawalModal.querySelector('.payment-modal-content');
-      if (modalContent) {
-        modalContent.classList.remove('input-focused');
-      }
+        initialViewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
+      }, 150);
     });
   }
 }
@@ -1255,36 +1272,20 @@ function handleWithdraw() {
   withdrawalAddressError.textContent = '';
   withdrawalStatus.textContent = '';
   
-  // Обработчик фокуса на input - сдвигаем модальное окно вверх для клавиатуры
-  const handleInputFocus = () => {
-    const modalContent = withdrawalModal.querySelector('.payment-modal-content');
-    if (modalContent) {
-      modalContent.style.transform = 'translate(-50%, -30%)';
-    }
-  };
-  
-  const handleInputBlur = () => {
-    const modalContent = withdrawalModal.querySelector('.payment-modal-content');
-    if (modalContent) {
-      modalContent.style.transform = '';
-    }
-  };
-  
-  // Удаляем старые обработчики если они есть
-  withdrawalAddressInput.removeEventListener('focus', handleInputFocus);
-  withdrawalAddressInput.removeEventListener('blur', handleInputBlur);
-  
-  // Добавляем новые обработчики
-  withdrawalAddressInput.addEventListener('focus', handleInputFocus);
-  withdrawalAddressInput.addEventListener('blur', handleInputBlur);
-  
   // Показываем модальное окно (устанавливаем display: flex для отображения)
   withdrawalModal.style.display = 'flex';
   
-  // Прокручиваем к полю ввода если нужно
-  setTimeout(() => {
-    withdrawalAddressInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
-  }, 100);
+  // Убеждаемся, что модальное окно в правильной начальной позиции
+  const modalContent = withdrawalModal.querySelector('.payment-modal-content');
+  if (modalContent) {
+    // Сбрасываем все inline стили для позиции, чтобы CSS работал правильно
+    modalContent.style.top = '50%';
+    modalContent.style.transform = 'translate(-50%, -50%)';
+    modalContent.classList.remove('input-focused');
+  }
+  
+  // setupWithdrawalInputHandlers уже настроит обработчики фокуса/блура
+  // Не нужно дублировать логику здесь
 }
 
 /**
@@ -1686,10 +1687,16 @@ function startRenderLoop() {
       const interpolatedMySnake = interpolateSnake(previousGameStateData?.my_snake, gameStateData.my_snake, interpolationTime);
       const interpolatedOpponentSnake = interpolateSnake(previousGameStateData?.opponent_snake, gameStateData.opponent_snake, interpolationTime);
       
-      // CLIENT-SIDE PREDICTION: используем предсказанное состояние для моей змейки, если оно есть
-      const snakeToDraw = (predictedSnakeState && interpolationTime < 0.5) 
-        ? mergePredictedWithServer(predictedSnakeState, interpolatedMySnake || gameStateData.my_snake, interpolationTime)
-        : (interpolatedMySnake || gameStateData.my_snake);
+      // CLIENT-SIDE PREDICTION: используем предсказанное состояние для моей змейки
+      // Объединяем предсказанное состояние с интерполированным для плавного отображения
+      let snakeToDraw = interpolatedMySnake || gameStateData.my_snake;
+      
+      if (predictedSnakeState && predictedSnakeState.body && predictedSnakeState.body.length > 0) {
+        // Если есть предсказанное состояние, плавно объединяем его с серверным
+        // Используем более плавную интерполяцию для избежания дергания
+        const blendFactor = Math.min(interpolationTime * 1.5, 0.8); // Ограничиваем до 0.8 для плавности
+        snakeToDraw = mergePredictedWithServer(predictedSnakeState, snakeToDraw, blendFactor);
+      }
       
       drawSnake(snakeToDraw, '#ff4444', '#ff6666');
       drawSnake(interpolatedOpponentSnake || gameStateData.opponent_snake, '#4444ff', '#6666ff');
