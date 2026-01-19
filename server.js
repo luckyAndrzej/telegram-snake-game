@@ -46,7 +46,17 @@ const io = new Server(server, {
   // Включаем compression для быстрой передачи game_state пакетов
   transports: ['websocket', 'polling'],
   compression: true,
-  maxHttpBufferSize: 1e6
+  maxHttpBufferSize: 1e6,
+  // Оптимизация сетевого обмена: отключаем задержку Nagle для мгновенной отправки
+  pingTimeout: 60000,
+  pingInterval: 25000
+});
+
+// Включаем noDelay для всех TCP соединений (мгновенная отправка без буферизации)
+io.engine.on('connection', (socket) => {
+  if (socket.transport && socket.transport.socket && socket.transport.socket.setNoDelay) {
+    socket.transport.socket.setNoDelay(true);
+  }
 });
 
 app.use(cors());

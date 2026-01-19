@@ -992,8 +992,8 @@ function initWaitingCanvas() {
 }
 
 /**
- * Отправка команды направления - упрощенная версия (только emit)
- * Чистая интерполяция без локальных изменений состояния
+ * Отправка команды направления с мгновенной визуальной реакцией
+ * Мгновенно обновляет направление головы для визуального отклика
  */
 function sendDirection(direction) {
   if (!socket || !socket.connected) return;
@@ -1011,7 +1011,30 @@ function sendDirection(direction) {
     return; // Запрещаем поворот на 180°
   }
   
-  // Только отправка на сервер, без локальных изменений состояния
+  // МГНОВЕННАЯ ВИЗУАЛЬНАЯ РЕАКЦИЯ: обновляем направление головы сразу после нажатия
+  // Это заставит голову змейки повернуться визуально в следующем кадре render
+  // Тело будет плавно доезжать по старой траектории благодаря интерполяции
+  if (gameStateData && gameStateData.my_snake) {
+    const newDirection = {
+      'up': { dx: 0, dy: -1 },
+      'down': { dx: 0, dy: 1 },
+      'left': { dx: -1, dy: 0 },
+      'right': { dx: 1, dy: 0 }
+    }[direction];
+    
+    if (newDirection) {
+      // Мгновенно обновляем направление головы для визуального отклика
+      gameStateData.my_snake.direction = newDirection;
+      // Также обновляем previousGameStateData для корректной интерполяции
+      if (previousGameStateData && previousGameStateData.my_snake) {
+        previousGameStateData.my_snake.direction = newDirection;
+      }
+      // Обновляем currentDirection для следующей проверки
+      currentDirection = direction;
+    }
+  }
+  
+  // Отправка на сервер
   socket.emit('direction', direction);
 }
 
@@ -1442,27 +1465,20 @@ function interpolateSnake(previousSnake, currentSnake, t) {
   // Клонируем текущую змейку
   const interpolated = JSON.parse(JSON.stringify(currentSnake));
   
-  // Плавная интерполяция направления для плавного поворота
+  // Направление меняется мгновенно (без плавной интерполяции)
+  // Это обеспечивает мгновенную визуальную реакцию на нажатие клавиш
+  // Если направление изменилось, используем новое направление сразу
   if (previousSnake.direction && currentSnake.direction) {
     const prevDir = previousSnake.direction;
     const currDir = currentSnake.direction;
     
-    // Если направление изменилось, плавно интерполируем
+    // Если направление изменилось, применяем новое направление мгновенно
     if (prevDir.dx !== currDir.dx || prevDir.dy !== currDir.dy) {
-      // Используем easing для более плавного поворота
-      const easedT = t * t * (3 - 2 * t); // Smoothstep
-      interpolated.direction = {
-        dx: prevDir.dx + (currDir.dx - prevDir.dx) * easedT,
-        dy: prevDir.dy + (currDir.dy - prevDir.dy) * easedT
-      };
-      
-      // Нормализуем направление (оно должно быть единичным вектором)
-      const length = Math.sqrt(interpolated.direction.dx * interpolated.direction.dx + 
-                               interpolated.direction.dy * interpolated.direction.dy);
-      if (length > 0) {
-        interpolated.direction.dx /= length;
-        interpolated.direction.dy /= length;
-      }
+      // Направление меняется мгновенно для визуального отклика
+      interpolated.direction = currDir;
+    } else {
+      // Если направление не изменилось, сохраняем его
+      interpolated.direction = currDir;
     }
   }
   
