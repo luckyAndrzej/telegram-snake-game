@@ -557,6 +557,9 @@ async function createPayment(packageId) {
 }
 
 function initEventListeners() {
+  // Настройка обработчиков для модального окна вывода
+  setupWithdrawalInputHandlers();
+  
   // Проверка кнопки вывода в DOM
   const withdrawBtnCheck = document.getElementById('withdraw-btn');
   if (withdrawBtnCheck) {
@@ -1061,6 +1064,34 @@ function updatePingDisplay(ping) {
 }
 
 /**
+ * Обработка фокуса на поле ввода адреса для корректной работы с клавиатурой
+ */
+function setupWithdrawalInputHandlers() {
+  const withdrawalInput = document.getElementById('withdrawal-address-input');
+  const withdrawalModal = document.getElementById('withdrawal-modal');
+  
+  if (withdrawalInput && withdrawalModal) {
+    // При фокусе на input прокручиваем модалку в видимую область
+    withdrawalInput.addEventListener('focus', () => {
+      setTimeout(() => {
+        const modalContent = withdrawalModal.querySelector('.payment-modal-content');
+        if (modalContent) {
+          modalContent.scrollIntoView({ behavior: 'smooth', block: 'center' });
+        }
+      }, 300); // Небольшая задержка для появления клавиатуры
+    });
+    
+    // При потере фокуса возвращаем модалку в центр
+    withdrawalInput.addEventListener('blur', () => {
+      const modalContent = withdrawalModal.querySelector('.payment-modal-content');
+      if (modalContent) {
+        modalContent.scrollIntoView({ behavior: 'smooth', block: 'center' });
+      }
+    });
+  }
+}
+
+/**
  * Обработка вывода средств
  */
 function handleWithdraw() {
@@ -1225,16 +1256,8 @@ function handleBuyGamesWithWinnings(amount = 1) {
   
   console.log(`📤 Отправляю запрос на покупку ${amount} игр за выигрыши...`);
   
-  socket.emit('buyGamesWithWinnings', { amount }, (response) => {
-    if (buyBtn) {
-      buyBtn.disabled = false;
-      buyBtn.innerHTML = '<span>🔄 Buy Games with Winnings (1 TON = 1 Game)</span>';
-    }
-    
-    if (response && response.success === false) {
-      tg.showAlert(`❌ Ошибка: ${response.error || 'Ошибка при покупке игр'}`);
-    }
-  });
+  // Отправляем запрос без callback (ответ придет через socket.on)
+  socket.emit('buyGamesWithWinnings', { amount });
 }
 
 /**
@@ -1440,6 +1463,38 @@ function stopRenderLoop() {
     cancelAnimationFrame(animationFrameId);
     animationFrameId = null;
   }
+}
+
+/**
+ * Интерполяция змейки для плавного движения
+ */
+function interpolateSnake(previousSnake, currentSnake, t) {
+  if (!previousSnake || !currentSnake || !previousSnake.body || !currentSnake.body) {
+    return currentSnake;
+  }
+  
+  // Клонируем текущую змейку
+  const interpolated = JSON.parse(JSON.stringify(currentSnake));
+  
+  // Интерполируем каждую позицию сегмента
+  if (interpolated.body && previousSnake.body) {
+    const maxLength = Math.max(interpolated.body.length, previousSnake.body.length);
+    
+    for (let i = 0; i < maxLength; i++) {
+      if (i < interpolated.body.length && i < previousSnake.body.length) {
+        const prev = previousSnake.body[i];
+        const curr = interpolated.body[i];
+        
+        // Линейная интерполяция координат
+        interpolated.body[i] = {
+          x: prev.x + (curr.x - prev.x) * t,
+          y: prev.y + (curr.y - prev.y) * t
+        };
+      }
+    }
+  }
+  
+  return interpolated;
 }
 
 /**

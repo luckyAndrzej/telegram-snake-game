@@ -4,6 +4,11 @@
     box-sizing: border-box;
 }
 
+/* Telegram-совместимые шрифты */
+body, html {
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+}
+
 :root {
     --neon-cyan: #00f5ff;
     --neon-purple: #b026ff;
@@ -295,7 +300,8 @@ body::before {
 }
 
 .btn-primary:active {
-    transform: translateY(-1px);
+    transform: scale(0.98);
+    transition: transform 0.1s;
 }
 
 .btn-secondary {
@@ -742,34 +748,37 @@ body::before {
 /* Payment Modal - Neon */
 .payment-modal {
     position: fixed;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%, -50%);
+    top: 0;
+    left: 0;
     width: 100vw;
     height: 100vh;
-    background: rgba(5, 5, 16, 0.95);
+    background: rgba(0, 0, 0, 0.7);
     backdrop-filter: blur(20px);
     display: flex;
     justify-content: center;
     align-items: center;
-    z-index: 9999;
+    z-index: 10001;
+    -webkit-tap-highlight-color: transparent;
 }
 
 .payment-modal-content {
+    position: fixed;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
     background: rgba(10, 10, 26, 0.95);
     backdrop-filter: blur(30px);
     border: 2px solid var(--neon-cyan);
-    border-radius: 25px;
+    border-radius: 16px;
     padding: 35px;
     width: 90%;
     max-width: 400px;
     max-height: 90vh;
     overflow-y: auto;
     box-shadow: 
+        0 4px 24px rgba(0, 0, 0, 0.3),
         0 0 60px rgba(0, 245, 255, 0.5),
         inset 0 0 60px rgba(176, 38, 255, 0.1);
-    transition: transform 0.3s ease;
-    position: relative;
 }
 
 /* Сдвиг модального окна вверх при фокусе на input (для клавиатуры на мобильных) */
@@ -907,4 +916,155 @@ body::before {
 .snake-color.blue {
     color: var(--neon-cyan);
     text-shadow: 0 0 10px rgba(0, 245, 255, 0.8);
+}
+
+/* Withdrawal Modal - Адаптивность и корректная работа с клавиатурой */
+#withdrawal-modal .payment-modal-content {
+    padding-bottom: 20vh; /* Дополнительный отступ снизу для клавиатуры */
+}
+
+#withdrawal-address-input {
+    font-family: 'Courier New', monospace;
+}
+
+/* Telegram-совместимые цвета (fallback если переменные Telegram не доступны) */
+:root {
+    --tg-button-color: var(--tg-theme-button-color, #2481cc);
+    --tg-bg-color: var(--tg-theme-bg-color, #ffffff);
+    --tg-text-color: var(--tg-theme-text-color, #000000);
+    --tg-hint-color: var(--tg-theme-hint-color, #999999);
+}
+
+/* Адаптивность для маленьких экранов */
+@media (max-width: 360px) {
+    .btn {
+        font-size: 13px;
+        padding: 10px 16px;
+        min-width: auto;
+        max-width: 100%;
+        word-wrap: break-word;
+        white-space: normal;
+    }
+    
+    .payment-modal-content {
+        width: 95%;
+        padding: 20px;
+        max-width: 95%;
+    }
+    
+    .payment-modal-content h3 {
+        font-size: 20px;
+    }
+    
+    .payment-modal-content p {
+        font-size: 13px;
+    }
+    
+    #buy-games-section {
+        padding: 15px;
+    }
+    
+    #buy-games-section strong {
+        font-size: 16px;
+    }
+    
+    .btn-buy {
+        font-size: 12px;
+        padding: 10px 16px;
+        min-width: 100px;
+    }
+    
+    #buy-games-with-winnings-btn {
+        font-size: 12px;
+        padding: 10px 16px;
+    }
+}
+
+/* Улучшенная адаптивность для очень маленьких экранов */
+@media (max-width: 320px) {
+    .btn {
+        font-size: 12px;
+        padding: 8px 12px;
+    }
+    
+    .payment-modal-content {
+        padding: 15px;
+    }
+    
+    .payment-modal-content h3 {
+        font-size: 18px;
+    }
+}
+
+/* Withdrawal Modal - Адаптивность и корректная работа с клавиатурой */
+#withdrawal-modal .payment-modal-content {
+    padding-bottom: 20vh; /* Дополнительный отступ снизу для клавиатуры */
+}
+
+#withdrawal-address-input {
+    font-family: 'Courier New', monospace;
+}
+
+/* Telegram-совместимые цвета (fallback если переменные Telegram не доступны) */
+:root {
+    --tg-button-color: var(--tg-theme-button-color, #2481cc);
+    --tg-bg-color: var(--tg-theme-bg-color, #ffffff);
+    --tg-text-color: var(--tg-theme-text-color, #000000);
+    --tg-hint-color: var(--tg-theme-hint-color, #999999);
+}
+
+/* Адаптивность для маленьких экранов */
+@media (max-width: 360px) {
+    .btn {
+        font-size: 13px;
+        padding: 10px 16px;
+        min-width: auto;
+        max-width: 100%;
+        word-wrap: break-word;
+        white-space: normal;
+    }
+    
+    .payment-modal-content {
+        width: 95%;
+        padding: 20px;
+        max-width: 95%;
+    }
+    
+    .payment-modal-content h3 {
+        font-size: 20px;
+    }
+    
+    .payment-modal-content p {
+        font-size: 13px;
+    }
+    
+    #buy-games-section {
+        padding: 15px;
+    }
+    
+    #buy-games-section strong {
+        font-size: 16px;
+    }
+    
+    .btn-buy {
+        font-size: 12px;
+        padding: 10px 16px;
+        min-width: 100px;
+    }
+}
+
+/* Улучшенная адаптивность для очень маленьких экранов */
+@media (max-width: 320px) {
+    .btn {
+        font-size: 12px;
+        padding: 8px 12px;
+    }
+    
+    .payment-modal-content {
+        padding: 15px;
+    }
+    
+    .payment-modal-content h3 {
+        font-size: 18px;
+    }
 }
