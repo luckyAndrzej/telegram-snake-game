@@ -599,6 +599,7 @@ body::before {
     position: relative;
     flex-shrink: 0;
     padding: 0 10px;
+    transition: opacity 0.3s ease;
 }
 
 .controls-grid {

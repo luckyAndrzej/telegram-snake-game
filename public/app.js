@@ -26,6 +26,18 @@ let previousGameStateData = null; // Предыдущее состояние д�
 let lastGameStateUpdate = 0;
 let animationFrameId = null;
 
+// Input Buffer: очередь команд для предотвращения потери быстрых нажатий
+let inputBuffer = [];
+let lastDirectionSentTime = 0;
+const INPUT_BUFFER_DELAY = 50; // Минимальная задержка между отправками (мс)
+
+// Jitter Buffer: задержка рендеринга для стабилизации интерполяции
+const RENDER_DELAY = 100; // Задержка рендеринга в миллисекундах (чуть меньше одного тика)
+
+// Offscreen canvas для сетки (оптимизация отрисовки)
+let gridCanvas = null;
+let gridCtx = null;
+
 /**
  * Универсальная функция для открытия/закрытия модальных окон
  */
@@ -35,8 +47,20 @@ function toggleModal(modalId, show) {
   
   if (show) {
     modal.classList.add('modal-visible');
+    // Отключаем game-controls при открытом модальном окне
+    const gameControls = document.querySelector('.game-controls');
+    if (gameControls) {
+      gameControls.style.pointerEvents = 'none';
+      gameControls.style.opacity = '0.5';
+    }
   } else {
     modal.classList.remove('modal-visible');
+    // Включаем game-controls обратно при закрытии модального окна
+    const gameControls = document.querySelector('.game-controls');
+    if (gameControls) {
+      gameControls.style.pointerEvents = 'auto';
+      gameControls.style.opacity = '1';
+    }
   }
 }
 
@@ -88,6 +112,13 @@ document.addEventListener('DOMContentLoaded', () => {
         // Отключаем сглаживание для производительности пиксельной графики
         gameCtx.imageSmoothingEnabled = false;
         
+        // Пересоздаем offscreen canvas для сетки при изменении размера
+        if (gridCanvas) {
+          gridCanvas.width = canvasLogicalSize;
+          gridCanvas.height = canvasLogicalSize;
+          drawGridToOffscreen();
+        }
+        
         // Если игра активна, перерисовываем состояние
         if (gameState === 'playing' && currentGame && gameStateData) {
           // Быстрая перерисовка текущего состояния
@@ -96,7 +127,12 @@ document.addEventListener('DOMContentLoaded', () => {
               gameCtx.clearRect(0, 0, maxCanvasSize, maxCanvasSize);
               gameCtx.fillStyle = '#0a0e27';
               gameCtx.fillRect(0, 0, maxCanvasSize, maxCanvasSize);
-              drawGrid();
+              // Используем offscreen canvas для сетки
+              if (gridCanvas) {
+                gameCtx.drawImage(gridCanvas, 0, 0);
+              } else {
+                drawGrid();
+              }
               drawSnake(gameStateData.my_snake, '#ff4444', '#ff6666');
               drawSnake(gameStateData.opponent_snake, '#4444ff', '#6666ff');
             }
@@ -992,8 +1028,8 @@ function initWaitingCanvas() {
 }
 
 /**
- * Отправка команды направления с мгновенной визуальной реакцией
- * Мгновенно обновляет направление головы для визуального отклика
+ * Отправка команды направления с Input Buffer и мгновенной визуальной реакцией
+ * Input Buffer предотвращает потерю быстрых нажатий из-за задержки сети
  */
 function sendDirection(direction) {
   if (!socket || !socket.connected) return;
@@ -1034,8 +1070,43 @@ function sendDirection(direction) {
     }
   }
   
-  // Отправка на сервер
-  socket.emit('direction', direction);
+  // INPUT BUFFER: добавляем команду в очередь
+  const now = performance.now();
+  inputBuffer.push({
+    direction: direction,
+    timestamp: now
+  });
+  
+  // Отправляем команду немедленно, если прошло достаточно времени с последней отправки
+  if (now - lastDirectionSentTime >= INPUT_BUFFER_DELAY) {
+    processInputBuffer();
+  } else {
+    // Иначе отправим через небольшую задержку
+    setTimeout(processInputBuffer, INPUT_BUFFER_DELAY - (now - lastDirectionSentTime));
+  }
+}
+
+/**
+ * Обработка Input Buffer: отправка команд из очереди на сервер
+ */
+function processInputBuffer() {
+  if (inputBuffer.length === 0) return;
+  if (!socket || !socket.connected) {
+    inputBuffer = [];
+    return;
+  }
+  
+  const now = performance.now();
+  
+  // Отправляем последнюю команду из буфера (самую актуальную)
+  const latestCommand = inputBuffer[inputBuffer.length - 1];
+  if (latestCommand) {
+    socket.emit('direction', latestCommand.direction);
+    lastDirectionSentTime = now;
+  }
+  
+  // Очищаем буфер
+  inputBuffer = [];
 }
 
 /**
@@ -1396,9 +1467,18 @@ function updateGameState(data) {
 }
 
 // Цикл отрисовки с requestAnimationFrame (60 FPS)
-// Чистая интерполяция без client-side prediction
+// Чистая интерполяция без client-side prediction + Jitter Buffer
 function startRenderLoop() {
   if (animationFrameId) return; // Уже запущен
+  
+  // Инициализация offscreen canvas для сетки (один раз)
+  if (!gridCanvas) {
+    gridCanvas = document.createElement('canvas');
+    gridCanvas.width = canvasLogicalSize;
+    gridCanvas.height = canvasLogicalSize;
+    gridCtx = gridCanvas.getContext('2d');
+    drawGridToOffscreen(); // Рисуем сетку один раз на offscreen canvas
+  }
   
   function render() {
     if (gameState !== 'playing' || !gameCanvas || !gameCtx) {
@@ -1406,10 +1486,16 @@ function startRenderLoop() {
       return;
     }
     
-    // Рассчитываем локальную переменную t для интерполяции
-    let t = (performance.now() - lastGameStateUpdate) / 111.11;
+    // JITTER BUFFER: рисуем состояние с задержкой RENDER_DELAY для стабилизации
+    // Это создает "подушку" для сетевых лагов
+    const currentTime = performance.now();
+    const renderTime = currentTime - RENDER_DELAY;
+    
+    // Рассчитываем локальную переменную t для интерполяции с учетом задержки
+    let t = (renderTime - lastGameStateUpdate) / 111.11;
     // Жесткое ограничение: предотвращает "вылет" змейки за пределы текущего сегмента
     if (t > 1) t = 1;
+    if (t < 0) t = 0; // Защита от отрицательных значений
     
     // Отрисовываем только если есть данные
     if (gameStateData && gameStateData.my_snake && gameStateData.opponent_snake) {
@@ -1420,8 +1506,13 @@ function startRenderLoop() {
       gameCtx.fillStyle = '#0a0e27';
       gameCtx.fillRect(0, 0, canvasLogicalSize, canvasLogicalSize);
       
-      // Рисуем сетку
-      drawGrid();
+      // ОПТИМИЗАЦИЯ: используем offscreen canvas для сетки вместо перерисовки
+      if (gridCanvas) {
+        gameCtx.drawImage(gridCanvas, 0, 0);
+      } else {
+        // Fallback: если offscreen canvas не создан, рисуем сетку обычным способом
+        drawGrid();
+      }
       
       // INTERPOLATION: плавное движение между обновлениями сервера
       // Рисуем только результат функции interpolateSnake
@@ -1438,6 +1529,35 @@ function startRenderLoop() {
   }
   
   animationFrameId = requestAnimationFrame(render);
+}
+
+/**
+ * Рисование сетки на offscreen canvas (один раз для оптимизации)
+ */
+function drawGridToOffscreen() {
+  if (!gridCtx) return;
+  
+  const tileSize = canvasLogicalSize / 30; // 30 клеток по ширине
+  const width = canvasLogicalSize;
+  const height = canvasLogicalSize;
+  
+  // Более яркие линии сетки для лучшей видимости
+  gridCtx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+  gridCtx.lineWidth = 0.5;
+  
+  for (let i = 0; i <= 30; i++) {
+    // Vertical lines
+    gridCtx.beginPath();
+    gridCtx.moveTo(i * tileSize, 0);
+    gridCtx.lineTo(i * tileSize, height);
+    gridCtx.stroke();
+    
+    // Horizontal lines
+    gridCtx.beginPath();
+    gridCtx.moveTo(0, i * tileSize);
+    gridCtx.lineTo(width, i * tileSize);
+    gridCtx.stroke();
+  }
 }
 
 // Останавливаем цикл отрисовки
