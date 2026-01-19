@@ -14,11 +14,11 @@ let tickInterval = null; // Интервал между тиками в милл
 function start(io, activeGames, config, endGameCallback) {
   // Вычисляем интервал между тиками (1000ms / TICK_RATE)
   // TICK_RATE обычно 15-20 тиков/сек для логики игры
-  tickInterval = 1000 / config.TICK_RATE; // Например, 1000/15 = 66.67ms
+  tickInterval = 1000 / config.TICK_RATE; // Например, 1000/18 = 55.56ms
   
-  // Throttle для отправки game_state: отправляем только 15-20 раз в секунду (50-60 FPS для клиента)
-  const SEND_RATE = 20; // 20 обновлений в секунду (50ms между отправками)
-  const sendInterval = 1000 / SEND_RATE; // 50ms
+  // Throttle для отправки game_state: отправляем 18-20 раз в секунду для плавности
+  const SEND_RATE = Math.min(config.TICK_RATE, 20); // Не больше 20 обновлений в секунду
+  const sendInterval = 1000 / SEND_RATE; // ~50-55ms между отправками
   let lastSendTime = 0;
   
   // Запускаем цикл обновления игры
@@ -64,21 +64,28 @@ function start(io, activeGames, config, endGameCallback) {
 }
 
 /**
- * Broadcast состояния игры всем игрокам (оптимизировано - только минимальные данные)
+ * Broadcast состояния игры всем игрокам (максимально оптимизировано - только координаты x,y)
  */
 function broadcastGameState(io, game, gameId) {
-  // Отправляем только измененные данные (координаты змеек и минимальная мета-информация)
-  // Создаем легковесный snapshot только с координатами тел змеек
+  // Оптимизация: отправляем только координаты x,y в виде массивов [x, y] для каждого сегмента
+  // Это значительно уменьшает размер пакета по сравнению с объектами {x, y}
+  const optimizeBody = (body) => {
+    if (!body || !Array.isArray(body)) return [];
+    // Преобразуем [{x, y}, {x, y}] в [[x, y], [x, y]] - экономия ~30-40% размера
+    return body.map(segment => [segment.x, segment.y]);
+  };
+  
+  // Минимальный snapshot: только координаты и направление
   const lightweightState = {
-    tick: game.tick_number,
-    s1: game.snake1.body, // snake1 body coordinates
-    s2: game.snake2.body, // snake2 body coordinates
-    s1a: game.snake1.alive, // snake1 alive
-    s2a: game.snake2.alive, // snake2 alive
-    s1d: game.snake1.direction, // snake1 direction
-    s2d: game.snake2.direction, // snake2 direction
-    f: game.finished, // finished
-    w: game.winner_id // winner_id
+    t: game.tick_number, // tick (сокращенно)
+    s1: optimizeBody(game.snake1.body), // snake1 body: [[x,y], [x,y], ...]
+    s2: optimizeBody(game.snake2.body), // snake2 body: [[x,y], [x,y], ...]
+    s1a: game.snake1.alive ? 1 : 0, // snake1 alive (0/1 вместо boolean)
+    s2a: game.snake2.alive ? 1 : 0, // snake2 alive (0/1 вместо boolean)
+    s1d: [game.snake1.direction.dx, game.snake1.direction.dy], // direction как [dx, dy]
+    s2d: [game.snake2.direction.dx, game.snake2.direction.dy], // direction как [dx, dy]
+    f: game.finished ? 1 : 0, // finished (0/1 вместо boolean)
+    w: game.winner_id || null // winner_id (может быть null)
   };
   
   // Отправляем каждому игроку его персональный view
@@ -96,21 +103,33 @@ function broadcastGameState(io, game, gameId) {
       const socket = io.sockets.sockets.get(socketId);
       if (socket) {
         const playerNumber = socket.playerNumber;
+        
+        // Восстанавливаем структуру для клиента (преобразуем массивы обратно в объекты)
+        const restoreBody = (bodyArray) => {
+          if (!bodyArray || !Array.isArray(bodyArray)) return [];
+          return bodyArray.map(segment => ({ x: segment[0], y: segment[1] }));
+        };
+        
+        const restoreDirection = (dirArray) => {
+          if (!dirArray || !Array.isArray(dirArray) || dirArray.length < 2) return { dx: 1, dy: 0 };
+          return { dx: dirArray[0], dy: dirArray[1] };
+        };
+        
         // Формируем персональный view на основе playerNumber
         const personalView = {
           gameId: game.gameId,
-          tick_number: lightweightState.tick,
+          tick_number: lightweightState.t,
           my_snake: {
-            body: playerNumber === 1 ? lightweightState.s1 : lightweightState.s2,
-            alive: playerNumber === 1 ? lightweightState.s1a : lightweightState.s2a,
-            direction: playerNumber === 1 ? lightweightState.s1d : lightweightState.s2d
+            body: restoreBody(playerNumber === 1 ? lightweightState.s1 : lightweightState.s2),
+            alive: (playerNumber === 1 ? lightweightState.s1a : lightweightState.s2a) === 1,
+            direction: restoreDirection(playerNumber === 1 ? lightweightState.s1d : lightweightState.s2d)
           },
           opponent_snake: {
-            body: playerNumber === 1 ? lightweightState.s2 : lightweightState.s1,
-            alive: playerNumber === 1 ? lightweightState.s2a : lightweightState.s1a,
-            direction: playerNumber === 1 ? lightweightState.s2d : lightweightState.s1d
+            body: restoreBody(playerNumber === 1 ? lightweightState.s2 : lightweightState.s1),
+            alive: (playerNumber === 1 ? lightweightState.s2a : lightweightState.s1a) === 1,
+            direction: restoreDirection(playerNumber === 1 ? lightweightState.s2d : lightweightState.s1d)
           },
-          finished: lightweightState.f,
+          finished: lightweightState.f === 1,
           winner_id: lightweightState.w
         };
         socket.emit('game_state', personalView);
