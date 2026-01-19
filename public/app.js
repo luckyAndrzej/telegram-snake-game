@@ -26,27 +26,27 @@ let lastServerState = null; // Последнее состояние от сер
 let pendingDirections = []; // Очередь направлений, отправленных на сервер
 let lastDirectionSentTime = 0; // Время последней отправки направления
 
+/**
+ * Универсальная функция для открытия/закрытия модальных окон
+ */
+function toggleModal(modalId, show) {
+  const modal = document.getElementById(modalId);
+  if (!modal) return;
+  
+  if (show) {
+    modal.classList.add('modal-visible');
+  } else {
+    modal.classList.remove('modal-visible');
+  }
+}
+
 // Инициализация
 document.addEventListener('DOMContentLoaded', () => {
   console.log('🚀 Инициализация приложения...');
   
   // Явно скрываем все модальные окна при загрузке
-  const withdrawalModal = document.getElementById('withdrawal-modal');
-  if (withdrawalModal) {
-    withdrawalModal.style.display = 'none';
-    // Сбрасываем все стили
-    const modalContent = withdrawalModal.querySelector('.payment-modal-content');
-    if (modalContent) {
-      modalContent.classList.remove('input-focused');
-      modalContent.style.top = '';
-      modalContent.style.transform = '';
-    }
-  }
-  
-  const paymentModal = document.getElementById('payment-modal');
-  if (paymentModal) {
-    paymentModal.style.display = 'none';
-  }
+  toggleModal('withdrawal-modal', false);
+  toggleModal('payment-modal', false);
   
   // СНАЧАЛА показываем меню, чтобы интерфейс не блокировался
   showScreen('menu');
@@ -406,10 +406,7 @@ function initSocket() {
     updateBalance(data.new_balance, data.winnings_ton);
     
     // Закрываем модальное окно платежа
-    const paymentModal = document.getElementById('payment-modal');
-    if (paymentModal) {
-      paymentModal.style.display = 'none';
-    }
+    toggleModal('payment-modal', false);
     
     // Очищаем и скрываем статус "Waiting for payment..."
     const statusEl = document.getElementById('payment-status');
@@ -590,7 +587,7 @@ async function createPayment(packageId) {
           statusEl.style.color = '';
         }
 
-        paymentModal.style.display = 'flex';
+        toggleModal('payment-modal', true);
         
         console.log('Payment modal shown with data:', {
           address: data.walletAddress.substring(0, 10) + '...',
@@ -679,30 +676,13 @@ function initEventListeners() {
   });
   
   document.getElementById('close-withdrawal-btn')?.addEventListener('click', () => {
-    const withdrawalModal = document.getElementById('withdrawal-modal');
-    if (withdrawalModal) {
-      // Сбрасываем все стили перед закрытием
-      const modalContent = withdrawalModal.querySelector('.payment-modal-content');
-      if (modalContent) {
-        modalContent.classList.remove('input-focused');
-        modalContent.style.top = '';
-        modalContent.style.transform = '';
-      }
-      withdrawalModal.style.display = 'none';
-    }
+    toggleModal('withdrawal-modal', false);
   });
   
   // Close withdrawal modal when clicking outside
   document.getElementById('withdrawal-modal')?.addEventListener('click', (e) => {
     if (e.target.id === 'withdrawal-modal') {
-      // Сбрасываем все стили перед закрытием
-      const modalContent = e.target.querySelector('.payment-modal-content');
-      if (modalContent) {
-        modalContent.classList.remove('input-focused');
-        modalContent.style.top = '';
-        modalContent.style.transform = '';
-      }
-      e.target.style.display = 'none';
+      toggleModal('withdrawal-modal', false);
     }
   });
   
@@ -819,7 +799,7 @@ function initEventListeners() {
   });
   
   document.getElementById('close-payment-btn')?.addEventListener('click', () => {
-    document.getElementById('payment-modal').style.display = 'none';
+    toggleModal('payment-modal', false);
   });
   
   // Rules toggle (collapsible)
@@ -1180,80 +1160,16 @@ function updatePingDisplay(ping) {
 }
 
 /**
- * Обработка фокуса на поле ввода адреса для корректной работы с клавиатурой
+ * Упрощенная обработка полей ввода (только font-size для предотвращения авто-зума)
  */
 function setupWithdrawalInputHandlers() {
   const withdrawalInput = document.getElementById('withdrawal-address-input');
-  const withdrawalModal = document.getElementById('withdrawal-modal');
   
-  if (withdrawalInput && withdrawalModal) {
+  if (withdrawalInput) {
     // Устанавливаем font-size: 16px для предотвращения авто-зума на iPhone
-    if (withdrawalInput) {
-      withdrawalInput.style.fontSize = '16px';
-      withdrawalInput.style.webkitAppearance = 'none';
-      withdrawalInput.style.appearance = 'none';
-    }
-    
-    // Отслеживаем изменение высоты viewport (когда открывается/закрывается клавиатура)
-    let initialViewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
-    let viewportHeightCheckInterval = null;
-    
-    const adjustModalPosition = () => {
-      const modalContent = withdrawalModal.querySelector('.payment-modal-content');
-      if (!modalContent) return;
-      
-      const currentViewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
-      const heightDifference = initialViewportHeight - currentViewportHeight;
-      
-      // Если высота viewport уменьшилась более чем на 150px (клавиатура открыта)
-      if (heightDifference > 150) {
-        modalContent.classList.add('input-focused');
-        // Используем фиксированную позицию относительно видимого viewport
-        const topPercent = Math.max(25, 50 - (heightDifference / initialViewportHeight) * 100);
-        modalContent.style.top = `${topPercent}%`;
-        modalContent.style.transform = 'translate(-50%, -50%)';
-      } else {
-        modalContent.classList.remove('input-focused');
-        modalContent.style.top = '50%';
-        modalContent.style.transform = 'translate(-50%, -50%)';
-      }
-    };
-    
-    // При фокусе на input сдвигаем модалку вверх для видимости поля ввода
-    withdrawalInput.addEventListener('focus', () => {
-      initialViewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
-      
-      // Начинаем отслеживать изменение высоты viewport
-      if (window.visualViewport) {
-        window.visualViewport.addEventListener('resize', adjustModalPosition);
-      } else {
-        viewportHeightCheckInterval = setInterval(adjustModalPosition, 100);
-      }
-      
-      // Немедленная корректировка позиции
-      setTimeout(adjustModalPosition, 200);
-    });
-    
-    // При потере фокуса возвращаем модалку в исходное положение
-    withdrawalInput.addEventListener('blur', () => {
-      // Останавливаем отслеживание изменения высоты viewport
-      if (window.visualViewport) {
-        window.visualViewport.removeEventListener('resize', adjustModalPosition);
-      } else if (viewportHeightCheckInterval) {
-        clearInterval(viewportHeightCheckInterval);
-        viewportHeightCheckInterval = null;
-      }
-      
-      setTimeout(() => {
-        const modalContent = withdrawalModal.querySelector('.payment-modal-content');
-        if (modalContent) {
-          modalContent.classList.remove('input-focused');
-          modalContent.style.top = '50%';
-          modalContent.style.transform = 'translate(-50%, -50%)';
-        }
-        initialViewportHeight = window.visualViewport ? window.visualViewport.height : window.innerHeight;
-      }, 150);
-    });
+    withdrawalInput.style.fontSize = '16px';
+    withdrawalInput.style.webkitAppearance = 'none';
+    withdrawalInput.style.appearance = 'none';
   }
 }
 
@@ -1294,24 +1210,8 @@ function handleWithdraw() {
   withdrawalAddressError.textContent = '';
   withdrawalStatus.textContent = '';
   
-  // Убеждаемся, что модальное окно скрыто перед открытием (на случай если оно было открыто ранее)
-  withdrawalModal.style.display = 'none';
-  
-  // Небольшая задержка перед показом для сброса всех стилей
-  setTimeout(() => {
-    // Сбрасываем все inline стили для позиции, чтобы CSS работал правильно
-    const modalContent = withdrawalModal.querySelector('.payment-modal-content');
-    if (modalContent) {
-      modalContent.style.top = '';
-      modalContent.style.transform = '';
-      modalContent.classList.remove('input-focused');
-    }
-    
-    // Показываем модальное окно (устанавливаем display: flex для отображения)
-    withdrawalModal.style.display = 'flex';
-  }, 10);
-  
-  // setupWithdrawalInputHandlers уже настроит обработчики фокуса/блура
+  // Используем универсальную функцию toggleModal
+  toggleModal('withdrawal-modal', true);
 }
 
 /**
@@ -1366,16 +1266,7 @@ function confirmWithdrawal() {
     
     // Закрываем модальное окно через небольшую задержку (чтобы пользователь видел статус)
     setTimeout(() => {
-      if (withdrawalModal) {
-        // Сбрасываем все стили перед закрытием
-        const modalContent = withdrawalModal.querySelector('.payment-modal-content');
-        if (modalContent) {
-          modalContent.classList.remove('input-focused');
-          modalContent.style.top = '';
-          modalContent.style.transform = '';
-        }
-        withdrawalModal.style.display = 'none';
-      }
+      toggleModal('withdrawal-modal', false);
     }, 1000);
   } else {
     // Восстанавливаем кнопку при ошибке
@@ -1530,6 +1421,7 @@ let previousDirection = null; // Предыдущее направление д�
 
 // Функция для сохранения данных от сервера (не блокирует отрисовку)
 // + Server Reconciliation: плавная коррекция позиции при расхождении
+// ОПТИМИЗАЦИЯ: Серверное состояние приоритетное
 function updateGameState(data) {
   // Проверка данных змеек
   if (!data || !data.my_snake || !data.opponent_snake) {
@@ -1547,12 +1439,13 @@ function updateGameState(data) {
     return;
   }
   
-  // Сохраняем предыдущее состояние для интерполяции
+  // Сохраняем предыдущее состояние для интерполяции (только для отрисовки)
   if (gameStateData) {
     previousGameStateData = JSON.parse(JSON.stringify(gameStateData));
   }
   
   // SERVER RECONCILIATION: проверяем расхождение между предсказанием и сервером
+  // Увеличен порог до 30px для избежания резких прыжков
   if (predictedSnakeState && data.my_snake && data.my_snake.body && data.my_snake.body.length > 0) {
     const serverHead = data.my_snake.body[0];
     const predictedHead = predictedSnakeState.body && predictedSnakeState.body.length > 0 
@@ -1560,65 +1453,49 @@ function updateGameState(data) {
       : null;
     
     if (predictedHead) {
-      // Вычисляем расстояние между предсказанной и серверной позицией головы
       const tileSize = canvasLogicalSize / 30;
       const dx = (serverHead.x - predictedHead.x) * tileSize;
       const dy = (serverHead.y - predictedHead.y) * tileSize;
       const distance = Math.sqrt(dx * dx + dy * dy);
       
-      // Если расхождение больше 5-10 пикселей, корректируем плавно
-      if (distance > 10) {
-        // Плавная коррекция: используем интерполяцию для сглаживания
-        // Серверное состояние становится "целевым" для интерполяции
+      // Если расхождение больше 30px, корректируем (увеличен порог)
+      if (distance > 30) {
         console.log(`🔧 Reconciliation: коррекция позиции (расхождение: ${distance.toFixed(1)}px)`);
       }
       
-      // Удаляем обработанные команды из очереди (команды, которые уже обработаны сервером)
-      // Простая эвристика: удаляем команды старше 500ms (время RTT)
+      // Удаляем обработанные команды из очереди
       const now = performance.now();
       pendingDirections = pendingDirections.filter(cmd => (now - cmd.timestamp) < 1000);
     }
   }
   
-  // Обновляем предсказанное состояние на основе серверного (базовая синхронизация)
+  // ПРИОРИТЕТ СЕРВЕРНОГО СОСТОЯНИЯ: всегда синхронизируем предсказанное состояние с сервером
   if (data.my_snake) {
+    // Сохраняем текущее направление если есть pending команды
+    const currentPredictedDirection = predictedSnakeState?.direction;
     predictedSnakeState = JSON.parse(JSON.stringify(data.my_snake));
+    
+    // Если есть pending команды, применяем их направление для предсказания
+    if (pendingDirections.length > 0) {
+      const latestCommand = pendingDirections[pendingDirections.length - 1];
+      if (latestCommand && latestCommand.direction) {
+        predictedSnakeState.direction = latestCommand.direction;
+      }
+    } else if (currentPredictedDirection) {
+      // Сохраняем направление если нет pending команд
+      predictedSnakeState.direction = currentPredictedDirection;
+    }
   }
   
   // Сохраняем серверное состояние для reconciliation
   lastServerState = JSON.parse(JSON.stringify(data));
   
-  // CLIENT-SIDE PREDICTION: синхронизируем предсказанное состояние с сервером
-  // При получении нового состояния от сервера, обновляем базовое состояние для предсказания
-  if (data.my_snake) {
-    // Если предсказанное состояние еще не инициализировано, создаем его
-    if (!predictedSnakeState) {
-      predictedSnakeState = JSON.parse(JSON.stringify(data.my_snake));
-    } else {
-      // Синхронизируем: обновляем базовое состояние, но сохраняем текущее направление если есть pending команды
-      const currentPredictedDirection = predictedSnakeState.direction;
-      predictedSnakeState = JSON.parse(JSON.stringify(data.my_snake));
-      
-      // Если есть pending команды (недавно отправленные), применяем их направление
-      if (pendingDirections.length > 0) {
-        const latestCommand = pendingDirections[pendingDirections.length - 1];
-        if (latestCommand && latestCommand.direction) {
-          predictedSnakeState.direction = latestCommand.direction;
-        }
-      } else if (currentPredictedDirection) {
-        // Если нет pending команд, но было предсказанное направление, сохраняем его
-        // (на случай, если сервер еще не обработал команду)
-        predictedSnakeState.direction = currentPredictedDirection;
-      }
-    }
-  }
-  
-  // Сохраняем данные для отрисовки
+  // Сохраняем данные для отрисовки (серверное состояние - приоритетное)
   gameStateData = data;
   lastGameStateUpdate = performance.now();
-  interpolationTime = 0; // Сброс времени интерполяции
+  interpolationTime = 0;
   
-  // Обновляем текущее направление
+  // Обновляем текущее направление из серверного состояния
   if (data && data.my_snake && data.my_snake.direction) {
     const dir = data.my_snake.direction;
     if (dir.dx === 1 && dir.dy === 0) {
@@ -1632,7 +1509,7 @@ function updateGameState(data) {
     }
   }
   
-  // Обновляем статусы игроков (быстрая DOM операция)
+  // Обновляем статусы игроков
   if (data && data.my_snake && data.opponent_snake) {
     const player1Status = document.getElementById('player1-status');
     const player2Status = document.getElementById('player2-status');
@@ -1673,29 +1550,25 @@ function startRenderLoop() {
       const timeSinceLastUpdate = (currentTime - lastGameStateUpdate) / 1000; // в секундах
       
       // Если прошло достаточно времени (> 30ms), применяем локальное движение
-      // Это создает эффект мгновенного отклика при нажатии клавиши
+      // Формула движения: timeSinceLastUpdate * (30 / 9) для TICK_RATE = 9
       if (timeSinceLastUpdate > 0.03 && lastServerState && lastServerState.my_snake) {
-        // Используем направление из предсказанного состояния для локального движения
         const dir = predictedSnakeState.direction;
         const head = predictedSnakeState.body[0];
         
-        // Вычисляем новую позицию головы на основе направления
-        // Учитываем, что змейка движется по сетке (целые числа)
-        // Скорость уменьшена в 2 раза: было 6, стало 3 (соответствует TICK_RATE 9 вместо 18)
+        // Новая формула: (30 / 9) = 3.33 клетки в секунду для TICK_RATE = 9
+        const speed = 30 / 9;
         const newHead = {
-          x: head.x + dir.dx * (timeSinceLastUpdate * 3), // 3 клетки в секунду (соответствует TICK_RATE 9)
-          y: head.y + dir.dy * (timeSinceLastUpdate * 3)
+          x: head.x + dir.dx * (timeSinceLastUpdate * speed),
+          y: head.y + dir.dy * (timeSinceLastUpdate * speed)
         };
         
-        // Округляем до ближайшей клетки для корректного отображения
+        // Округляем до ближайшей клетки
         newHead.x = Math.round(newHead.x);
         newHead.y = Math.round(newHead.y);
         
-        // Обновляем предсказанное состояние (двигаем змейку вперед)
+        // Обновляем предсказанное состояние
         if (predictedSnakeState.body.length > 0) {
-          // Добавляем новую голову и удаляем хвост (если длина не изменилась)
           predictedSnakeState.body.unshift(newHead);
-          // Сохраняем длину змейки из серверного состояния
           const serverLength = lastServerState.my_snake.body ? lastServerState.my_snake.body.length : predictedSnakeState.body.length;
           if (predictedSnakeState.body.length > serverLength) {
             predictedSnakeState.body.pop();
@@ -1716,7 +1589,8 @@ function startRenderLoop() {
       // Рисуем сетку
       drawGrid();
       
-      // INTERPOLATION: плавное движение между обновлениями сервера
+      // INTERPOLATION: плавное движение между обновлениями сервера (только для отрисовки)
+      // Используем lerp только для визуализации, не меняем координаты в объектах данных
       const interpolatedMySnake = interpolateSnake(previousGameStateData?.my_snake, gameStateData.my_snake, interpolationTime);
       const interpolatedOpponentSnake = interpolateSnake(previousGameStateData?.opponent_snake, gameStateData.opponent_snake, interpolationTime);
       
@@ -1725,12 +1599,12 @@ function startRenderLoop() {
       let snakeToDraw = interpolatedMySnake || gameStateData.my_snake;
       
       if (predictedSnakeState && predictedSnakeState.body && predictedSnakeState.body.length > 0) {
-        // Если есть предсказанное состояние, плавно объединяем его с серверным
-        // Используем более плавную интерполяцию для избежания дергания
-        const blendFactor = Math.min(interpolationTime * 1.5, 0.8); // Ограничиваем до 0.8 для плавности
+        // Плавно объединяем предсказанное состояние с серверным
+        const blendFactor = Math.min(interpolationTime * 1.5, 0.8);
         snakeToDraw = mergePredictedWithServer(predictedSnakeState, snakeToDraw, blendFactor);
       }
       
+      // Отрисовываем змейки (lerp только для визуализации)
       drawSnake(snakeToDraw, '#ff4444', '#ff6666');
       drawSnake(interpolatedOpponentSnake || gameStateData.opponent_snake, '#4444ff', '#6666ff');
     }
@@ -1750,8 +1624,7 @@ function mergePredictedWithServer(predicted, server, t) {
     return server;
   }
   
-  // Если расхождение небольшое (< 5px), используем предсказанное состояние
-  // Если большое, плавно переходим к серверному
+  // Увеличен порог Reconciliation до 30px для избежания резких прыжков
   const tileSize = canvasLogicalSize / 30;
   const predictedHead = predicted.body[0];
   const serverHead = server.body[0];
@@ -1761,8 +1634,8 @@ function mergePredictedWithServer(predicted, server, t) {
     const dy = (serverHead.y - predictedHead.y) * tileSize;
     const distance = Math.sqrt(dx * dx + dy * dy);
     
-    // Если расхождение меньше 5 пикселей, используем предсказанное состояние
-    if (distance < 5) {
+    // Если расхождение меньше 30px, используем предсказанное состояние (без резких прыжков)
+    if (distance < 30) {
       return predicted;
     }
     
