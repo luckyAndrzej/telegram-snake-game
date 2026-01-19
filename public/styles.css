@@ -531,6 +531,8 @@ body::before {
     box-shadow: 
         0 0 40px rgba(0, 245, 255, 0.5),
         inset 0 0 40px rgba(0, 245, 255, 0.1);
+    image-rendering: auto; /* Сглаживание для плавного движения */
+    -webkit-image-rendering: auto;
 }
 
 /* Адаптивность для разных размеров экрана */
