@@ -477,6 +477,26 @@ function initSocket() {
     tg.showAlert(`✅ Куплено ${data.games_purchased} игр за ${data.games_purchased} TON выигрышей!`);
   });
   
+  // Дополнительный обработчик для buy_success (на случай если сервер отправляет это событие)
+  socket.on('buy_success', (data) => {
+    console.log('✅ Покупка успешна (buy_success):', data);
+    
+    // Обновляем баланс на экране без перезагрузки
+    if (data.games_balance !== undefined && data.winnings_ton !== undefined) {
+      updateBalance(data.games_balance, data.winnings_ton);
+    }
+    
+    // Восстанавливаем кнопку: разблокируем и возвращаем оригинальный текст
+    const buyBtn = document.getElementById('buy-games-with-winnings-btn');
+    if (buyBtn) {
+      buyBtn.disabled = false;
+      const originalText = buyBtn.dataset.originalText || '🔄 Buy Games with Winnings (1 TON = 1 Game)';
+      buyBtn.innerHTML = originalText;
+      buyBtn.style.opacity = '1';
+      buyBtn.style.cursor = 'pointer';
+    }
+  });
+  
   // Обработчик ошибки покупки игр с выигрышного баланса
   socket.on('buy_games_error', (data) => {
     const errorMessage = data.message || 'Ошибка при покупке игр';
@@ -988,6 +1008,7 @@ function sendDirection(direction) {
   }
   
   // CLIENT-SIDE PREDICTION: мгновенно обновляем локальное состояние змейки для визуального отклика
+  // Змейка поворачивает локально, не дожидаясь ответа от сервера
   if (gameStateData && gameStateData.my_snake) {
     const newDirection = {
       'up': { dx: 0, dy: -1 },
@@ -1003,7 +1024,7 @@ function sendDirection(direction) {
       }
       
       // МГНОВЕННО обновляем направление в предсказанном состоянии
-      // Это заставит змейку визуально повернуться сразу же
+      // Это заставит змейку визуально повернуться сразу же, без ожидания сервера
       predictedSnakeState.direction = newDirection;
       
       // Также обновляем направление в текущем gameStateData для мгновенного отображения
@@ -1023,8 +1044,8 @@ function sendDirection(direction) {
       currentDirection = direction;
       
       // Принудительно перерисовываем кадр для мгновенного визуального отклика
-      if (animationFrameId) {
-        // Запускаем немедленную перерисовку
+      if (gameCanvas && gameCtx && gameStateData) {
+        // Немедленная перерисовка без ожидания следующего кадра
         requestAnimationFrame(() => {
           if (gameCanvas && gameCtx && gameStateData) {
             const tileSize = canvasLogicalSize / 30;
@@ -1033,7 +1054,7 @@ function sendDirection(direction) {
             gameCtx.fillRect(0, 0, canvasLogicalSize, canvasLogicalSize);
             drawGrid();
             
-            // Рисуем с обновленным направлением
+            // Рисуем с обновленным направлением (используем предсказанное состояние)
             const snakeToDraw = predictedSnakeState || gameStateData.my_snake;
             drawSnake(snakeToDraw, '#ff4444', '#ff6666');
             if (gameStateData.opponent_snake) {
@@ -1045,7 +1066,7 @@ function sendDirection(direction) {
     }
   }
   
-  // Моментально отправляем команду на сервер (без задержек)
+  // Отправляем только факт смены направления на сервер (без задержек)
   socket.emit('direction', direction);
   lastDirectionSentTime = performance.now();
 }
