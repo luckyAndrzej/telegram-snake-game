@@ -742,8 +742,9 @@ body::before {
 /* Payment Modal - Neon */
 .payment-modal {
     position: fixed;
-    top: 0;
-    left: 0;
+    top: 50%;
+    left: 50%;
+    transform: translate(-50%, -50%);
     width: 100vw;
     height: 100vh;
     background: rgba(5, 5, 16, 0.95);
@@ -751,7 +752,7 @@ body::before {
     display: flex;
     justify-content: center;
     align-items: center;
-    z-index: 10000;
+    z-index: 9999;
 }
 
 .payment-modal-content {
@@ -760,12 +761,20 @@ body::before {
     border: 2px solid var(--neon-cyan);
     border-radius: 25px;
     padding: 35px;
-    max-width: 90%;
+    width: 90%;
+    max-width: 400px;
     max-height: 90vh;
     overflow-y: auto;
     box-shadow: 
         0 0 60px rgba(0, 245, 255, 0.5),
         inset 0 0 60px rgba(176, 38, 255, 0.1);
+    transition: transform 0.3s ease;
+    position: relative;
+}
+
+/* Сдвиг модального окна вверх при фокусе на input (для клавиатуры на мобильных) */
+.payment-modal-content:has(input:focus) {
+    transform: translate(-50%, -30%) !important;
 }
 
 .payment-modal-content h3 {

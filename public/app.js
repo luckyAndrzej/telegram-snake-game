@@ -451,12 +451,28 @@ function initSocket() {
   socket.on('buy_games_success', (data) => {
     console.log('✅ Игры куплены за выигрыши:', data);
     updateBalance(data.games_balance, data.winnings_ton);
+    
+    // Восстанавливаем текст кнопки
+    const buyBtn = document.getElementById('buy-games-with-winnings-btn');
+    if (buyBtn) {
+      buyBtn.disabled = false;
+      buyBtn.innerHTML = '<span>🔄 Buy Games with Winnings (1 TON = 1 Game)</span>';
+    }
+    
     tg.showAlert(`✅ Куплено ${data.games_purchased} игр за ${data.games_purchased} TON выигрышей!`);
   });
   
   // Обработчик ошибки покупки игр с выигрышного баланса
   socket.on('buy_games_error', (data) => {
     const errorMessage = data.message || 'Ошибка при покупке игр';
+    
+    // Восстанавливаем текст кнопки при ошибке
+    const buyBtn = document.getElementById('buy-games-with-winnings-btn');
+    if (buyBtn) {
+      buyBtn.disabled = false;
+      buyBtn.innerHTML = '<span>🔄 Buy Games with Winnings (1 TON = 1 Game)</span>';
+    }
+    
     tg.showAlert(`❌ Ошибка: ${errorMessage}`);
   });
 }
@@ -1081,8 +1097,36 @@ function handleWithdraw() {
   withdrawalAddressError.textContent = '';
   withdrawalStatus.textContent = '';
   
+  // Обработчик фокуса на input - сдвигаем модальное окно вверх для клавиатуры
+  const handleInputFocus = () => {
+    const modalContent = withdrawalModal.querySelector('.payment-modal-content');
+    if (modalContent) {
+      modalContent.style.transform = 'translate(-50%, -30%)';
+    }
+  };
+  
+  const handleInputBlur = () => {
+    const modalContent = withdrawalModal.querySelector('.payment-modal-content');
+    if (modalContent) {
+      modalContent.style.transform = '';
+    }
+  };
+  
+  // Удаляем старые обработчики если они есть
+  withdrawalAddressInput.removeEventListener('focus', handleInputFocus);
+  withdrawalAddressInput.removeEventListener('blur', handleInputBlur);
+  
+  // Добавляем новые обработчики
+  withdrawalAddressInput.addEventListener('focus', handleInputFocus);
+  withdrawalAddressInput.addEventListener('blur', handleInputBlur);
+  
   // Показываем модальное окно
   withdrawalModal.style.display = 'flex';
+  
+  // Прокручиваем к полю ввода если нужно
+  setTimeout(() => {
+    withdrawalAddressInput.scrollIntoView({ behavior: 'smooth', block: 'center' });
+  }, 100);
 }
 
 /**
@@ -1286,8 +1330,10 @@ function startGame(data) {
  */
 // Состояние игры для интерполяции
 let gameStateData = null;
+let previousGameStateData = null; // Предыдущее состояние для интерполяции
 let lastGameStateUpdate = 0;
 let animationFrameId = null;
+let interpolationTime = 0; // Время с последнего обновления состояния
 
 // Функция для сохранения данных от сервера (не блокирует отрисовку)
 function updateGameState(data) {
@@ -1307,9 +1353,15 @@ function updateGameState(data) {
     return;
   }
   
+  // Сохраняем предыдущее состояние для интерполяции
+  if (gameStateData) {
+    previousGameStateData = JSON.parse(JSON.stringify(gameStateData));
+  }
+  
   // Сохраняем данные для отрисовки
   gameStateData = data;
   lastGameStateUpdate = performance.now();
+  interpolationTime = 0; // Сброс времени интерполяции
   
   // Обновляем текущее направление
   if (data && data.my_snake && data.my_snake.direction) {
@@ -1349,6 +1401,12 @@ function startRenderLoop() {
       return;
     }
     
+    // Обновляем время интерполяции
+    const currentTime = performance.now();
+    if (lastGameStateUpdate > 0) {
+      interpolationTime = Math.min((currentTime - lastGameStateUpdate) / 166.67, 1); // Нормализуем к 0-1 (166.67ms ≈ 6 FPS от сервера)
+    }
+    
     // Отрисовываем только если есть данные
     if (gameStateData && gameStateData.my_snake && gameStateData.opponent_snake) {
       // Эффективная очистка canvas (используем логический размер после ctx.scale)
@@ -1361,9 +1419,12 @@ function startRenderLoop() {
       // Рисуем сетку
       drawGrid();
       
-      // Рисуем змейки
-      drawSnake(gameStateData.my_snake, '#ff4444', '#ff6666');
-      drawSnake(gameStateData.opponent_snake, '#4444ff', '#6666ff');
+      // Рисуем змейки с интерполяцией
+      const interpolatedMySnake = interpolateSnake(previousGameStateData?.my_snake, gameStateData.my_snake, interpolationTime);
+      const interpolatedOpponentSnake = interpolateSnake(previousGameStateData?.opponent_snake, gameStateData.opponent_snake, interpolationTime);
+      
+      drawSnake(interpolatedMySnake || gameStateData.my_snake, '#ff4444', '#ff6666');
+      drawSnake(interpolatedOpponentSnake || gameStateData.opponent_snake, '#4444ff', '#6666ff');
     }
     
     // Продолжаем цикл
@@ -1407,6 +1468,38 @@ function drawGrid() {
     gameCtx.lineTo(width, i * tileSize);
     gameCtx.stroke();
   }
+}
+
+/**
+ * Интерполяция змейки между двумя состояниями для плавного движения
+ */
+function interpolateSnake(previousSnake, currentSnake, t) {
+  if (!previousSnake || !currentSnake || !previousSnake.body || !currentSnake.body) {
+    return currentSnake; // Если нет предыдущего состояния, возвращаем текущее
+  }
+  
+  if (previousSnake.body.length !== currentSnake.body.length) {
+    return currentSnake; // Если длина изменилась, не интерполируем
+  }
+  
+  // Клонируем текущую змейку
+  const interpolated = JSON.parse(JSON.stringify(currentSnake));
+  
+  // Интерполируем каждую позицию сегмента
+  interpolated.body = currentSnake.body.map((segment, index) => {
+    if (index >= previousSnake.body.length) return segment;
+    
+    const prevSegment = previousSnake.body[index];
+    const currSegment = segment;
+    
+    // Плавная интерполяция позиции (lerp)
+    return {
+      x: prevSegment.x + (currSegment.x - prevSegment.x) * t,
+      y: prevSegment.y + (currSegment.y - prevSegment.y) * t
+    };
+  });
+  
+  return interpolated;
 }
 
 /**
