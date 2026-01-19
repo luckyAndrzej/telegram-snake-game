@@ -12,11 +12,14 @@ function createGame(player1Id, player2Id, config) {
   
   // Инициализация змеек
   // Игрок 1 (красная) - начинает слева, движется вправо
+  // Начальная длина: 5 сегментов (было 3, добавлено 2)
   const snake1 = {
     body: [
       { x: 5, y: Math.floor(FIELD_HEIGHT / 2) },
       { x: 4, y: Math.floor(FIELD_HEIGHT / 2) },
-      { x: 3, y: Math.floor(FIELD_HEIGHT / 2) }
+      { x: 3, y: Math.floor(FIELD_HEIGHT / 2) },
+      { x: 2, y: Math.floor(FIELD_HEIGHT / 2) },
+      { x: 1, y: Math.floor(FIELD_HEIGHT / 2) }
     ],
     direction: { dx: 1, dy: 0 }, // Движется вправо
     alive: true,
@@ -24,11 +27,14 @@ function createGame(player1Id, player2Id, config) {
   };
   
   // Игрок 2 (синяя) - начинает справа, движется влево
+  // Начальная длина: 5 сегментов (было 3, добавлено 2)
   const snake2 = {
     body: [
       { x: FIELD_WIDTH - 6, y: Math.floor(FIELD_HEIGHT / 2) },
       { x: FIELD_WIDTH - 5, y: Math.floor(FIELD_HEIGHT / 2) },
-      { x: FIELD_WIDTH - 4, y: Math.floor(FIELD_HEIGHT / 2) }
+      { x: FIELD_WIDTH - 4, y: Math.floor(FIELD_HEIGHT / 2) },
+      { x: FIELD_WIDTH - 3, y: Math.floor(FIELD_HEIGHT / 2) },
+      { x: FIELD_WIDTH - 2, y: Math.floor(FIELD_HEIGHT / 2) }
     ],
     direction: { dx: -1, dy: 0 }, // Движется влево
     alive: true,

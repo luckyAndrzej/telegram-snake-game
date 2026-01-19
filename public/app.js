@@ -1172,16 +1172,31 @@ function setupWithdrawalInputHandlers() {
   const withdrawalModal = document.getElementById('withdrawal-modal');
   
   if (withdrawalInput && withdrawalModal) {
+    // Устанавливаем font-size: 16px для предотвращения авто-зума на iPhone
+    if (withdrawalInput) {
+      withdrawalInput.style.fontSize = '16px';
+      withdrawalInput.style.webkitAppearance = 'none';
+      withdrawalInput.style.appearance = 'none';
+    }
+    
     // При фокусе на input сдвигаем модалку вверх для видимости поля ввода
-    withdrawalInput.addEventListener('focus', () => {
+    withdrawalInput.addEventListener('focus', (e) => {
+      // Предотвращаем авто-зум и смещение экрана
+      e.preventDefault();
+      
       setTimeout(() => {
         const modalContent = withdrawalModal.querySelector('.payment-modal-content');
         if (modalContent) {
           // Добавляем класс для сдвига вверх через CSS
           modalContent.classList.add('input-focused');
         }
+        
+        // Прокручиваем input в видимую область без зума
+        if (withdrawalInput) {
+          withdrawalInput.scrollIntoView({ behavior: 'smooth', block: 'center', inline: 'nearest' });
+        }
       }, 100); // Небольшая задержка для появления клавиатуры
-    });
+    }, { passive: false });
     
     // При потере фокуса возвращаем модалку в исходное положение
     withdrawalInput.addEventListener('blur', () => {
@@ -1601,8 +1616,8 @@ function startRenderLoop() {
     // Обновляем время интерполяции (для плавного движения между обновлениями сервера)
     const currentTime = performance.now();
     if (lastGameStateUpdate > 0) {
-      // Нормализуем к 0-1 (50ms между обновлениями при 20 FPS от сервера)
-      const serverUpdateInterval = 50; // 20 обновлений в секунду = 50ms
+      // Нормализуем к 0-1 (111ms между обновлениями при 9 тиках/сек от сервера)
+      const serverUpdateInterval = 111; // 9 тиков в секунду = ~111ms (замедлено в 2 раза)
       interpolationTime = Math.min((currentTime - lastGameStateUpdate) / serverUpdateInterval, 1);
     }
     
@@ -1621,9 +1636,10 @@ function startRenderLoop() {
         
         // Вычисляем новую позицию головы на основе направления
         // Учитываем, что змейка движется по сетке (целые числа)
+        // Скорость уменьшена в 2 раза: было 6, стало 3 (соответствует TICK_RATE 9 вместо 18)
         const newHead = {
-          x: head.x + dir.dx * (timeSinceLastUpdate * 6), // 6 клеток в секунду (соответствует TICK_RATE)
-          y: head.y + dir.dy * (timeSinceLastUpdate * 6)
+          x: head.x + dir.dx * (timeSinceLastUpdate * 3), // 3 клетки в секунду (соответствует TICK_RATE 9)
+          y: head.y + dir.dy * (timeSinceLastUpdate * 3)
         };
         
         // Округляем до ближайшей клетки для корректного отображения
