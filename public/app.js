@@ -1508,27 +1508,31 @@ function cloneSnakeState(data) {
 }
 
 /**
- * Обновление состояния игры - упрощенная версия с фиксированным ритмом
+ * Обновление состояния игры - адаптивная синхронизация с экспоненциальным сглаживанием (EMA)
  * Использует быстрое клонирование вместо JSON.parse/stringify
- * Создает идеально ровный ритм движения, игнорируя сетевые микро-колебания
+ * Виртуальное время мягко следует за реальным, убирая эффект "гармошки"
  */
 function updateGameState(data) {
+  const now = performance.now();
+  
   // Сохраняем предыдущее состояние перед обновлением
   previousGameStateData = gameStateData;
   
   // Обновляем текущее состояние (клонируем серверные данные)
   gameStateData = cloneSnakeState(data);
   
-  // БУФЕР СОСТОЯНИЙ: создаем идеально ровный ритм движения
-  // Вместо привязки к реальному времени пакета, используем фиксированный шаг
-  // Это уберет эффект "гармошки" при неравномерных пакетах
+  // АДАПТИВНАЯ СИНХРОНИЗАЦИЯ: используем экспоненциальное сглаживание (EMA)
+  // Виртуальное время мягко следует за реальным временем прихода пакетов
+  const targetTime = now - INTERPOLATION_OFFSET;
+  
   if (lastGameStateUpdate === 0) {
     // Первое обновление - инициализируем время
-    lastGameStateUpdate = performance.now() - INTERPOLATION_OFFSET;
+    lastGameStateUpdate = targetTime;
   } else {
-    // Последующие обновления - добавляем фиксированный шаг
-    // Это создаст ровный ритм, независимо от момента прихода пакета
-    lastGameStateUpdate += FIXED_TICK;
+    // Коэффициент 0.2 позволяет времени плавно подстраиваться под сетевые задержки
+    // без резких скачков позиции
+    const diff = targetTime - lastGameStateUpdate;
+    lastGameStateUpdate += diff * 0.2;
   }
   
   // Запускаем цикл отрисовки если он еще не запущен
@@ -1563,13 +1567,12 @@ function startRenderLoop() {
     const timeSinceUpdate = renderTime - lastGameStateUpdate;
     
     // Рассчитываем t для интерполяции на основе фиксированного шага
-    // ЗАПРЕТ НА УСКОРЕНИЕ: змейка не может двигаться быстрее, чем позволяет FIXED_TICK
+    // Разрешаем экстраполяцию до 1.2 (20% пути вперед), чтобы скрыть микро-паузы между пакетами
     let t = timeSinceUpdate / FIXED_TICK;
     
-    // Жесткое ограничение: если t > 1, не делаем экстраполяцию
-    // Оставляем змейку в конечной точке до прихода следующего пакета
-    // Это уберет рывки "быстро-медленно" и эффект гармошки
-    t = Math.max(0, Math.min(t, 1)); // Строгое ограничение без экстраполяции
+    // Ограничиваем t до 1.2 (экстраполяция на 20% пути вперед),
+    // чтобы скрыть микро-паузы между пакетами и убрать эффект "гармошки"
+    t = Math.max(0, Math.min(t, 1.2));
     
     // Отрисовываем только если есть данные
     if (gameStateData && gameStateData.my_snake && gameStateData.opponent_snake) {
@@ -1733,7 +1736,7 @@ function drawGrid() {
 
 
 /**
- * Рисование змейки (современный дизайн с градиентами, neon эффектом и глазами по направлению)
+ * Рисование змейки (оптимизированная версия без Math.sqrt и с кэшированием градиента/shadow)
  */
 function drawSnake(snake, color1, color2) {
   if (!snake || !snake.body || snake.body.length === 0) return;
@@ -1741,44 +1744,40 @@ function drawSnake(snake, color1, color2) {
   // Используем логический размер canvas (без DPR) для корректной отрисовки
   const tileSize = canvasLogicalSize / 30; // 30 клеток по ширине
   
-  // Определяем направление змейки для глаз с плавной интерполяцией
+  // ОПТИМИЗАЦИЯ: берем направление напрямую из snake.direction без перерасчета
+  // Если direction отсутствует или некорректно, используем fallback
   let direction = snake.direction;
-  
-  // Если direction отсутствует или некорректно, вычисляем из позиций сегментов
   if (!direction || (direction.dx === 0 && direction.dy === 0)) {
-    if (snake.body.length > 1) {
-      // Вычисляем направление из первых двух сегментов для более точного отображения
-      const head = snake.body[0];
-      const next = snake.body[1];
-      const dx = head.x - next.x;
-      const dy = head.y - next.y;
-      const length = Math.sqrt(dx * dx + dy * dy);
-      
-      if (length > 0) {
-        direction = { dx: dx / length, dy: dy / length };
-      } else {
-        // Если сегменты на одной позиции, используем направление по умолчанию
-        direction = color1 === '#ff4444' ? { dx: 1, dy: 0 } : { dx: -1, dy: 0 };
-      }
+    // Fallback: красная змейка вправо, синяя влево
+    direction = color1 === '#ff4444' ? { dx: 1, dy: 0 } : { dx: -1, dy: 0 };
+  }
+  
+  // ОПТИМИЗАЦИЯ: нормализуем направление БЕЗ Math.sqrt и Math.abs
+  // Для единичных векторов (dx, dy) = (-1,0), (1,0), (0,-1), (0,1) нормализация не нужна
+  // Проверяем только если это не единичный вектор
+  const dx = direction.dx;
+  const dy = direction.dy;
+  if (dx !== 0 && dx !== 1 && dx !== -1 && dy !== 0 && dy !== 1 && dy !== -1) {
+    // Только если это не стандартное направление, нормализуем (но без Math.sqrt и Math.abs)
+    // Используем приближение: если dx > 0 или dx < 0, то нормализуем по dx, иначе по dy
+    if (dx > 0 || dx < 0) {
+      direction = { dx: dx > 0 ? 1 : -1, dy: 0 };
     } else {
-      // По умолчанию: красная змейка вправо, синяя влево
-      direction = color1 === '#ff4444' ? { dx: 1, dy: 0 } : { dx: -1, dy: 0 };
+      direction = { dx: 0, dy: dy > 0 ? 1 : -1 };
     }
   }
   
-  // Нормализуем направление для корректного отображения (должно быть единичным вектором)
-  const dirLength = Math.sqrt(direction.dx * direction.dx + direction.dy * direction.dy);
-  if (dirLength > 0.01) { // Проверка на ненулевое направление
-    direction = { dx: direction.dx / dirLength, dy: direction.dy / dirLength };
-  } else {
-    direction = { dx: 1, dy: 0 }; // Fallback
-  }
-  
-  // Градиент для змейки (переливание от яркого к темному)
+  // ОПТИМИЗАЦИЯ: создаем градиент и настраиваем shadow ОДИН РАЗ перед циклом
   const gradient = gameCtx.createLinearGradient(0, 0, gameCanvas.width, gameCanvas.height);
   gradient.addColorStop(0, color1); // Яркий цвет
   gradient.addColorStop(0.5, color2); // Средний цвет
   gradient.addColorStop(1, color1); // Темный оттенок для объема
+  
+  // Настраиваем shadow эффекты один раз
+  gameCtx.shadowColor = color1;
+  gameCtx.shadowBlur = 18; // Увеличенная интенсивность для лучшей видимости
+  gameCtx.shadowOffsetX = 0;
+  gameCtx.shadowOffsetY = 0;
   
   snake.body.forEach((segment, index) => {
     const x = segment.x * tileSize;
@@ -1786,12 +1785,6 @@ function drawSnake(snake, color1, color2) {
     const size = tileSize - 2;
     const offset = 1;
     const radius = size * (index === 0 ? 0.2 : 0.15);
-    
-    // Neon эффект (свечение цвета змейки) - увеличенная интенсивность
-    gameCtx.shadowColor = color1;
-    gameCtx.shadowBlur = 18; // Увеличено с 8 до 18 для лучшей видимости
-    gameCtx.shadowOffsetX = 0;
-    gameCtx.shadowOffsetY = 0;
     
     if (index === 0) {
       // Голова - рисуем с градиентом и скруглениями
@@ -1812,47 +1805,39 @@ function drawSnake(snake, color1, color2) {
       gameCtx.shadowColor = 'transparent';
       
       // Глаза на голове с учетом направления
-      let eyeX1, eyeY1, eyeX2, eyeY2;
+      // ОПТИМИЗАЦИЯ: используем direction напрямую без Math.abs (избегаем лишних вычислений)
       const centerX = x + offset + size / 2;
       const centerY = y + offset + size / 2;
       const eyeOffset = size * 0.2;
       const eyeSize = size * 0.12;
       
-      // Вычисляем позицию глаз в зависимости от направления (с учетом плавного поворота)
-      // Используем нормализованное направление для более точного позиционирования
-      const absDx = Math.abs(direction.dx);
-      const absDy = Math.abs(direction.dy);
+      let eyeX1, eyeY1, eyeX2, eyeY2;
       
-      if (absDx > absDy) {
-        // Горизонтальное движение (влево или вправо)
-        if (direction.dx > 0) {
-          // Движется вправо - глаза справа
-          eyeX1 = centerX + eyeOffset * 0.5;
-          eyeY1 = centerY - eyeOffset * 0.5;
-          eyeX2 = centerX + eyeOffset * 0.5;
-          eyeY2 = centerY + eyeOffset * 0.5;
-        } else {
-          // Движется влево - глаза слева
-          eyeX1 = centerX - eyeOffset * 0.5;
-          eyeY1 = centerY - eyeOffset * 0.5;
-          eyeX2 = centerX - eyeOffset * 0.5;
-          eyeY2 = centerY + eyeOffset * 0.5;
-        }
+      // Определяем позицию глаз на основе направления (без Math.sqrt и Math.abs)
+      if (direction.dx > 0) {
+        // Движется вправо - глаза справа
+        eyeX1 = centerX + eyeOffset * 0.5;
+        eyeY1 = centerY - eyeOffset * 0.5;
+        eyeX2 = centerX + eyeOffset * 0.5;
+        eyeY2 = centerY + eyeOffset * 0.5;
+      } else if (direction.dx < 0) {
+        // Движется влево - глаза слева
+        eyeX1 = centerX - eyeOffset * 0.5;
+        eyeY1 = centerY - eyeOffset * 0.5;
+        eyeX2 = centerX - eyeOffset * 0.5;
+        eyeY2 = centerY + eyeOffset * 0.5;
+      } else if (direction.dy > 0) {
+        // Движется вниз - глаза внизу
+        eyeX1 = centerX - eyeOffset * 0.5;
+        eyeY1 = centerY + eyeOffset * 0.5;
+        eyeX2 = centerX + eyeOffset * 0.5;
+        eyeY2 = centerY + eyeOffset * 0.5;
       } else {
-        // Вертикальное движение (вверх или вниз)
-        if (direction.dy > 0) {
-          // Движется вниз - глаза внизу
-          eyeX1 = centerX - eyeOffset * 0.5;
-          eyeY1 = centerY + eyeOffset * 0.5;
-          eyeX2 = centerX + eyeOffset * 0.5;
-          eyeY2 = centerY + eyeOffset * 0.5;
-        } else {
-          // Движется вверх - глаза вверху
-          eyeX1 = centerX - eyeOffset * 0.5;
-          eyeY1 = centerY - eyeOffset * 0.5;
-          eyeX2 = centerX + eyeOffset * 0.5;
-          eyeY2 = centerY - eyeOffset * 0.5;
-        }
+        // Движется вверх - глаза вверху
+        eyeX1 = centerX - eyeOffset * 0.5;
+        eyeY1 = centerY - eyeOffset * 0.5;
+        eyeX2 = centerX + eyeOffset * 0.5;
+        eyeY2 = centerY - eyeOffset * 0.5;
       }
       
       // Рисуем глаза (белые круги с небольшим свечением)
@@ -1872,11 +1857,11 @@ function drawSnake(snake, color1, color2) {
       gameCtx.roundRect(x + offset + 1, y + offset + 1, size - 2, size - 2, radius);
       gameCtx.fill();
     }
-    
-    // Сбрасываем свечение для следующего сегмента
-    gameCtx.shadowBlur = 0;
-    gameCtx.shadowColor = 'transparent';
   });
+  
+  // ОПТИМИЗАЦИЯ: сбрасываем shadow эффекты один раз после цикла
+  gameCtx.shadowBlur = 0;
+  gameCtx.shadowColor = 'transparent';
 }
 
 /**
@@ -2118,4 +2103,5 @@ function endGame(data) {
     zIndex: resultScreen.style.zIndex
   });
 }
+
 
