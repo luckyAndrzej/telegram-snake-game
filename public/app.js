@@ -274,24 +274,23 @@ function initSocket() {
         gameState = 'countdown'; // Устанавливаем 'countdown' вместо 'playing' до начала игры
         showScreen('game');
       
-      // Инициализируем game-canvas с логическим разрешением 800x800 для четкости
+      // Инициализируем Canvas перед отрисовкой начального состояния
+      if (!canvasInitialized) {
+        initCanvas();
+      }
+      
+      // Убеждаемся, что Canvas и контекст доступны
       if (!gameCanvas || !gameCtx) {
         gameCanvas = document.getElementById('game-canvas');
         if (gameCanvas) {
           gameCtx = gameCanvas.getContext('2d');
-          // Отключаем сглаживание изображений для четкости
-          gameCtx.imageSmoothingEnabled = false;
-          // Логическое разрешение 800x800 (CSS растянет его)
-          gameCanvas.width = 800;
-          gameCanvas.height = 800;
+          if (gameCtx) {
+            gameCtx.imageSmoothingEnabled = false;
+          }
         }
-      } else {
-        // Пересчитываем размер canvas при каждом входе в игру
-        gameCanvas.width = 800;
-        gameCanvas.height = 800;
       }
       
-      // Показываем countdown overlay
+      // Показываем countdown overlay (прозрачный, только цифры)
       const countdownOverlay = document.getElementById('countdown-overlay');
       if (countdownOverlay) {
         countdownOverlay.style.display = 'flex';
@@ -299,15 +298,14 @@ function initSocket() {
         console.warn('countdown-overlay не найден!');
       }
       
-      // ОТРИСОВКА ИГРОВОГО ПОЛЯ ВО ВРЕМЯ COUNTDOWN: рисуем начальное состояние, чтобы не было черного экрана
-      if (gameCanvas && gameCtx && !animationFrameId) {
-        // Инициализируем Canvas перед preview (если еще не инициализирован)
-        if (!canvasInitialized) {
-          initCanvas();
+      // ОТРИСОВКА ИГРОВОГО ПОЛЯ ВО ВРЕМЯ COUNTDOWN: рисуем начальное состояние сразу
+      // Используем requestAnimationFrame для гарантии, что Canvas готов
+      requestAnimationFrame(() => {
+        if (gameCanvas && gameCtx && data.initial_state) {
+          renderGamePreviewOnCanvas(data.initial_state, gameCanvas, gameCtx);
+          console.log('🎨 Начальное состояние отрисовано во время countdown');
         }
-        // Рисуем начальное состояние игры на game-canvas
-        renderGamePreviewOnCanvas(data.initial_state, gameCanvas, gameCtx);
-      }
+      });
     }
   });
   
@@ -330,6 +328,7 @@ function initSocket() {
       // Используем requestAnimationFrame для плавного обновления
       requestAnimationFrame(() => {
         renderGamePreviewOnCanvas(currentGame.initialState, gameCanvas, gameCtx);
+        console.log('🎨 Обновлено начальное состояние во время countdown:', data.number);
       });
     }
   });
@@ -1057,15 +1056,18 @@ function initCanvas() {
   // Отключаем сглаживание изображений для четкости и устранения микро-размытия при движении
   gameCtx.imageSmoothingEnabled = false;
   
-  // АДАПТИВНЫЙ РАЗМЕР: Canvas подстраивается под ширину контейнера (95vw), но сохраняет соотношение сторон (квадрат)
+  // АДАПТИВНЫЙ РАЗМЕР: Canvas подстраивается под максимально возможную ширину контейнера, сохраняя пропорцию 1:1
   // Вычисляем размер на основе CSS (95vw или 95vh, в зависимости от того, что меньше)
   const containerWidth = gameCanvas.parentElement?.clientWidth || window.innerWidth;
   const containerHeight = window.innerHeight;
-  // Используем 95% от меньшего измерения для квадрата
+  // Используем максимально возможный размер (95% от меньшего измерения) для квадрата
   const cssSize = Math.min(containerWidth * 0.95, containerHeight * 0.95);
   
   // Логический размер Canvas (для отрисовки) равен CSS размеру
   canvasLogicalSize = Math.floor(cssSize);
+  
+  // Пересчитываем tileSize на основе нового размера: tileSize = canvasLogicalSize / 30
+  // Это будет использовано в drawGridToOffscreen и drawSnakeSimple
   
   // УПРАВЛЕНИЕ DPR: вызываем scale только один раз при инициализации
   canvasDPR = window.devicePixelRatio || 1;
@@ -1909,8 +1911,20 @@ function startRenderLoop() {
       drawGrid();
     }
     
+    // ИСПРАВЛЕНИЕ: если gameState === 'countdown', рисуем начальное состояние из currentGame.initialState
+    if (gameState === 'countdown' && currentGame && currentGame.initialState) {
+      // Рисуем начальное состояние змеек во время countdown
+      if (currentGame.initialState.my_snake && currentGame.initialState.opponent_snake) {
+        // Отрисовываем сетку и змеек из начального состояния
+        drawSnakeSimple(currentGame.initialState.my_snake, [], '#ff4444', '#ff6666');
+        drawSnakeSimple(currentGame.initialState.opponent_snake, [], '#4444ff', '#6666ff');
+        // Продолжаем цикл рендеринга для обновления countdown
+        animationFrameId = requestAnimationFrame(render);
+        return; // Выходим из функции, чтобы не рисовать текущее состояние игры
+      }
+    }
     // ИНТЕРПОЛЯЦИЯ ИЛИ ПЛАВНЫЙ РЕНДЕРИНГ: отрисовываем змейку с интерполяцией между состояниями
-    if (currentGameState && currentGameState.my_snake && currentGameState.opponent_snake) {
+    else if (currentGameState && currentGameState.my_snake && currentGameState.opponent_snake) {
       // Вычисляем коэффициент интерполяции (0-1) на основе времени с последнего обновления
       // ИНТЕРПОЛЯЦИЯ: плавное движение между состояниями
       const timeSinceUpdate = lastStateUpdateTime > 0 ? performance.now() - lastStateUpdateTime : 0;
