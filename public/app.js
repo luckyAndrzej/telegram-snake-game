@@ -29,10 +29,10 @@ let animationFrameId = null;
 // Input Buffer: очередь команд для предотвращения потери быстрых нажатий
 let inputBuffer = [];
 let lastDirectionSentTime = 0;
-const INPUT_BUFFER_DELAY = 50; // Минимальная задержка между отправками (мс)
+const INPUT_BUFFER_DELAY = 0; // Немедленная отправка для мгновенного отклика
 
 // Jitter Buffer: задержка рендеринга для стабилизации интерполяции
-const RENDER_DELAY = 50; // Уменьшено с 100 до 50ms для более отзывчивого движения
+const RENDER_DELAY = 0; // Убрано для мгновенного отклика
 
 // Offscreen canvas для сетки (оптимизация отрисовки)
 let gridCanvas = null;
@@ -1100,20 +1100,9 @@ function sendDirection(direction) {
     }
   }
   
-  // INPUT BUFFER: добавляем команду в очередь
-  const now = performance.now();
-  inputBuffer.push({
-    direction: direction,
-    timestamp: now
-  });
-  
-  // Отправляем команду немедленно, если прошло достаточно времени с последней отправки
-  if (now - lastDirectionSentTime >= INPUT_BUFFER_DELAY) {
-    processInputBuffer();
-  } else {
-    // Иначе отправим через небольшую задержку
-    setTimeout(processInputBuffer, INPUT_BUFFER_DELAY - (now - lastDirectionSentTime));
-  }
+  // Немедленная отправка на сервер для мгновенного отклика
+  socket.emit('direction', direction);
+  lastDirectionSentTime = performance.now();
 }
 
 /**
@@ -1505,21 +1494,34 @@ function startGame(data) {
 }
 
 /**
- * Обновление состояния игры - максимально простая версия
- * Только сохранение состояния для интерполяции
+ * Быстрая функция клонирования только нужных полей (оптимизация производительности)
+ */
+function cloneSnakeState(data) {
+  if (!data) return null;
+  return {
+    my_snake: data.my_snake ? {
+      body: data.my_snake.body.map(s => ({ x: s.x, y: s.y })),
+      direction: { dx: data.my_snake.direction.dx, dy: data.my_snake.direction.dy },
+      alive: data.my_snake.alive
+    } : null,
+    opponent_snake: data.opponent_snake ? {
+      body: data.opponent_snake.body.map(s => ({ x: s.x, y: s.y })),
+      direction: { dx: data.opponent_snake.direction.dx, dy: data.opponent_snake.direction.dy },
+      alive: data.opponent_snake.alive
+    } : null
+  };
+}
+
+/**
+ * Обновление состояния игры - оптимизированная версия
+ * Использует быстрое клонирование вместо JSON.parse/stringify
  */
 function updateGameState(data) {
-  // ИСПРАВЛЕНИЕ: Правильное клонирование для корректной интерполяции
-  // При первом обновлении копируем текущее состояние в previous (если есть)
-  if (!previousGameStateData && gameStateData) {
-    previousGameStateData = JSON.parse(JSON.stringify(gameStateData));
-  } else if (gameStateData) {
-    // Клонируем предыдущее состояние для интерполяции
-    previousGameStateData = JSON.parse(JSON.stringify(gameStateData));
+  // Используем оптимизированное клонирование для производительности
+  if (gameStateData) {
+    previousGameStateData = cloneSnakeState(gameStateData);
   }
-  
-  // Клонируем новое состояние
-  gameStateData = JSON.parse(JSON.stringify(data));
+  gameStateData = cloneSnakeState(data);
   lastGameStateUpdate = performance.now();
   
   // Запускаем цикл отрисовки если он еще не запущен
@@ -1548,16 +1550,12 @@ function startRenderLoop() {
       return;
     }
     
-    // JITTER BUFFER: рисуем состояние с задержкой RENDER_DELAY для стабилизации
-    // Это создает "подушку" для сетевых лагов
+    // Рассчитываем локальную переменную t для интерполяции
     const currentTime = performance.now();
-    const renderTime = currentTime - RENDER_DELAY;
-    
-    // Рассчитываем локальную переменную t для интерполяции с учетом задержки
-    let t = (renderTime - lastGameStateUpdate) / 111.11;
-    // ИСПРАВЛЕНИЕ: Ограничиваем t в диапазоне [0, 1] для предотвращения рывков
+    let t = (currentTime - lastGameStateUpdate) / 111.11;
+    // Защита от отрицательных значений
     if (t < 0) t = 0;
-    if (t > 1) t = 1; // Предотвращает "вылет" змейки за пределы текущего сегмента
+    // НЕ ограничиваем t > 1 - это позволит экстраполяции работать при задержке пакетов
     
     // Отрисовываем только если есть данные
     if (gameStateData && gameStateData.my_snake && gameStateData.opponent_snake) {
@@ -1577,12 +1575,33 @@ function startRenderLoop() {
       }
       
       // INTERPOLATION: плавное движение между обновлениями сервера
-      // Рисуем только результат функции interpolateSnake
       const mySnake = interpolateSnake(previousGameStateData?.my_snake, gameStateData?.my_snake, t);
       const opponentSnake = interpolateSnake(previousGameStateData?.opponent_snake, gameStateData?.opponent_snake, t);
       
+      // ВИЗУАЛЬНАЯ ЭКСТРАПОЛЯЦИЯ: если t > 1, экстраполируем движение для плавности
+      // Это предотвращает остановку змейки при задержке пакетов
+      let mySnakeToDraw = mySnake;
+      if (t >= 1 && mySnake && mySnake.direction && mySnake.body && mySnake.body.length > 0) {
+        const extraTime = (t - 1) * 111.11; // Время сверх одного тика в мс
+        const speed = 1.0 / 111.11; // Клеток в миллисекунду (1 клетка за 111.11ms)
+        const dir = mySnake.direction;
+        const head = mySnake.body[0];
+        
+        // Экстраполируем позицию головы (только для визуализации)
+        const extrapolatedHead = {
+          x: head.x + dir.dx * (extraTime * speed),
+          y: head.y + dir.dy * (extraTime * speed)
+        };
+        
+        // Создаем новый массив body с экстраполированной головой
+        mySnakeToDraw = {
+          ...mySnake,
+          body: [extrapolatedHead, ...mySnake.body.slice(1)]
+        };
+      }
+      
       // Отрисовываем змейки
-      drawSnake(mySnake, '#ff4444', '#ff6666');
+      drawSnake(mySnakeToDraw, '#ff4444', '#ff6666');
       drawSnake(opponentSnake, '#4444ff', '#6666ff');
     }
     
@@ -1644,47 +1663,33 @@ function interpolateSnake(previousSnake, currentSnake, t) {
     return currentSnake;
   }
   
-  // Ограничиваем t значением от 0 до 1 (предотвращает "вылет" змейки за пределы текущего сегмента)
-  t = Math.min(t, 1);
-  if (t < 0) t = 0;
+  // Ограничиваем t до 1 для интерполяции (экстраполяция делается в render)
+  const interpolationT = Math.min(t, 1);
   
-  // Клонируем текущую змейку
-  const interpolated = JSON.parse(JSON.stringify(currentSnake));
+  // Создаем новый объект змейки (быстрое клонирование)
+  const interpolated = {
+    body: [],
+    direction: { ...currentSnake.direction },
+    alive: currentSnake.alive
+  };
   
   // Направление меняется мгновенно (без плавной интерполяции)
   // Это обеспечивает мгновенную визуальную реакцию на нажатие клавиш
-  // Если направление изменилось, используем новое направление сразу
-  if (previousSnake.direction && currentSnake.direction) {
-    const prevDir = previousSnake.direction;
-    const currDir = currentSnake.direction;
-    
-    // Если направление изменилось, применяем новое направление мгновенно
-    if (prevDir.dx !== currDir.dx || prevDir.dy !== currDir.dy) {
-      // Направление меняется мгновенно для визуального отклика
-      interpolated.direction = currDir;
-    } else {
-      // Если направление не изменилось, сохраняем его
-      interpolated.direction = currDir;
-    }
-  }
+  interpolated.direction = { ...currentSnake.direction };
   
   // Интерполируем каждую позицию сегмента для плавного движения
-  if (interpolated.body && previousSnake.body) {
-    // Используем easing для более естественного движения
-    const easedT = t * t * (3 - 2 * t); // Smoothstep для более плавного движения
-    interpolated.body = currentSnake.body.map((segment, index) => {
-      if (index >= previousSnake.body.length) return segment;
-      
-      const prevSegment = previousSnake.body[index];
-      const currSegment = segment;
-      
-      // Плавная линейная интерполяция позиции (lerp)
-      return {
-        x: prevSegment.x + (currSegment.x - prevSegment.x) * easedT,
-        y: prevSegment.y + (currSegment.y - prevSegment.y) * easedT
-      };
-    });
-  }
+  // Используем простую линейную интерполяцию (без smoothstep) для более плавного движения
+  interpolated.body = currentSnake.body.map((segment, index) => {
+    if (index >= previousSnake.body.length) return { x: segment.x, y: segment.y };
+    
+    const prevSegment = previousSnake.body[index];
+    
+    // Простая линейная интерполяция (lerp) - самое плавное для дискретного движения
+    return {
+      x: prevSegment.x + (segment.x - prevSegment.x) * interpolationT,
+      y: prevSegment.y + (segment.y - prevSegment.y) * interpolationT
+    };
+  });
   
   return interpolated;
 }
