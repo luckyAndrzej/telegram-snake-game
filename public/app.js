@@ -89,45 +89,30 @@ document.addEventListener('DOMContentLoaded', () => {
     m.style.transform = '';
   });
   
-  // Инициализация debug stats overlay
-  const debugStats = document.getElementById('debug-stats');
-  if (debugStats) {
-    // Показываем блок только во время игры (можно включить для разработки)
-    // Для включения раскомментируйте следующую строку:
-    // debugStats.style.display = 'block';
-    
-    // Добавляем возможность скрыть/показать блок по клику
-    debugStats.style.pointerEvents = 'auto'; // Включаем клики
-    debugStats.style.cursor = 'pointer'; // Курсор указатель
-    debugStats.addEventListener('click', () => {
-      if (debugStats.style.display === 'none') {
-        debugStats.style.display = 'block';
-      } else {
-        debugStats.style.display = 'none';
-      }
-    });
-  }
-  
   // Явно скрываем все модальные окна при загрузке
   toggleModal('withdrawal-modal', false);
   toggleModal('payment-modal', false);
   
-  // Инициализация debug stats overlay
-  const debugStats = document.getElementById('debug-stats');
-  if (debugStats) {
-    // По умолчанию скрыт (можно включить для разработки, раскомментировав следующую строку)
-    // debugStats.style.display = 'block';
-    
-    // Добавляем возможность скрыть/показать блок по клику
-    debugStats.style.pointerEvents = 'auto'; // Включаем клики
-    debugStats.style.cursor = 'pointer'; // Курсор указатель
-    debugStats.addEventListener('click', () => {
-      if (debugStats.style.display === 'none') {
-        debugStats.style.display = 'block';
-      } else {
-        debugStats.style.display = 'none';
-      }
-    });
+  // Инициализация debug stats overlay (только если элемент существует)
+  try {
+    const debugStats = document.getElementById('debug-stats');
+    if (debugStats) {
+      // По умолчанию скрыт (можно включить для разработки, раскомментировав следующую строку)
+      // debugStats.style.display = 'block';
+      
+      // Добавляем возможность скрыть/показать блок по клику
+      debugStats.style.pointerEvents = 'auto'; // Включаем клики
+      debugStats.style.cursor = 'pointer'; // Курсор указатель
+      debugStats.addEventListener('click', () => {
+        if (debugStats.style.display === 'none') {
+          debugStats.style.display = 'block';
+        } else {
+          debugStats.style.display = 'none';
+        }
+      });
+    }
+  } catch (error) {
+    console.warn('⚠️ Ошибка инициализации debug stats:', error);
   }
   
   // СНАЧАЛА показываем меню, чтобы интерфейс не блокировался
@@ -424,9 +409,13 @@ function initSocket() {
     }
     
     // Скрываем debug stats при выходе из игры
-    const debugStats = document.getElementById('debug-stats');
-    if (debugStats) {
-      debugStats.style.display = 'none';
+    try {
+      const debugStats = document.getElementById('debug-stats');
+      if (debugStats) {
+        debugStats.style.display = 'none';
+      }
+    } catch (error) {
+      // Игнорируем ошибки
     }
     
     // Вызываем initCanvas(), чтобы убедиться, что размеры холста актуальны перед отрисовкой
@@ -465,17 +454,21 @@ function initSocket() {
     console.log('Данные игры получены:', data);
     
     // Мониторинг сетевых задержек
-    const nowNet = performance.now();
-    if (window.lastPacketTime) {
-      const interval = nowNet - window.lastPacketTime;
-      const netElement = document.getElementById('net-val');
-      if (netElement) {
-        netElement.textContent = Math.round(interval);
-        // Подсветка проблем: если интервал больше 140мс, красим в красный
-        netElement.style.color = interval > 140 ? '#ff4444' : '#00ff00';
+    try {
+      const nowNet = performance.now();
+      if (window.lastPacketTime) {
+        const interval = nowNet - window.lastPacketTime;
+        const netElement = document.getElementById('net-val');
+        if (netElement) {
+          netElement.textContent = Math.round(interval);
+          // Подсветка проблем: если интервал больше 140мс, красим в красный
+          netElement.style.color = interval > 140 ? '#ff4444' : '#00ff00';
+        }
       }
+      window.lastPacketTime = nowNet;
+    } catch (error) {
+      // Игнорируем ошибки сетевого мониторинга, чтобы не ломать игру
     }
-    window.lastPacketTime = nowNet;
     
     // Обновляем состояние игры только если игра активна (после countdown)
     // Проверяем и 'playing' и 'countdown', чтобы не пропустить первые обновления
@@ -492,9 +485,13 @@ function initSocket() {
         console.log('✅ Overlay очищен при первом game_state');
         
         // Показываем debug stats при начале игры
-        const debugStats = document.getElementById('debug-stats');
-        if (debugStats) {
-          debugStats.style.display = 'block';
+        try {
+          const debugStats = document.getElementById('debug-stats');
+          if (debugStats) {
+            debugStats.style.display = 'block';
+          }
+        } catch (error) {
+          // Игнорируем ошибки
         }
       }
       updateGameState(data);
@@ -1607,15 +1604,22 @@ function startRenderLoop() {
     }
     
     // Мониторинг FPS (обновляем не каждый кадр, чтобы не тормозить)
-    if (!window.lastFrameUpdate) window.lastFrameUpdate = performance.now();
-    const now = performance.now();
-    const delta = now - window.lastFrameUpdate;
-    window.lastFrameUpdate = now;
-    if (Math.random() > 0.9) { // Обновляем текст не каждый кадр, чтобы не тормозить
-      const fpsElement = document.getElementById('fps-val');
-      if (fpsElement) {
-        fpsElement.textContent = Math.round(1000 / delta);
+    try {
+      if (!window.lastFrameUpdate) window.lastFrameUpdate = performance.now();
+      const now = performance.now();
+      const delta = now - window.lastFrameUpdate;
+      window.lastFrameUpdate = now;
+      
+      // Защита от деления на ноль и обновляем не каждый кадр
+      if (delta > 0 && Math.random() > 0.9) {
+        const fpsElement = document.getElementById('fps-val');
+        if (fpsElement) {
+          const fps = Math.round(1000 / delta);
+          fpsElement.textContent = isFinite(fps) ? fps : 60; // Fallback если Infinity
+        }
       }
+    } catch (error) {
+      // Игнорируем ошибки FPS мониторинга, чтобы не ломать игру
     }
     
     // Рассчитываем локальную переменную t для интерполяции
