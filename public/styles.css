@@ -495,7 +495,9 @@ body::before {
     align-items: center;
 }
 
+/* УБРАТЬ ЛИШНИЕ СЛОИ: временно скрываем header для теста */
 .game-header {
+    display: none !important; /* Временно скрываем header */
     width: 100%;
     margin-bottom: 15px;
     flex-shrink: 0;
@@ -542,7 +544,8 @@ body::before {
     position: absolute; /* Абсолютное позиционирование внутри game-screen */
     top: 0;
     left: 0;
-    display: block;
+    display: block !important; /* Принудительно block для видимости */
+    z-index: 10 !important; /* Высокий z-index чтобы не перекрывался фоном */
     max-width: 100%;
     max-height: 55vh;
     width: auto;
@@ -581,7 +584,9 @@ body::before {
 }
 
 /* Countdown Overlay */
+/* УБРАТЬ ЛИШНИЕ СЛОИ: временно скрываем overlay для теста */
 #countdown-overlay {
+    display: none !important; /* Временно скрываем overlay */
     position: absolute;
     top: 0;
     left: 0;

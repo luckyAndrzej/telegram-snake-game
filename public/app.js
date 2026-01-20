@@ -1747,19 +1747,19 @@ function startRenderLoop() {
     // ПЛАВНОЕ ДВИЖЕНИЕ (Fallback): если в конкретный кадр packetQueue пуста, продолжаем рисовать currentGameState
     // Не останавливаем отрисовку при пустой очереди - используем последнее известное состояние
     
-    // УПРОЩЕННАЯ ОТРИСОВКА (для теста): временно добавляем яркий фон
-    // Полная очистка canvas перед каждым кадром
-    gameCtx.clearRect(0, 0, canvasLogicalSize, canvasLogicalSize);
+    // ОЧИСТКА И ФОН: полная очистка холста и заливка темным цветом
+    // Используем реальные размеры canvas, а не логический размер
+    gameCtx.clearRect(0, 0, gameCanvas.width, gameCanvas.height);
     
-    // ВРЕМЕННЫЙ ТЕСТ: зеленый фон для проверки работы canvas
-    gameCtx.fillStyle = 'green';
-    gameCtx.fillRect(0, 0, canvasLogicalSize, canvasLogicalSize);
+    // Заливаем фон темным цветом, чтобы убедиться, что холст виден
+    gameCtx.fillStyle = '#1a1a1a';
+    gameCtx.fillRect(0, 0, gameCanvas.width, gameCanvas.height);
     
     // Отрисовываем только если есть данные
     if (currentGameState && currentGameState.my_snake && currentGameState.opponent_snake) {
-      // Фон для игрового поля (поверх зеленого для теста)
+      // Фон для игрового поля
       gameCtx.fillStyle = '#0a0e27';
-      gameCtx.fillRect(0, 0, canvasLogicalSize, canvasLogicalSize);
+      gameCtx.fillRect(0, 0, gameCanvas.width, gameCanvas.height);
       
       // ОПТИМИЗАЦИЯ: используем offscreen canvas для сетки вместо перерисовки
       if (gridCanvas) {
@@ -1774,16 +1774,17 @@ function startRenderLoop() {
         console.log('Drawing snake at:', currentGameState.my_snake.body[0]);
       }
       
-      // Отрисовываем змейки с синхронным хвостом
-      drawSnakeSimple(currentGameState.my_snake, headHistory, '#ff4444', '#ff6666');
-      drawSnakeSimple(currentGameState.opponent_snake, opponentHeadHistory, '#4444ff', '#6666ff');
+      // ЦВЕТА ЗМЕЕК: принудительно задаем яркие цвета для теста
+      // Моя змейка: ярко-зеленый (#00FF00), Враг: ярко-красный (#FF0000)
+      drawSnakeSimple(currentGameState.my_snake, headHistory, '#00FF00', '#00FF00');
+      drawSnakeSimple(currentGameState.opponent_snake, opponentHeadHistory, '#FF0000', '#FF0000');
     } else {
       // ПЛАВНОЕ ДВИЖЕНИЕ (Fallback): если данных нет, продолжаем рисовать последнее известное состояние
       // Не останавливаем отрисовку - просто используем то, что есть
       if (currentGameState) {
-        // Рисуем последнее известное состояние
-        drawSnakeSimple(currentGameState.my_snake, headHistory, '#ff4444', '#ff6666');
-        drawSnakeSimple(currentGameState.opponent_snake, opponentHeadHistory, '#4444ff', '#6666ff');
+        // Рисуем последнее известное состояние с яркими цветами для теста
+        drawSnakeSimple(currentGameState.my_snake, headHistory, '#00FF00', '#00FF00');
+        drawSnakeSimple(currentGameState.opponent_snake, opponentHeadHistory, '#FF0000', '#FF0000');
       }
     }
     
@@ -1807,85 +1808,41 @@ function drawSnakeSimple(snake, headHistory, color1, color2) {
     console.log('Drawing snake at:', snake.body[0]);
   }
   
+  // МАСШТАБИРОВАНИЕ КООРДИНАТ: проверяем правильное вычисление размера ячейки
+  // Если размер поля 30x30, а canvas 600px, то каждая ячейка должна быть 20px
   const tileSize = canvasLogicalSize / 30;
+  console.log('Tile size:', tileSize, 'Canvas logical size:', canvasLogicalSize, 'Head:', snake.body[0]);
   
-  // Градиент для змейки
-  const gradient = gameCtx.createLinearGradient(0, 0, canvasLogicalSize, canvasLogicalSize);
-  gradient.addColorStop(0, color1);
-  gradient.addColorStop(1, color2);
+  // ЦВЕТА ЗМЕЕК: принудительно задаем яркие цвета для теста
+  // Моя змейка: ярко-зеленый, Враг: ярко-красный
+  const isMySnake = color1 === '#ff4444' || color1 === '#00FF00';
+  const testColor = isMySnake ? '#00FF00' : '#FF0000'; // Ярко-зеленый или ярко-красный
   
   // Направление для глаз
   const direction = snake.direction || { dx: 1, dy: 0 };
   
   // Настраиваем shadow эффекты
-  gameCtx.shadowColor = color1;
+  gameCtx.shadowColor = testColor;
   gameCtx.shadowBlur = 18;
   gameCtx.shadowOffsetX = 0;
   gameCtx.shadowOffsetY = 0;
   
   // Рисуем голову
   const head = snake.body[0];
+  // МАСШТАБИРОВАНИЕ: умножаем координаты на размер ячейки
   const headX = head.x * tileSize;
   const headY = head.y * tileSize;
   const size = tileSize - 2;
   const offset = 1;
   const radius = size * 0.2;
   
-  // Голова с градиентом
-  gameCtx.fillStyle = gradient;
-  gameCtx.beginPath();
-  gameCtx.roundRect(headX + offset, headY + offset, size, size, radius);
-  gameCtx.fill();
+  // Голова с ярким цветом для теста - используем простой fillRect для надежности
+  gameCtx.fillStyle = testColor;
+  // УБРАТЬ ЛИШНИЕ СЛОИ: используем простой fillRect вместо roundRect для теста
+  // МАСШТАБИРОВАНИЕ: координаты уже умножены на tileSize, рисуем прямоугольник
+  gameCtx.fillRect(headX + offset, headY + offset, size, size);
   
-  // Белая обводка головы
-  gameCtx.strokeStyle = '#ffffff';
-  gameCtx.lineWidth = 2;
-  gameCtx.beginPath();
-  gameCtx.roundRect(headX + offset, headY + offset, size, size, radius);
-  gameCtx.stroke();
-  
-  // Глаза на голове
-  gameCtx.shadowBlur = 0;
-  gameCtx.shadowColor = 'transparent';
-  
-  const centerX = headX + offset + size / 2;
-  const centerY = headY + offset + size / 2;
-  const eyeOffset = size * 0.2;
-  const eyeSize = size * 0.12;
-  
-  let eyeX1, eyeY1, eyeX2, eyeY2;
-  
-  if (direction.dx > 0) {
-    eyeX1 = centerX + eyeOffset * 0.5;
-    eyeY1 = centerY - eyeOffset * 0.5;
-    eyeX2 = centerX + eyeOffset * 0.5;
-    eyeY2 = centerY + eyeOffset * 0.5;
-  } else if (direction.dx < 0) {
-    eyeX1 = centerX - eyeOffset * 0.5;
-    eyeY1 = centerY - eyeOffset * 0.5;
-    eyeX2 = centerX - eyeOffset * 0.5;
-    eyeY2 = centerY + eyeOffset * 0.5;
-  } else if (direction.dy > 0) {
-    eyeX1 = centerX - eyeOffset * 0.5;
-    eyeY1 = centerY + eyeOffset * 0.5;
-    eyeX2 = centerX + eyeOffset * 0.5;
-    eyeY2 = centerY + eyeOffset * 0.5;
-  } else {
-    eyeX1 = centerX - eyeOffset * 0.5;
-    eyeY1 = centerY - eyeOffset * 0.5;
-    eyeX2 = centerX + eyeOffset * 0.5;
-    eyeY2 = centerY - eyeOffset * 0.5;
-  }
-  
-  gameCtx.shadowColor = 'rgba(255, 255, 255, 0.5)';
-  gameCtx.shadowBlur = 3;
-  gameCtx.fillStyle = '#ffffff';
-  gameCtx.beginPath();
-  gameCtx.arc(eyeX1, eyeY1, eyeSize, 0, Math.PI * 2);
-  gameCtx.fill();
-  gameCtx.beginPath();
-  gameCtx.arc(eyeX2, eyeY2, eyeSize, 0, Math.PI * 2);
-  gameCtx.fill();
+  // УБРАТЬ ЛИШНИЕ СЛОИ: временно убираем обводку и глаза для упрощения теста
   
   // СИНХРОННЫЙ ХВОСТ: рисуем сегменты из истории позиций головы
   // Каждый сегмент хвоста - это позиция головы N тиков назад
@@ -1901,10 +1858,10 @@ function drawSnakeSimple(snake, headHistory, color1, color2) {
     const tailRadius = size * 0.15;
     
     gameCtx.shadowBlur = i < 5 ? 12 : 0; // Тени только для первых сегментов
-    gameCtx.fillStyle = gradient;
-    gameCtx.beginPath();
-    gameCtx.roundRect(tailX + offset + 1, tailY + offset + 1, size - 2, size - 2, tailRadius);
-    gameCtx.fill();
+    // ЦВЕТА ЗМЕЕК: используем яркий цвет для теста
+    gameCtx.fillStyle = testColor;
+    // УБРАТЬ ЛИШНИЕ СЛОИ: используем простой fillRect вместо roundRect для теста
+    gameCtx.fillRect(tailX + offset + 1, tailY + offset + 1, size - 2, size - 2);
   }
   
   // Сбрасываем shadow эффекты
