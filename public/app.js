@@ -25,8 +25,6 @@ let gameStateData = null;
 let previousGameStateData = null; // Предыдущее состояние для интерполяции
 let lastGameStateUpdate = 0;
 let animationFrameId = null;
-let lastServerUpdateTime = 0; // Время последнего обновления от сервера для более точной интерполяции
-let actualServerInterval = 111.11; // Фактический интервал между обновлениями (адаптируется)
 
 // Input Buffer: очередь команд для предотвращения потери быстрых нажатий
 let inputBuffer = [];
@@ -372,8 +370,6 @@ function initSocket() {
     previousGameStateData = null;
     gameStateData = null;
     lastGameStateUpdate = 0;
-    lastServerUpdateTime = 0;
-    actualServerInterval = 111.11; // Сбрасываем на стандартное значение
     
     // Скрываем countdown overlay
     const countdownOverlay = document.getElementById('countdown-overlay');
@@ -1515,38 +1511,18 @@ function cloneSnakeState(data) {
 }
 
 /**
- * Обновление состояния игры - оптимизированная версия
+ * Обновление состояния игры - упрощенная версия
  * Использует быстрое клонирование вместо JSON.parse/stringify
  */
 function updateGameState(data) {
-  const now = performance.now();
-  
-  // ВАЖНО: Сохраняем предыдущее состояние ПЕРЕД обновлением
-  // Это должно быть "чистое" состояние от сервера, без локальных изменений
-  if (gameStateData) {
-    // Сохраняем текущее состояние как предыдущее для интерполяции
-    previousGameStateData = cloneSnakeState(gameStateData);
-  } else {
-    // При первом обновлении previousGameStateData = null, но это нормально
-    // Интерполяция вернет currentSnake если previousSnake null
-    previousGameStateData = null;
-  }
+  // Сохраняем предыдущее состояние перед обновлением
+  previousGameStateData = gameStateData;
   
   // Обновляем текущее состояние (клонируем серверные данные)
   gameStateData = cloneSnakeState(data);
   
-  // Вычисляем фактический интервал между обновлениями для более точной интерполяции
-  if (lastServerUpdateTime > 0) {
-    const timeSinceLastUpdate = now - lastServerUpdateTime;
-    // Используем экспоненциальное сглаживание для адаптации к реальному интервалу
-    actualServerInterval = actualServerInterval * 0.8 + timeSinceLastUpdate * 0.2;
-    // Ограничиваем разумными пределами (50ms - 200ms)
-    actualServerInterval = Math.max(50, Math.min(200, actualServerInterval));
-  }
-  
   // Обновляем время последнего обновления
-  lastGameStateUpdate = now;
-  lastServerUpdateTime = now;
+  lastGameStateUpdate = performance.now();
   
   // Запускаем цикл отрисовки если он еще не запущен
   if (!animationFrameId && gameState === 'playing') {
@@ -1578,22 +1554,15 @@ function startRenderLoop() {
     const currentTime = performance.now();
     const timeSinceUpdate = currentTime - lastGameStateUpdate;
     
-    // Используем фактический интервал между обновлениями для более точной интерполяции
-    // Если actualServerInterval еще не вычислен, используем стандартный 111.11ms
-    const serverUpdateInterval = actualServerInterval > 0 ? actualServerInterval : 111.11;
+    // Фиксированный интервал между обновлениями сервера (1000ms / 9 тиков = 111.11ms)
+    const serverUpdateInterval = 111.11;
     
-    // Рассчитываем t для интерполяции между предыдущим и текущим состоянием
-    let t = timeSinceUpdate / serverUpdateInterval;
+    // Рассчитываем t для интерполяции и жестко ограничиваем до 1.0
+    // Это заставит змейку плавно доезжать до точки сервера и ждать следующего пакета
+    let t = Math.min(timeSinceUpdate / serverUpdateInterval, 1.0);
     
     // Защита от отрицательных значений
     if (t < 0) t = 0;
-    
-    // Если previousGameStateData null (первое обновление), используем только текущее состояние
-    if (!previousGameStateData || !previousGameStateData.my_snake) {
-      t = 1; // Показываем только текущее состояние без интерполяции
-    }
-    
-    // НЕ ограничиваем t > 1 - это позволит экстраполяции работать при задержке пакетов
     
     // Отрисовываем только если есть данные
     if (gameStateData && gameStateData.my_snake && gameStateData.opponent_snake) {
@@ -1626,92 +1595,9 @@ function startRenderLoop() {
         opponentSnake = gameStateData.opponent_snake;
       }
       
-      // ВИЗУАЛЬНАЯ ЭКСТРАПОЛЯЦИЯ: если t > 1, экстраполируем движение для плавности
-      // Это предотвращает остановку змейки при задержке пакетов
-      // Ограничиваем максимальное значение t для экстраполяции (максимум 2 тика вперед)
-      const maxExtrapolationT = 2.0; // Максимум 2 тика экстраполяции
-      const clampedT = Math.min(t, maxExtrapolationT);
-      
-      let mySnakeToDraw = mySnake;
-      let opponentSnakeToDraw = opponentSnake;
-      
-      // Экстраполируем мою змейку, если есть задержка пакетов
-      if (clampedT >= 1 && mySnake && mySnake.direction && mySnake.body && mySnake.body.length > 0) {
-        const extraTime = (clampedT - 1) * serverUpdateInterval; // Время сверх одного тика в мс
-        const speed = 1.0 / serverUpdateInterval; // Клеток в миллисекунду
-        const dir = mySnake.direction;
-        
-        // Экстраполируем ВСЕ сегменты змейки для плавного движения
-        const extrapolatedBody = mySnake.body.map((segment, index) => {
-          if (index === 0) {
-            // Голова движется в направлении direction
-            return {
-              x: segment.x + dir.dx * (extraTime * speed),
-              y: segment.y + dir.dy * (extraTime * speed)
-            };
-          } else {
-            // Остальные сегменты движутся к предыдущему сегменту
-            const prevSegment = mySnake.body[index - 1];
-            const dx = prevSegment.x - segment.x;
-            const dy = prevSegment.y - segment.y;
-            const dist = Math.sqrt(dx * dx + dy * dy);
-            
-            if (dist > 0.01) {
-              // Нормализуем и двигаем к предыдущему сегменту
-              const moveDist = Math.min(extraTime * speed, dist);
-              return {
-                x: segment.x + (dx / dist) * moveDist,
-                y: segment.y + (dy / dist) * moveDist
-              };
-            }
-            return segment;
-          }
-        });
-        
-        mySnakeToDraw = {
-          ...mySnake,
-          body: extrapolatedBody
-        };
-      }
-      
-      // Экстраполируем змейку противника, если есть задержка пакетов
-      if (clampedT >= 1 && opponentSnake && opponentSnake.direction && opponentSnake.body && opponentSnake.body.length > 0) {
-        const extraTime = (clampedT - 1) * serverUpdateInterval;
-        const speed = 1.0 / serverUpdateInterval;
-        const dir = opponentSnake.direction;
-        
-        const extrapolatedBody = opponentSnake.body.map((segment, index) => {
-          if (index === 0) {
-            return {
-              x: segment.x + dir.dx * (extraTime * speed),
-              y: segment.y + dir.dy * (extraTime * speed)
-            };
-          } else {
-            const prevSegment = opponentSnake.body[index - 1];
-            const dx = prevSegment.x - segment.x;
-            const dy = prevSegment.y - segment.y;
-            const dist = Math.sqrt(dx * dx + dy * dy);
-            
-            if (dist > 0.01) {
-              const moveDist = Math.min(extraTime * speed, dist);
-              return {
-                x: segment.x + (dx / dist) * moveDist,
-                y: segment.y + (dy / dist) * moveDist
-              };
-            }
-            return segment;
-          }
-        });
-        
-        opponentSnakeToDraw = {
-          ...opponentSnake,
-          body: extrapolatedBody
-        };
-      }
-      
-      // Отрисовываем змейки
-      drawSnake(mySnakeToDraw, '#ff4444', '#ff6666');
-      drawSnake(opponentSnakeToDraw, '#4444ff', '#6666ff');
+      // Отрисовываем змейки (без экстраполяции - просто интерполированные данные)
+      drawSnake(mySnake, '#ff4444', '#ff6666');
+      drawSnake(opponentSnake, '#4444ff', '#6666ff');
     }
     
     // Продолжаем цикл
@@ -1760,7 +1646,7 @@ function stopRenderLoop() {
 
 /**
  * Интерполяция змейки для плавного движения между обновлениями сервера
- * Использует линейную интерполяцию (lerp) для сглаживания движения и направления
+ * Использует чистую линейную интерполяцию (lerp) без сглаживания
  */
 function interpolateSnake(previousSnake, currentSnake, t) {
   // Если нет данных - возвращаем текущее состояние
@@ -1778,8 +1664,7 @@ function interpolateSnake(previousSnake, currentSnake, t) {
     return currentSnake;
   }
   
-  // Ограничиваем t до 1 для интерполяции (экстраполяция делается в render)
-  // Но используем плавное ограничение для избежания резких остановок
+  // Ограничиваем t до [0, 1] для интерполяции
   const interpolationT = Math.min(Math.max(t, 0), 1);
   
   // Создаем новый объект змейки (быстрое клонирование)
@@ -1790,26 +1675,21 @@ function interpolateSnake(previousSnake, currentSnake, t) {
   };
   
   // Направление меняется мгновенно (без плавной интерполяции)
-  // Это обеспечивает мгновенную визуальную реакцию на нажатие клавиш
   interpolated.direction = { ...currentSnake.direction };
   
-  // Интерполируем каждую позицию сегмента для плавного движения
-  // Используем улучшенную интерполяцию: для больших расстояний (повороты) - smoothstep, для малых - линейная
+  // Интерполируем каждую позицию сегмента строго линейно
+  // Используем только чистый interpolationT без smoothstep или других функций сглаживания
   interpolated.body = currentSnake.body.map((segment, index) => {
     if (index >= previousSnake.body.length) return { x: segment.x, y: segment.y };
     
     const prevSegment = previousSnake.body[index];
     const dx = segment.x - prevSegment.x;
     const dy = segment.y - prevSegment.y;
-    const distance = Math.sqrt(dx * dx + dy * dy);
     
-    // Используем плавную интерполяцию для всех случаев для максимальной плавности
-    // Smoothstep обеспечивает более естественное движение без резких скачков
-    const easedT = interpolationT * interpolationT * (3 - 2 * interpolationT);
-    
+    // Строго линейная интерполяция: prevSegment + dx * t
     return {
-      x: prevSegment.x + dx * easedT,
-      y: prevSegment.y + dy * easedT
+      x: prevSegment.x + dx * interpolationT,
+      y: prevSegment.y + dy * interpolationT
     };
   });
   
