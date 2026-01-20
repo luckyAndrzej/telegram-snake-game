@@ -704,6 +704,7 @@ body::before {
 }
 
 /* Результаты - Neon */
+/* ПРОЗРАЧНОСТЬ ФИНИША: полупрозрачный фон, чтобы видеть игровое поле и положение змеек */
 #result-screen.active {
     display: flex !important;
     position: fixed;
@@ -712,8 +713,8 @@ body::before {
     width: 100vw;
     height: 100vh;
     z-index: 9999;
-    background: rgba(5, 5, 16, 0.95);
-    backdrop-filter: blur(20px);
+    background: rgba(0, 0, 0, 0.8);
+    backdrop-filter: blur(10px);
     justify-content: center;
     align-items: center;
 }

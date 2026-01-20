@@ -1544,15 +1544,26 @@ function startGame(data) {
 
 /**
  * Валидация координат змейки: проверка, что координаты в пределах поля 0-29
+ * ЛОГИКА ГРАНИЦ: если игра завершена (finished: true), разрешаем невалидные координаты для отрисовки последнего кадра
  */
-function validateSnakeCoordinates(snake, snakeName = 'snake') {
+function validateSnakeCoordinates(snake, snakeName = 'snake', allowInvalidOnFinish = false) {
   if (!snake || !snake.body) return false;
   
   for (let i = 0; i < snake.body.length; i++) {
     const segment = snake.body[i];
     if (segment.x < 0 || segment.x >= GRID_SIZE || segment.y < 0 || segment.y >= GRID_SIZE) {
-      console.error(`❌ Error: Invalid ${snakeName} position at segment ${i}: x=${segment.x}, y=${segment.y} (must be 0-${GRID_SIZE-1})`);
-      return false;
+      if (allowInvalidOnFinish) {
+        // Если игра завершена, логируем но разрешаем отрисовку для показа последнего кадра
+        console.warn(`⚠️ ${snakeName} out of bounds at segment ${i}: x=${segment.x}, y=${segment.y} (game finished, allowing render)`);
+        // ЛОГИРОВАНИЕ НАПРАВЛЕНИЯ: логируем направление перед смертью
+        if (i === 0 && snake.direction) {
+          console.log(`📊 ${snakeName} direction before death: dx=${snake.direction.dx}, dy=${snake.direction.dy}`);
+        }
+        return true; // Разрешаем отрисовку при завершении игры
+      } else {
+        console.error(`❌ Error: Invalid ${snakeName} position at segment ${i}: x=${segment.x}, y=${segment.y} (must be 0-${GRID_SIZE-1})`);
+        return false;
+      }
     }
   }
   return true;
@@ -1561,12 +1572,17 @@ function validateSnakeCoordinates(snake, snakeName = 'snake') {
 /**
  * Быстрая функция клонирования только нужных полей (оптимизация производительности)
  * С ВАЛИДАЦИЕЙ КООРДИНАТ: проверяем, что координаты в пределах поля 0-29
+ * ИСПРАВЛЕНИЕ: при finished: true разрешаем невалидные координаты для отрисовки последнего кадра
  */
 function cloneSnakeState(data) {
   if (!data) return null;
   
+  // Проверяем, завершена ли игра
+  const isFinished = data.finished === true || data.game_finished === true;
+  
   const cloned = {
     tick_number: data.tick_number || 0, // Сохраняем номер тика для отслеживания пропусков
+    finished: isFinished, // Сохраняем флаг завершения игры
     my_snake: null,
     opponent_snake: null
   };
@@ -1580,10 +1596,12 @@ function cloneSnakeState(data) {
       alive: data.my_snake.alive
     };
     
-    // ВАЛИДАЦИЯ: проверяем координаты
-    if (!validateSnakeCoordinates(cloned.my_snake, 'my_snake')) {
-      console.error('❌ Invalid my_snake coordinates, rejecting state');
-      return null; // Отклоняем невалидное состояние
+    // ВАЛИДАЦИЯ: если игра завершена, разрешаем невалидные координаты
+    if (!validateSnakeCoordinates(cloned.my_snake, 'my_snake', isFinished)) {
+      if (!isFinished) {
+        console.error('❌ Invalid my_snake coordinates, rejecting state');
+        return null; // Отклоняем невалидное состояние только если игра не завершена
+      }
     }
   }
   
@@ -1596,10 +1614,21 @@ function cloneSnakeState(data) {
       alive: data.opponent_snake.alive
     };
     
-    // ВАЛИДАЦИЯ: проверяем координаты
-    if (!validateSnakeCoordinates(cloned.opponent_snake, 'opponent_snake')) {
-      console.error('❌ Invalid opponent_snake coordinates, rejecting state');
-      return null; // Отклоняем невалидное состояние
+    // ВАЛИДАЦИЯ: если игра завершена, разрешаем невалидные координаты
+    if (!validateSnakeCoordinates(cloned.opponent_snake, 'opponent_snake', isFinished)) {
+      if (!isFinished) {
+        console.error('❌ Invalid opponent_snake coordinates, rejecting state');
+        return null; // Отклоняем невалидное состояние только если игра не завершена
+      }
+    }
+    
+    // ЛОГИРОВАНИЕ НАПРАВЛЕНИЯ ПЕРЕД СМЕРТЬЮ: если координаты невалидны и игра завершена
+    if (isFinished && cloned.opponent_snake.body && cloned.opponent_snake.body[0]) {
+      const head = cloned.opponent_snake.body[0];
+      if (head.x < 0 || head.x >= GRID_SIZE || head.y < 0 || head.y >= GRID_SIZE) {
+        console.log(`📊 opponent_snake direction before death: dx=${cloned.opponent_snake.direction.dx}, dy=${cloned.opponent_snake.direction.dy}`);
+        console.log(`📊 opponent_snake final position: x=${head.x}, y=${head.y}, alive=${cloned.opponent_snake.alive}`);
+      }
     }
   }
   
@@ -1623,24 +1652,65 @@ function updateGameState(data) {
     return;
   }
   
+  // Проверяем, завершена ли игра
+  const isFinished = data.finished === true || data.game_finished === true;
+  
   // Клонируем и валидируем состояние
   const cloned = cloneSnakeState(data);
   if (!cloned) {
-    console.error('❌ updateGameState: invalid coordinates, rejecting state');
-    return; // Не добавляем невалидное состояние в очередь
+    // ИСПРАВЛЕНИЕ: если игра завершена, все равно добавляем состояние для отрисовки последнего кадра
+    if (isFinished) {
+      console.warn('⚠️ updateGameState: invalid coordinates but game finished, allowing render for final frame');
+      // Создаем минимальное состояние для отрисовки
+      const fallbackState = {
+        tick_number: data.tick_number || 0,
+        finished: true,
+        my_snake: data.my_snake ? {
+          body: data.my_snake.body.map(s => ({ x: s.x, y: s.y })),
+          direction: { dx: data.my_snake.direction.dx, dy: data.my_snake.direction.dy },
+          alive: data.my_snake.alive
+        } : null,
+        opponent_snake: data.opponent_snake ? {
+          body: data.opponent_snake.body.map(s => ({ x: s.x, y: s.y })),
+          direction: { dx: data.opponent_snake.direction.dx, dy: data.opponent_snake.direction.dy },
+          alive: data.opponent_snake.alive
+        } : null
+      };
+      packetQueue.push(fallbackState);
+      return;
+    } else {
+      console.error('❌ updateGameState: invalid coordinates, rejecting state');
+      return; // Не добавляем невалидное состояние в очередь
+    }
   }
   
   // Логируем координаты для диагностики
   if (cloned.my_snake && cloned.my_snake.body && cloned.my_snake.body[0]) {
     const head = cloned.my_snake.body[0];
     if (head.x < 0 || head.x >= GRID_SIZE || head.y < 0 || head.y >= GRID_SIZE) {
-      console.error(`❌ CRITICAL: my_snake head out of bounds: x=${head.x}, y=${head.y}, tick=${cloned.tick_number}`);
+      if (isFinished) {
+        console.warn(`⚠️ my_snake head out of bounds (game finished): x=${head.x}, y=${head.y}, tick=${cloned.tick_number}`);
+        // ЛОГИРОВАНИЕ НАПРАВЛЕНИЯ ПЕРЕД СМЕРТЬЮ
+        if (cloned.my_snake.direction) {
+          console.log(`📊 my_snake direction before death: dx=${cloned.my_snake.direction.dx}, dy=${cloned.my_snake.direction.dy}`);
+        }
+      } else {
+        console.error(`❌ CRITICAL: my_snake head out of bounds: x=${head.x}, y=${head.y}, tick=${cloned.tick_number}`);
+      }
     }
   }
   if (cloned.opponent_snake && cloned.opponent_snake.body && cloned.opponent_snake.body[0]) {
     const head = cloned.opponent_snake.body[0];
     if (head.x < 0 || head.x >= GRID_SIZE || head.y < 0 || head.y >= GRID_SIZE) {
-      console.error(`❌ CRITICAL: opponent_snake head out of bounds: x=${head.x}, y=${head.y}, tick=${cloned.tick_number}`);
+      if (isFinished) {
+        console.warn(`⚠️ opponent_snake head out of bounds (game finished): x=${head.x}, y=${head.y}, tick=${cloned.tick_number}`);
+        // ЛОГИРОВАНИЕ НАПРАВЛЕНИЯ ПЕРЕД СМЕРТЬЮ
+        if (cloned.opponent_snake.direction) {
+          console.log(`📊 opponent_snake direction before death: dx=${cloned.opponent_snake.direction.dx}, dy=${cloned.opponent_snake.direction.dy}`);
+        }
+      } else {
+        console.error(`❌ CRITICAL: opponent_snake head out of bounds: x=${head.x}, y=${head.y}, tick=${cloned.tick_number}`);
+      }
     }
   }
   
@@ -1684,9 +1754,16 @@ function startRenderLoop() {
     }
     
     // Если gameState не 'playing', останавливаем рендер
-    if (gameState !== 'playing') {
-      animationFrameId = null;
-      return;
+    // ИСПРАВЛЕНИЕ: продолжаем рендер даже после завершения игры, чтобы показать последний кадр
+    if (gameState !== 'playing' && gameState !== 'countdown') {
+      // Проверяем, есть ли в очереди состояние с finished: true
+      const hasFinishedState = packetQueue.some(p => p.finished === true) || 
+                               (currentGameState && currentGameState.finished === true);
+      if (!hasFinishedState) {
+        animationFrameId = null;
+        return;
+      }
+      // Если есть finished состояние, продолжаем рендер для показа последнего кадра
     }
     
     // УБРАТЬ БЛОКИРОВКУ ПО ВРЕМЕНИ: для теста убираем проверку времени, пусть requestAnimationFrame рисует всё максимально быстро
@@ -1852,10 +1929,11 @@ function drawSnakeSimple(snake, headHistory, color1, color2) {
   if (!snake || !snake.body || snake.body.length === 0) return;
   
   // ЗАЩИТА ОТ ОТРИСОВКИ ВНЕ ПОЛЯ: проверяем координаты перед отрисовкой
+  // ИСПРАВЛЕНИЕ: если координаты невалидны, все равно рисуем (для отображения последнего кадра при завершении игры)
   const head = snake.body[0];
   if (head.x < 0 || head.x >= GRID_SIZE || head.y < 0 || head.y >= GRID_SIZE) {
-    console.error(`❌ Error: Invalid snake position - x=${head.x}, y=${head.y} (must be 0-${GRID_SIZE-1}). Skipping draw.`);
-    return; // Не пытаемся рисовать по невалидным координатам
+    console.warn(`⚠️ Invalid snake position - x=${head.x}, y=${head.y} (must be 0-${GRID_SIZE-1}). Drawing anyway for final frame.`);
+    // Не возвращаемся - продолжаем отрисовку для показа последнего кадра
   }
   
   // СТАБИЛИЗАЦИЯ КООРДИНАТ: используем константу GRID_SIZE для синхронизации с сервером
@@ -1955,9 +2033,10 @@ function drawSnakeSimple(snake, headHistory, color1, color2) {
     const tailPos = headHistory[historyIndex];
     
     // ЗАЩИТА ОТ ОТРИСОВКИ ВНЕ ПОЛЯ: проверяем координаты хвоста
+    // ИСПРАВЛЕНИЕ: если координаты невалидны, все равно рисуем (для отображения последнего кадра)
     if (tailPos.x < 0 || tailPos.x >= GRID_SIZE || tailPos.y < 0 || tailPos.y >= GRID_SIZE) {
-      console.error(`❌ Error: Invalid tail position at segment ${i}: x=${tailPos.x}, y=${tailPos.y}. Skipping.`);
-      continue; // Пропускаем невалидные сегменты хвоста
+      console.warn(`⚠️ Invalid tail position at segment ${i}: x=${tailPos.x}, y=${tailPos.y}. Drawing anyway for final frame.`);
+      // Не пропускаем - продолжаем отрисовку для показа последнего кадра
     }
     
     const tailX = tailPos.x * tileSize;
