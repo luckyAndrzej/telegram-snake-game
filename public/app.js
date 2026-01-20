@@ -23,6 +23,9 @@ let canvasLogicalSize = 800; // Логический размер canvas (без
 // Константа задержки интерполяции (ровно один тик сервера)
 const INTERPOLATION_OFFSET = 111.11; // мс
 
+// Фиксированный шаг интерполяции (игнорируем сетевые микро-колебания)
+const FIXED_TICK = 111.11; // мс
+
 // Состояние игры для интерполяции (чистая интерполяция без предсказания)
 let gameStateData = null;
 let previousGameStateData = null; // Предыдущее состояние для интерполяции
@@ -378,7 +381,7 @@ function initSocket() {
     // Это предотвращает использование данных из предыдущей игры
     previousGameStateData = null;
     gameStateData = null;
-    lastGameStateUpdate = 0;
+    lastGameStateUpdate = 0; // Сбрасываем для нового ритма при следующей игре
     
     // Скрываем countdown overlay
     const countdownOverlay = document.getElementById('countdown-overlay');
@@ -1505,8 +1508,9 @@ function cloneSnakeState(data) {
 }
 
 /**
- * Обновление состояния игры - упрощенная версия
+ * Обновление состояния игры - упрощенная версия с фиксированным ритмом
  * Использует быстрое клонирование вместо JSON.parse/stringify
+ * Создает идеально ровный ритм движения, игнорируя сетевые микро-колебания
  */
 function updateGameState(data) {
   // Сохраняем предыдущее состояние перед обновлением
@@ -1515,8 +1519,17 @@ function updateGameState(data) {
   // Обновляем текущее состояние (клонируем серверные данные)
   gameStateData = cloneSnakeState(data);
   
-  // Обновляем время последнего обновления
-  lastGameStateUpdate = performance.now();
+  // БУФЕР СОСТОЯНИЙ: создаем идеально ровный ритм движения
+  // Вместо привязки к реальному времени пакета, используем фиксированный шаг
+  // Это уберет эффект "гармошки" при неравномерных пакетах
+  if (lastGameStateUpdate === 0) {
+    // Первое обновление - инициализируем время
+    lastGameStateUpdate = performance.now() - INTERPOLATION_OFFSET;
+  } else {
+    // Последующие обновления - добавляем фиксированный шаг
+    // Это создаст ровный ритм, независимо от момента прихода пакета
+    lastGameStateUpdate += FIXED_TICK;
+  }
   
   // Запускаем цикл отрисовки если он еще не запущен
   if (!animationFrameId && gameState === 'playing') {
@@ -1549,8 +1562,13 @@ function startRenderLoop() {
     const renderTime = performance.now() - INTERPOLATION_OFFSET;
     const timeSinceUpdate = renderTime - lastGameStateUpdate;
     
-    // Рассчитываем t для интерполяции (строгое ограничение без экстраполяции)
-    let t = timeSinceUpdate / 111.11;
+    // Рассчитываем t для интерполяции на основе фиксированного шага
+    // ЗАПРЕТ НА УСКОРЕНИЕ: змейка не может двигаться быстрее, чем позволяет FIXED_TICK
+    let t = timeSinceUpdate / FIXED_TICK;
+    
+    // Жесткое ограничение: если t > 1, не делаем экстраполяцию
+    // Оставляем змейку в конечной точке до прихода следующего пакета
+    // Это уберет рывки "быстро-медленно" и эффект гармошки
     t = Math.max(0, Math.min(t, 1)); // Строгое ограничение без экстраполяции
     
     // Отрисовываем только если есть данные
