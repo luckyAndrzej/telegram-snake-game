@@ -1162,6 +1162,27 @@ function showScreen(screenName) {
     stopRenderLoop();
   }
   
+  // ИНИЦИАЛИЗАЦИЯ ПРИ СТАРТЕ: если переключаемся на игровой экран, инициализируем Canvas
+  if (screenName === 'game') {
+    // Небольшая задержка для того, чтобы DOM успел обновиться
+    setTimeout(() => {
+      initCanvas();
+      // ПРОВЕРКА КОНТЕКСТА: убеждаемся, что ctx обновляется
+      gameCanvas = document.getElementById('game-canvas');
+      if (gameCanvas) {
+        gameCtx = gameCanvas.getContext('2d');
+        if (gameCtx) {
+          gameCtx.imageSmoothingEnabled = false;
+          console.log('✅ Canvas инициализирован в showScreen, ctx создан');
+        } else {
+          console.error('❌ Не удалось получить контекст 2D для canvas');
+        }
+      } else {
+        console.error('❌ Canvas не найден в showScreen!');
+      }
+    }, 50);
+  }
+  
   // Находим все элементы с классом screen и принудительно скрываем их
   const screens = document.querySelectorAll('.screen');
   screens.forEach(s => {
@@ -1488,19 +1509,28 @@ function startGame(data) {
   gameState = 'playing'; // Используем 'playing' для проверки в game_state
   showScreen('game'); // ID экрана в HTML: game-screen
   
-  // Инициализируем игровой canvas если нужно
-  if (!gameCanvas || !gameCtx) {
-    gameCanvas = document.getElementById('game-canvas');
-    if (gameCanvas) {
-      gameCtx = gameCanvas.getContext('2d');
-      // Отключаем сглаживание изображений для четкости
-      gameCtx.imageSmoothingEnabled = false;
-      // Устанавливаем размер canvas
-      const container = gameCanvas.parentElement;
-      const size = Math.min(container.clientWidth - 20, 600);
-      gameCanvas.width = size;
-      gameCanvas.height = size;
+  // ИНИЦИАЛИЗАЦИЯ ПРИ СТАРТЕ: вызываем initCanvas() для правильной инициализации Canvas
+  initCanvas();
+  
+  // ПРОВЕРКА КОНТЕКСТА: убеждаемся, что ctx обновляется после создания нового Canvas
+  gameCanvas = document.getElementById('game-canvas');
+  if (gameCanvas) {
+    gameCtx = gameCanvas.getContext('2d');
+    if (!gameCtx) {
+      console.error('❌ Не удалось получить контекст 2D для canvas');
+      return;
     }
+    // Отключаем сглаживание изображений для четкости
+    gameCtx.imageSmoothingEnabled = false;
+    console.log('✅ Canvas инициализирован, ctx создан');
+  } else {
+    console.error('❌ Canvas не найден!');
+    return;
+  }
+  
+  // Запускаем цикл отрисовки
+  if (!animationFrameId) {
+    startRenderLoop();
   }
   
   if (gameCanvas && gameCtx) {
@@ -1576,7 +1606,11 @@ function startRenderLoop() {
   }
   
   function render() {
+    // ИСПРАВЛЕНИЕ ЦИКЛА ОТРИСОВКИ: добавляем console.log для отладки
+    console.log('Rendering...'); // Временный лог для проверки работы цикла
+    
     if (gameState !== 'playing' || !gameCanvas || !gameCtx) {
+      console.warn('⚠️ Render остановлен:', { gameState, hasCanvas: !!gameCanvas, hasCtx: !!gameCtx });
       animationFrameId = null;
       return;
     }
@@ -1686,12 +1720,17 @@ function startRenderLoop() {
       lastStepTime = now;
     }
     
+    // УПРОЩЕННАЯ ОТРИСОВКА (для теста): временно добавляем яркий фон
+    // Полная очистка canvas перед каждым кадром
+    gameCtx.clearRect(0, 0, canvasLogicalSize, canvasLogicalSize);
+    
+    // ВРЕМЕННЫЙ ТЕСТ: зеленый фон для проверки работы canvas
+    gameCtx.fillStyle = 'green';
+    gameCtx.fillRect(0, 0, canvasLogicalSize, canvasLogicalSize);
+    
     // Отрисовываем только если есть данные
     if (currentGameState && currentGameState.my_snake && currentGameState.opponent_snake) {
-      // Полная очистка canvas перед каждым кадром
-      gameCtx.clearRect(0, 0, canvasLogicalSize, canvasLogicalSize);
-      
-      // Фон для игрового поля
+      // Фон для игрового поля (поверх зеленого для теста)
       gameCtx.fillStyle = '#0a0e27';
       gameCtx.fillRect(0, 0, canvasLogicalSize, canvasLogicalSize);
       
@@ -1706,6 +1745,10 @@ function startRenderLoop() {
       // Отрисовываем змейки с синхронным хвостом
       drawSnakeSimple(currentGameState.my_snake, headHistory, '#ff4444', '#ff6666');
       drawSnakeSimple(currentGameState.opponent_snake, opponentHeadHistory, '#4444ff', '#6666ff');
+    } else {
+      // ПРИВЯЗКА К ПАКЕТНОЙ ОЧЕРЕДИ: если очередь пуста, рисуем последнее известное состояние
+      // или просто зеленый фон для теста
+      console.log('⚠️ Нет данных для отрисовки, очередь:', packetQueue.length);
     }
     
     // Продолжаем цикл
