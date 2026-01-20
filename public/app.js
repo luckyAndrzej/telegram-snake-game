@@ -1090,11 +1090,9 @@ function sendDirection(direction) {
     
     if (newDirection) {
       // Мгновенно обновляем направление головы для визуального отклика
+      // ВАЖНО: НЕ меняем previousGameStateData - это нарушит интерполяцию!
+      // Интерполяция должна идти между правильными состояниями от сервера
       gameStateData.my_snake.direction = newDirection;
-      // Также обновляем previousGameStateData для корректной интерполяции
-      if (previousGameStateData && previousGameStateData.my_snake) {
-        previousGameStateData.my_snake.direction = newDirection;
-      }
       // Обновляем currentDirection для следующей проверки
       currentDirection = direction;
     }
@@ -1581,28 +1579,85 @@ function startRenderLoop() {
       // ВИЗУАЛЬНАЯ ЭКСТРАПОЛЯЦИЯ: если t > 1, экстраполируем движение для плавности
       // Это предотвращает остановку змейки при задержке пакетов
       let mySnakeToDraw = mySnake;
+      let opponentSnakeToDraw = opponentSnake;
+      
+      // Экстраполируем мою змейку, если есть задержка пакетов
       if (t >= 1 && mySnake && mySnake.direction && mySnake.body && mySnake.body.length > 0) {
         const extraTime = (t - 1) * 111.11; // Время сверх одного тика в мс
         const speed = 1.0 / 111.11; // Клеток в миллисекунду (1 клетка за 111.11ms)
         const dir = mySnake.direction;
-        const head = mySnake.body[0];
         
-        // Экстраполируем позицию головы (только для визуализации)
-        const extrapolatedHead = {
-          x: head.x + dir.dx * (extraTime * speed),
-          y: head.y + dir.dy * (extraTime * speed)
-        };
+        // Экстраполируем ВСЕ сегменты змейки для плавного движения
+        const extrapolatedBody = mySnake.body.map((segment, index) => {
+          if (index === 0) {
+            // Голова движется в направлении direction
+            return {
+              x: segment.x + dir.dx * (extraTime * speed),
+              y: segment.y + dir.dy * (extraTime * speed)
+            };
+          } else {
+            // Остальные сегменты движутся к предыдущему сегменту
+            const prevSegment = mySnake.body[index - 1];
+            const dx = prevSegment.x - segment.x;
+            const dy = prevSegment.y - segment.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            
+            if (dist > 0.01) {
+              // Нормализуем и двигаем к предыдущему сегменту
+              const moveDist = Math.min(extraTime * speed, dist);
+              return {
+                x: segment.x + (dx / dist) * moveDist,
+                y: segment.y + (dy / dist) * moveDist
+              };
+            }
+            return segment;
+          }
+        });
         
-        // Создаем новый массив body с экстраполированной головой
         mySnakeToDraw = {
           ...mySnake,
-          body: [extrapolatedHead, ...mySnake.body.slice(1)]
+          body: extrapolatedBody
+        };
+      }
+      
+      // Экстраполируем змейку противника, если есть задержка пакетов
+      if (t >= 1 && opponentSnake && opponentSnake.direction && opponentSnake.body && opponentSnake.body.length > 0) {
+        const extraTime = (t - 1) * 111.11;
+        const speed = 1.0 / 111.11;
+        const dir = opponentSnake.direction;
+        
+        const extrapolatedBody = opponentSnake.body.map((segment, index) => {
+          if (index === 0) {
+            return {
+              x: segment.x + dir.dx * (extraTime * speed),
+              y: segment.y + dir.dy * (extraTime * speed)
+            };
+          } else {
+            const prevSegment = opponentSnake.body[index - 1];
+            const dx = prevSegment.x - segment.x;
+            const dy = prevSegment.y - segment.y;
+            const dist = Math.sqrt(dx * dx + dy * dy);
+            
+            if (dist > 0.01) {
+              const moveDist = Math.min(extraTime * speed, dist);
+              return {
+                x: segment.x + (dx / dist) * moveDist,
+                y: segment.y + (dy / dist) * moveDist
+              };
+            }
+            return segment;
+          }
+        });
+        
+        opponentSnakeToDraw = {
+          ...opponentSnake,
+          body: extrapolatedBody
         };
       }
       
       // Отрисовываем змейки
       drawSnake(mySnakeToDraw, '#ff4444', '#ff6666');
-      drawSnake(opponentSnake, '#4444ff', '#6666ff');
+      drawSnake(opponentSnakeToDraw, '#4444ff', '#6666ff');
     }
     
     // Продолжаем цикл
@@ -1678,16 +1733,30 @@ function interpolateSnake(previousSnake, currentSnake, t) {
   interpolated.direction = { ...currentSnake.direction };
   
   // Интерполируем каждую позицию сегмента для плавного движения
-  // Используем простую линейную интерполяцию (без smoothstep) для более плавного движения
+  // Используем улучшенную интерполяцию: для больших расстояний (повороты) - smoothstep, для малых - линейная
   interpolated.body = currentSnake.body.map((segment, index) => {
     if (index >= previousSnake.body.length) return { x: segment.x, y: segment.y };
     
     const prevSegment = previousSnake.body[index];
+    const dx = segment.x - prevSegment.x;
+    const dy = segment.y - prevSegment.y;
+    const distance = Math.sqrt(dx * dx + dy * dy);
     
-    // Простая линейная интерполяция (lerp) - самое плавное для дискретного движения
+    // Если расстояние слишком большое (больше 2 клеток), это может быть поворот
+    // В этом случае используем более плавную интерполяцию (smoothstep) для избежания резких скачков
+    if (distance > 2) {
+      // Smoothstep для больших расстояний (повороты) - более плавное движение
+      const easedT = interpolationT * interpolationT * (3 - 2 * interpolationT);
+      return {
+        x: prevSegment.x + dx * easedT,
+        y: prevSegment.y + dy * easedT
+      };
+    }
+    
+    // Обычная линейная интерполяция для нормальных случаев (малые расстояния)
     return {
-      x: prevSegment.x + (segment.x - prevSegment.x) * interpolationT,
-      y: prevSegment.y + (segment.y - prevSegment.y) * interpolationT
+      x: prevSegment.x + dx * interpolationT,
+      y: prevSegment.y + dy * interpolationT
     };
   });
   
