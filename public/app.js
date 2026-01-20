@@ -20,8 +20,8 @@ let debugMode = false;
 let currentDirection = null; // Current snake direction (updated from game_state)
 let canvasLogicalSize = 800; // Логический размер canvas (без DPR) для корректной отрисовки
 
-// Константа задержки интерполяции (золотая середина для плавности и отзывчивости)
-const INTERPOLATION_OFFSET = 85; // мс (уменьшено с 111.11 для лучшей отзывчивости)
+// Константа задержки интерполяции (ровно один тик сервера)
+const INTERPOLATION_OFFSET = 111.11; // мс
 
 // Состояние игры для интерполяции (чистая интерполяция без предсказания)
 let gameStateData = null;
@@ -1086,23 +1086,11 @@ function sendDirection(direction) {
     return; // Запрещаем поворот на 180°
   }
   
-  // МГНОВЕННАЯ ВИЗУАЛЬНАЯ РЕАКЦИЯ: обновляем направление головы сразу после нажатия
-  // Это заставит голову змейки повернуться визуально в следующем кадре render
-  const newDirection = {
-    'up': { dx: 0, dy: -1 },
-    'down': { dx: 0, dy: 1 },
-    'left': { dx: -1, dy: 0 },
-    'right': { dx: 1, dy: 0 }
-  }[direction];
+  // Обновляем currentDirection для проверки на поворот на 180°
+  currentDirection = direction;
   
-  if (newDirection && gameStateData && gameStateData.my_snake) {
-    // Мгновенно обновляем направление для визуального отклика
-    gameStateData.my_snake.direction = newDirection;
-    // Обновляем currentDirection для следующей проверки
-    currentDirection = direction;
-  }
-  
-  // Немедленная отправка на сервер
+  // Отправляем команду на сервер
+  // Направление обновится только из данных сервера (socket.on('game_state'))
   socket.emit('direction', direction);
   lastDirectionSentTime = performance.now();
 }
@@ -1561,14 +1549,9 @@ function startRenderLoop() {
     const renderTime = performance.now() - INTERPOLATION_OFFSET;
     const timeSinceUpdate = renderTime - lastGameStateUpdate;
     
-    // Фиксированный интервал между обновлениями сервера (1000ms / 9 тиков = 111.11ms)
-    const serverUpdateInterval = 111.11;
-    
-    // Рассчитываем t для интерполяции
-    let t = timeSinceUpdate / serverUpdateInterval;
-    
-    // Ограничиваем t строго [0, 1]
-    t = Math.max(0, Math.min(t, 1));
+    // Рассчитываем t для интерполяции (строгое ограничение без экстраполяции)
+    let t = timeSinceUpdate / 111.11;
+    t = Math.max(0, Math.min(t, 1)); // Строгое ограничение без экстраполяции
     
     // Отрисовываем только если есть данные
     if (gameStateData && gameStateData.my_snake && gameStateData.opponent_snake) {
@@ -1683,13 +1666,8 @@ function interpolateSnake(previousSnake, currentSnake, t) {
   // Направление меняется мгновенно (без плавной интерполяции)
   interpolated.direction = { ...currentSnake.direction };
   
-  // Проверяем, изменилось ли направление (для мгновенного поворота головы)
-  const directionChanged = previousSnake.direction && 
-    (previousSnake.direction.dx !== currentSnake.direction.dx || 
-     previousSnake.direction.dy !== currentSnake.direction.dy);
-  
   // Интерполируем каждую позицию сегмента строго линейно
-  // Используем только чистый interpolationT без smoothstep или других функций сглаживания
+  // Используем только чистую линейную интерполяцию: prev + (curr - prev) * t
   interpolated.body = currentSnake.body.map((segment, index) => {
     if (index >= previousSnake.body.length) return { x: segment.x, y: segment.y };
     
@@ -1697,18 +1675,7 @@ function interpolateSnake(previousSnake, currentSnake, t) {
     const dx = segment.x - prevSegment.x;
     const dy = segment.y - prevSegment.y;
     
-    // ИГНОРИРОВАНИЕ ЗАДЕРЖКИ ДЛЯ ГОЛОВЫ: если это голова (index === 0) и направление изменилось,
-    // позволяем ей начать движение в новом направлении немедленно
-    if (index === 0 && directionChanged) {
-      // Для головы при изменении направления используем текущую позицию (t = 1)
-      // Это создаст мгновенный визуальный поворот
-      return {
-        x: segment.x,
-        y: segment.y
-      };
-    }
-    
-    // Строго линейная интерполяция для остальных сегментов: prevSegment + dx * t
+    // Строго линейная интерполяция: prevSegment + (currentSegment - prevSegment) * t
     return {
       x: prevSegment.x + dx * interpolationT,
       y: prevSegment.y + dy * interpolationT
