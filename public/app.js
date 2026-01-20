@@ -1522,6 +1522,7 @@ function startGame(data) {
 function cloneSnakeState(data) {
   if (!data) return null;
   return {
+    tick_number: data.tick_number || 0, // Сохраняем номер тика для отслеживания пропусков
     my_snake: data.my_snake ? {
       body: data.my_snake.body.map(s => ({ x: s.x, y: s.y })),
       direction: { dx: data.my_snake.direction.dx, dy: data.my_snake.direction.dy },
@@ -1560,7 +1561,19 @@ function updateGameState(data) {
   // Обновляем текущее состояние (клонируем серверные данные)
   gameStateData = cloneSnakeState(data);
   
-  // АДАПТИВНАЯ СИНХРОНИЗАЦИЯ: используем экспоненциальное сглаживание (EMA)
+  // УЧЕТ РАЗНИЦЫ ТИКОВ: вычисляем, сколько тиков прошло между старым и новым состоянием
+  if (previousGameStateData && gameStateData) {
+    const tickDiff = gameStateData.tick_number - previousGameStateData.tick_number;
+    // Если мы пропустили тики, виртуальное время должно «прыгнуть» на соответствующее расстояние
+    if (tickDiff > 1) {
+      console.log(`[SYNC] Пропущено тиков: ${tickDiff - 1}`);
+      // Корректируем виртуальное время: добавляем время пропущенных тиков
+      const skippedTime = (tickDiff - 1) * FIXED_TICK;
+      lastGameStateUpdate += skippedTime;
+    }
+  }
+  
+  // ПЛАВНАЯ ПОДСТРОЙКА (Soft Sync): используем экспоненциальное сглаживание (EMA)
   // Виртуальное время мягко следует за реальным временем прихода пакетов
   const targetTime = now - INTERPOLATION_OFFSET;
   
@@ -1568,10 +1581,10 @@ function updateGameState(data) {
     // Первое обновление - инициализируем время
     lastGameStateUpdate = targetTime;
   } else {
-    // Коэффициент 0.1 делает синхронизацию более инертной, игнорируя разовые всплески лагов
-    // Это заставит время подстраиваться медленнее, создавая более стабильное движение
+    // Коэффициент 0.05 делает синхронизацию еще более инертной (игнорнее к лагам сети)
+    // Чем меньше число, тем «игнорнее» змейка будет к лагам сети
     const diff = targetTime - lastGameStateUpdate;
-    lastGameStateUpdate += diff * 0.1;
+    lastGameStateUpdate += diff * 0.05;
   }
   
   // Запускаем цикл отрисовки если он еще не запущен
