@@ -20,6 +20,9 @@ let debugMode = false;
 let currentDirection = null; // Current snake direction (updated from game_state)
 let canvasLogicalSize = 800; // Логический размер canvas (без DPR) для корректной отрисовки
 
+// Константа задержки интерполяции (ровно один тик сервера)
+const INTERPOLATION_OFFSET = 111.11; // мс
+
 // Состояние игры для интерполяции (чистая интерполяция без предсказания)
 let gameStateData = null;
 let previousGameStateData = null; // Предыдущее состояние для интерполяции
@@ -294,6 +297,8 @@ function initSocket() {
         gameCanvas = document.getElementById('game-canvas');
         if (gameCanvas) {
           gameCtx = gameCanvas.getContext('2d');
+          // Отключаем сглаживание изображений для четкости
+          gameCtx.imageSmoothingEnabled = false;
           // Логическое разрешение 800x800 (CSS растянет его)
           gameCanvas.width = 800;
           gameCanvas.height = 800;
@@ -998,7 +1003,7 @@ function initCanvas() {
   
   gameCtx = gameCanvas.getContext('2d');
   
-  // Оптимизация производительности: отключаем сглаживание для пиксельной графики
+  // Отключаем сглаживание изображений для четкости и устранения микро-размытия при движении
   gameCtx.imageSmoothingEnabled = false;
   
   // Адаптивное логическое разрешение с учетом devicePixelRatio
@@ -1468,6 +1473,8 @@ function startGame(data) {
     gameCanvas = document.getElementById('game-canvas');
     if (gameCanvas) {
       gameCtx = gameCanvas.getContext('2d');
+      // Отключаем сглаживание изображений для четкости
+      gameCtx.imageSmoothingEnabled = false;
       // Устанавливаем размер canvas
       const container = gameCanvas.parentElement;
       const size = Math.min(container.clientWidth - 20, 600);
@@ -1551,18 +1558,18 @@ function startRenderLoop() {
     }
     
     // Рассчитываем локальную переменную t для интерполяции
-    const currentTime = performance.now();
-    const timeSinceUpdate = currentTime - lastGameStateUpdate;
+    // Используем "игровое время" с задержкой для плавной интерполяции
+    const renderTime = performance.now() - INTERPOLATION_OFFSET;
+    const timeSinceUpdate = renderTime - lastGameStateUpdate;
     
     // Фиксированный интервал между обновлениями сервера (1000ms / 9 тиков = 111.11ms)
     const serverUpdateInterval = 111.11;
     
-    // Рассчитываем t для интерполяции и жестко ограничиваем до 1.0
-    // Это заставит змейку плавно доезжать до точки сервера и ждать следующего пакета
-    let t = Math.min(timeSinceUpdate / serverUpdateInterval, 1.0);
+    // Рассчитываем t для интерполяции
+    let t = timeSinceUpdate / serverUpdateInterval;
     
-    // Защита от отрицательных значений
-    if (t < 0) t = 0;
+    // Ограничиваем t строго [0, 1]
+    t = Math.max(0, Math.min(t, 1));
     
     // Отрисовываем только если есть данные
     if (gameStateData && gameStateData.my_snake && gameStateData.opponent_snake) {
