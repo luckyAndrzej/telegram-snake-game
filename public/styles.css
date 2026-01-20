@@ -488,6 +488,7 @@ body::before {
 
 /* Игровое поле - футуристичное */
 #game-screen {
+  position: relative; /* Убеждаемся, что контейнер имеет position: relative */
     background: linear-gradient(135deg, #0a0a1a 0%, #1a0a2e 50%, #0a1a2e 100%);
     flex-direction: column;
     justify-content: flex-start;
@@ -538,6 +539,9 @@ body::before {
 }
 
 #game-canvas {
+    position: absolute; /* Абсолютное позиционирование внутри game-screen */
+    top: 0;
+    left: 0;
     display: block;
     max-width: 100%;
     max-height: 55vh;

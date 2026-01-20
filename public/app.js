@@ -23,8 +23,8 @@ let canvasLogicalSize = 800; // Логический размер canvas (без
 // STABLE PLAYBACK QUEUE: простая очередь пакетов
 let packetQueue = []; // Очередь пакетов game_state
 
-// Фиксированный шаг тика сервера
-const TICK_DURATION = 111; // мс (длительность одного тика на сервере)
+// Фиксированный шаг тика сервера (увеличено до 120мс для компенсации сетевых задержек)
+const TICK_DURATION = 120; // мс (длительность одного тика на сервере)
 
 // Текущее состояние игры для отрисовки
 let currentGameState = null; // Текущее состояние для отрисовки
@@ -327,7 +327,8 @@ function initSocket() {
       }
       
       // Рисуем начальное состояние игры на game-canvas (обе змейки видны, но не двигаются)
-      if (gameCanvas && gameCtx) {
+      // Только если игровой цикл еще не запущен (до начала игры)
+      if (gameCanvas && gameCtx && !animationFrameId) {
         renderGamePreviewOnCanvas(data.initial_state, gameCanvas, gameCtx);
       }
     }
@@ -347,7 +348,8 @@ function initSocket() {
     }
     
     // Обновляем game-canvas во время countdown (рисуем начальное состояние)
-    if (gameCanvas && gameCtx && currentGame && currentGame.initialState) {
+    // Только если игровой цикл еще не запущен (countdown идет до начала игры)
+    if (gameCanvas && gameCtx && currentGame && currentGame.initialState && !animationFrameId) {
       renderGamePreviewOnCanvas(currentGame.initialState, gameCanvas, gameCtx);
     }
   });
@@ -388,17 +390,6 @@ function initSocket() {
     headHistory = [];
     opponentHeadHistory = [];
     lastStepTime = 0;
-    
-    // ДИАГНОСТИКА: Останавливаем диагностику и очищаем данные
-    if (diagnosticsInterval) {
-      clearInterval(diagnosticsInterval);
-      diagnosticsInterval = null;
-    }
-    tValues = [];
-    networkIntervals = [];
-    frameDeltas = [];
-    lastPacketTime = 0;
-    lastFrameTime = 0;
     
     // Скрываем countdown overlay
     const countdownOverlay = document.getElementById('countdown-overlay');
@@ -1005,6 +996,21 @@ function initEventListeners() {
  * Инициализация canvas
  */
 function initCanvas() {
+  // CANVAS CLEANUP: Удаляем все существующие canvas элементы в контейнере игры
+  // чтобы не было наслоения одного окна на другое
+  const gameScreen = document.getElementById('game-screen');
+  if (gameScreen) {
+    const existingCanvases = gameScreen.querySelectorAll('canvas');
+    existingCanvases.forEach(canvas => {
+      // Останавливаем render loop если он запущен
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+      }
+      canvas.remove();
+    });
+  }
+  
   // Добавляем поддержку roundRect для старых браузеров
   if (!CanvasRenderingContext2D.prototype.roundRect) {
     CanvasRenderingContext2D.prototype.roundRect = function(x, y, width, height, radius) {
@@ -1024,6 +1030,13 @@ function initCanvas() {
   
   gameCanvas = document.getElementById('game-canvas');
   if (!gameCanvas) return;
+  
+  // Убеждаемся, что canvas имеет правильные стили позиционирования
+  if (gameCanvas.style.position !== 'absolute') {
+    gameCanvas.style.position = 'absolute';
+    gameCanvas.style.top = '0';
+    gameCanvas.style.left = '0';
+  }
   
   gameCtx = gameCanvas.getContext('2d');
   
@@ -1571,7 +1584,7 @@ function startRenderLoop() {
     const now = performance.now();
     const timeSinceLastStep = now - lastStepTime;
     
-    // ФИКСИРОВАННЫЙ ШАГ: змейка делает шаг строго каждые 111мс
+    // ФИКСИРОВАННЫЙ ШАГ: змейка делает шаг строго каждые 120мс (компенсация сетевых задержек)
     if (timeSinceLastStep >= TICK_DURATION) {
       // Обрабатываем пакеты из очереди
       if (packetQueue.length > 0) {
