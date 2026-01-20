@@ -1684,9 +1684,15 @@ function startRenderLoop() {
       let mySnake, opponentSnake;
       
       if (previousGameStateData && previousGameStateData.my_snake && previousGameStateData.opponent_snake) {
-        // Есть предыдущее состояние - интерполируем
-        mySnake = interpolateSnake(previousGameStateData.my_snake, gameStateData.my_snake, t);
-        opponentSnake = interpolateSnake(previousGameStateData.opponent_snake, gameStateData.opponent_snake, t);
+        // Вычисляем разницу тиков для корректной интерполяции при пропусках
+        const myTickDiff = gameStateData.tick_number && previousGameStateData.tick_number
+          ? Math.max(1, gameStateData.tick_number - previousGameStateData.tick_number)
+          : 1;
+        const opponentTickDiff = myTickDiff; // Одинаковая разница для обеих змеек
+        
+        // Есть предыдущее состояние - интерполируем с учетом пропущенных тиков
+        mySnake = interpolateSnake(previousGameStateData.my_snake, gameStateData.my_snake, t, myTickDiff);
+        opponentSnake = interpolateSnake(previousGameStateData.opponent_snake, gameStateData.opponent_snake, t, opponentTickDiff);
       } else {
         // Нет предыдущего состояния (первое обновление) - используем текущее состояние
         mySnake = gameStateData.my_snake;
@@ -1829,12 +1835,10 @@ function stopRenderLoop() {
 }
 
 /**
- * Умная интерполяция между любыми тиками
- * Функция не завязана на то, что тики идут строго по порядку (1, 2, 3)
- * Она просто плавно ведет змейку от previousGameStateData к gameStateData
- * за время, равное реальной разнице между их тиками
+ * Жесткая фиксация сегментов: интерполяция только головы, тело следует монолитно
+ * Учитывает пропуски тиков для корректного расчета расстояния
  */
-function interpolateSnake(previousSnake, currentSnake, t) {
+function interpolateSnake(previousSnake, currentSnake, t, tickDiff = 1) {
   // Если нет данных - возвращаем текущее состояние
   if (!currentSnake || !currentSnake.body) {
     return currentSnake;
@@ -1850,38 +1854,53 @@ function interpolateSnake(previousSnake, currentSnake, t) {
     return currentSnake;
   }
   
-  // Ограничиваем t до [0, 1.5] для интерполяции (разрешаем экстраполяцию до 1.5)
-  // Это позволяет плавно обрабатывать пропуски тиков (1, 3, 5...)
+  // Ограничиваем t до [0, 1.5] для интерполяции
   const interpolationT = Math.min(Math.max(t, 0), 1.5);
   
-  // Создаем новый объект змейки (быстрое клонирование)
+  // Создаем новый объект змейки
   const interpolated = {
     body: [],
     direction: { ...currentSnake.direction },
     alive: currentSnake.alive
   };
   
-  // Направление меняется мгновенно (без плавной интерполяции)
+  // Направление меняется мгновенно
   interpolated.direction = { ...currentSnake.direction };
   
-  // УМНАЯ ИНТЕРПОЛЯЦИЯ: работает с любыми тиками, не только последовательными
-  // Просто плавно ведет змейку от предыдущего состояния к текущему
-  // Если тики пропущены (1, 3, 5...), интерполяция автоматически сгладит движение
-  interpolated.body = currentSnake.body.map((segment, index) => {
-    if (index >= previousSnake.body.length) return { x: segment.x, y: segment.y };
-    
-    const prevSegment = previousSnake.body[index];
-    const dx = segment.x - prevSegment.x;
-    const dy = segment.y - prevSegment.y;
-    
-    // Линейная интерполяция: prevSegment + (currentSegment - prevSegment) * t
-    // Работает корректно даже при пропуске тиков, так как просто интерполирует
-    // между двумя известными состояниями
-    return {
-      x: prevSegment.x + dx * interpolationT,
-      y: prevSegment.y + dy * interpolationT
-    };
-  });
+  // ИСПРАВЛЕНИЕ ДЛЯ ПРОПУЩЕННЫХ ТИКОВ: умножаем дельту движения на разницу тиков
+  // Если тики пропущены (1, 3, 5...), расстояние между точками больше
+  const headIndex = 0;
+  const prevHead = previousSnake.body[headIndex];
+  const currHead = currentSnake.body[headIndex];
+  const headDx = (currHead.x - prevHead.x) * tickDiff; // Умножаем на разницу тиков
+  const headDy = (currHead.y - prevHead.y) * tickDiff;
+  
+  // ИНТЕРПОЛИРУЕМ ТОЛЬКО ГОЛОВУ с учетом пропущенных тиков
+  interpolated.body[headIndex] = {
+    x: prevHead.x + headDx * interpolationT,
+    y: prevHead.y + headDy * interpolationT
+  };
+  
+  // ГАРАНТИЯ ЦЕЛОСТНОСТИ ТЕЛА: сегменты хвоста жестко следуют монолитно
+  // Все сегменты смещаются на ту же дельту, что и голова, сохраняя относительные позиции
+  // Отключаем сглаживание для хвоста - только жесткие координаты из previousGameStateData
+  const headDeltaX = interpolated.body[headIndex].x - prevHead.x;
+  const headDeltaY = interpolated.body[headIndex].y - prevHead.y;
+  
+  for (let i = 1; i < currentSnake.body.length; i++) {
+    if (i < previousSnake.body.length) {
+      // Сегменты тела берутся из предыдущего состояния и смещаются на ту же дельту, что и голова
+      // Это обеспечивает монолитность - тело следует за головой без разрывов
+      const prevSegment = previousSnake.body[i];
+      interpolated.body[i] = {
+        x: prevSegment.x + headDeltaX,
+        y: prevSegment.y + headDeltaY
+      };
+    } else {
+      // Если сегмента не было в предыдущем состоянии, используем текущее
+      interpolated.body[i] = { x: currentSnake.body[i].x, y: currentSnake.body[i].y };
+    }
+  }
   
   return interpolated;
 }
@@ -1959,6 +1978,9 @@ function drawSnake(snake, color1, color2) {
   gameCtx.shadowOffsetX = 0;
   gameCtx.shadowOffsetY = 0;
   
+  // ОПТИМИЗАЦИЯ FPS: для длинных змеек используем упрощенную отрисовку
+  const isLongSnake = snake.body.length > 10;
+  
   snake.body.forEach((segment, index) => {
     const x = segment.x * tileSize;
     const y = segment.y * tileSize;
@@ -1967,7 +1989,7 @@ function drawSnake(snake, color1, color2) {
     const radius = size * (index === 0 ? 0.2 : 0.15);
     
     if (index === 0) {
-      // Голова - рисуем с градиентом и скруглениями
+      // Голова - рисуем с градиентом и скруглениями (всегда с эффектами)
       gameCtx.fillStyle = gradient;
       gameCtx.beginPath();
       gameCtx.roundRect(x + offset, y + offset, size, size, radius);
@@ -1985,7 +2007,6 @@ function drawSnake(snake, color1, color2) {
       gameCtx.shadowColor = 'transparent';
       
       // Глаза на голове с учетом направления
-      // ОПТИМИЗАЦИЯ: используем direction напрямую без Math.abs (избегаем лишних вычислений)
       const centerX = x + offset + size / 2;
       const centerY = y + offset + size / 2;
       const eyeOffset = size * 0.2;
@@ -1993,34 +2014,30 @@ function drawSnake(snake, color1, color2) {
       
       let eyeX1, eyeY1, eyeX2, eyeY2;
       
-      // Определяем позицию глаз на основе направления (без Math.sqrt и Math.abs)
+      // Определяем позицию глаз на основе направления
       if (direction.dx > 0) {
-        // Движется вправо - глаза справа
         eyeX1 = centerX + eyeOffset * 0.5;
         eyeY1 = centerY - eyeOffset * 0.5;
         eyeX2 = centerX + eyeOffset * 0.5;
         eyeY2 = centerY + eyeOffset * 0.5;
       } else if (direction.dx < 0) {
-        // Движется влево - глаза слева
         eyeX1 = centerX - eyeOffset * 0.5;
         eyeY1 = centerY - eyeOffset * 0.5;
         eyeX2 = centerX - eyeOffset * 0.5;
         eyeY2 = centerY + eyeOffset * 0.5;
       } else if (direction.dy > 0) {
-        // Движется вниз - глаза внизу
         eyeX1 = centerX - eyeOffset * 0.5;
         eyeY1 = centerY + eyeOffset * 0.5;
         eyeX2 = centerX + eyeOffset * 0.5;
         eyeY2 = centerY + eyeOffset * 0.5;
       } else {
-        // Движется вверх - глаза вверху
         eyeX1 = centerX - eyeOffset * 0.5;
         eyeY1 = centerY - eyeOffset * 0.5;
         eyeX2 = centerX + eyeOffset * 0.5;
         eyeY2 = centerY - eyeOffset * 0.5;
       }
       
-      // Рисуем глаза (белые круги с небольшим свечением)
+      // Рисуем глаза
       gameCtx.shadowColor = 'rgba(255, 255, 255, 0.5)';
       gameCtx.shadowBlur = 3;
       gameCtx.fillStyle = '#ffffff';
@@ -2030,8 +2047,20 @@ function drawSnake(snake, color1, color2) {
       gameCtx.beginPath();
       gameCtx.arc(eyeX2, eyeY2, eyeSize, 0, Math.PI * 2);
       gameCtx.fill();
+    } else if (index === 1) {
+      // Первая секция (шея) - сглаживание только здесь, соединяет голову и тело
+      gameCtx.fillStyle = gradient;
+      gameCtx.beginPath();
+      gameCtx.roundRect(x + offset + 1, y + offset + 1, size - 2, size - 2, radius);
+      gameCtx.fill();
     } else {
-      // Тело - закругленные сегменты с neon эффектом
+      // Остальное тело - упрощенная отрисовка без теней для производительности
+      // Отключаем сглаживание для хвоста - жесткие координаты
+      if (isLongSnake && index > 5) {
+        // Для длинных змеек: упрощенная отрисовка без теней
+        gameCtx.shadowBlur = 0;
+        gameCtx.shadowColor = 'transparent';
+      }
       gameCtx.fillStyle = gradient;
       gameCtx.beginPath();
       gameCtx.roundRect(x + offset + 1, y + offset + 1, size - 2, size - 2, radius);
