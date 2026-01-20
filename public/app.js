@@ -297,11 +297,13 @@ function initSocket() {
         console.warn('countdown-overlay не найден!');
       }
       
-      // ОЧИСТКА: проверяем, что renderGamePreviewOnCanvas не конфликтует с основным циклом игры
-      // Рисуем начальное состояние игры на game-canvas только если игровой цикл еще не запущен
-      if (gameCanvas && gameCtx && !animationFrameId && !canvasInitialized) {
-        // Инициализируем Canvas перед preview
-        initCanvas();
+      // ОТРИСОВКА ИГРОВОГО ПОЛЯ ВО ВРЕМЯ COUNTDOWN: рисуем начальное состояние, чтобы не было черного экрана
+      if (gameCanvas && gameCtx && !animationFrameId) {
+        // Инициализируем Canvas перед preview (если еще не инициализирован)
+        if (!canvasInitialized) {
+          initCanvas();
+        }
+        // Рисуем начальное состояние игры на game-canvas
         renderGamePreviewOnCanvas(data.initial_state, gameCanvas, gameCtx);
       }
     }
@@ -320,11 +322,10 @@ function initSocket() {
       });
     }
     
-    // ОЧИСТКА: проверяем, что renderGamePreviewOnCanvas не конфликтует с основным циклом игры
-    // Обновляем game-canvas во время countdown только если игровой цикл еще не запущен
+    // ОБНОВЛЕНИЕ ИГРОВОГО ПОЛЯ ВО ВРЕМЯ COUNTDOWN: рисуем начальное состояние, чтобы не было черного экрана
     if (gameCanvas && gameCtx && currentGame && currentGame.initialState && !animationFrameId) {
-      // Не вызываем renderGamePreviewOnCanvas если Canvas уже используется основным циклом
-      // Это предотвращает конфликты отрисовки
+      // Обновляем отрисовку игрового поля во время countdown, чтобы пользователь видел змеек
+      renderGamePreviewOnCanvas(currentGame.initialState, gameCanvas, gameCtx);
     }
   });
   
@@ -2374,31 +2375,32 @@ function renderGamePreviewOnCanvas(gameState, canvas, ctx) {
     return;
   }
   
-  console.log('🎨 renderGamePreviewOnCanvas: canvas size:', canvas.width, 'x', canvas.height);
+  // Используем логический размер для отрисовки (canvas уже масштабирован через DPR)
+  const logicalSize = canvasLogicalSize || 600;
   
-  // Очищаем canvas
-  ctx.clearRect(0, 0, canvas.width, canvas.height);
+  // Очищаем canvas (используем логический размер, так как контекст уже масштабирован)
+  ctx.clearRect(0, 0, logicalSize, logicalSize);
   
-  // СНАЧАЛА рисуем фон (темный)
-  ctx.fillStyle = '#0a0e27'; // Modern dark blue background
-  ctx.fillRect(0, 0, canvas.width, canvas.height);
+  // Заливаем фон игрового поля
+  ctx.fillStyle = '#0a0e27';
+  ctx.fillRect(0, 0, logicalSize, logicalSize);
   
-  // Затем рисуем сетку (более яркую для лучшей видимости)
-  const tileSize = canvas.width / 30; // 30 клеток по ширине (обновлено для большего поля)
+  // Рисуем сетку (30x30)
+  const tileSize = logicalSize / GRID_SIZE;
   ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
   ctx.lineWidth = 0.5;
   
-  for (let i = 0; i <= 20; i++) {
-    // Вертикальные линии
+  for (let i = 0; i <= GRID_SIZE; i++) {
+    // Vertical lines
     ctx.beginPath();
     ctx.moveTo(i * tileSize, 0);
-    ctx.lineTo(i * tileSize, canvas.height);
+    ctx.lineTo(i * tileSize, logicalSize);
     ctx.stroke();
     
-    // Горизонтальные линии
+    // Horizontal lines
     ctx.beginPath();
     ctx.moveTo(0, i * tileSize);
-    ctx.lineTo(canvas.width, i * tileSize);
+    ctx.lineTo(logicalSize, i * tileSize);
     ctx.stroke();
   }
   
@@ -2417,7 +2419,7 @@ function renderGamePreviewOnCanvas(gameState, canvas, ctx) {
       }
     }
     
-    const gradient = ctx.createLinearGradient(0, 0, canvas.width, canvas.height);
+    const gradient = ctx.createLinearGradient(0, 0, logicalSize, logicalSize);
     gradient.addColorStop(0, color1);
     gradient.addColorStop(1, color2);
     
