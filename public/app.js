@@ -19,6 +19,8 @@ let gameCtx = null;
 let debugMode = false;
 let currentDirection = null; // Current snake direction (updated from game_state)
 let canvasLogicalSize = 800; // Логический размер canvas (без DPR) для корректной отрисовки
+let canvasInitialized = false; // Флаг инициализации Canvas (СИНГЛТОН)
+let canvasDPR = 1; // Сохраненный DPR для стабильности
 
 // STABLE PLAYBACK QUEUE: простая очередь пакетов
 let packetQueue = []; // Очередь пакетов game_state
@@ -105,65 +107,16 @@ document.addEventListener('DOMContentLoaded', () => {
   initCanvas();
   initEventListeners();
   
-  // Добавляем обработчик изменения размера окна для адаптивности canvas
+  // ФИКСАЦИЯ VIEWPORT: оптимизируем обработку событий Telegram WebApp
+  // Не пересоздаем Canvas при изменении размера окна - используем фиксированный размер
   let resizeTimeout;
   window.addEventListener('resize', () => {
     clearTimeout(resizeTimeout);
     resizeTimeout = setTimeout(() => {
-      // Пересчитываем размер canvas при изменении размера окна с учетом DPR
-      if (gameCanvas && gameCtx) {
-        const dpr = window.devicePixelRatio || 1;
-        const containerWidth = gameCanvas.parentElement?.clientWidth || window.innerWidth;
-        const containerHeight = window.innerHeight * 0.5;
-        const maxCanvasSize = Math.min(containerWidth - 40, containerHeight, 800);
-        
-        // Сохраняем логический размер
-        canvasLogicalSize = maxCanvasSize;
-        
-        // Устанавливаем физический размер с учетом DPR (для четкости на Retina)
-        const logicalWidth = maxCanvasSize * dpr;
-        const logicalHeight = maxCanvasSize * dpr;
-        
-        gameCanvas.width = logicalWidth;
-        gameCanvas.height = logicalHeight;
-        
-        // Масштабируем контекст (сбрасываем трансформацию перед scale для избежания накопления)
-        gameCtx.setTransform(1, 0, 0, 1, 0, 0);
-        gameCtx.scale(dpr, dpr);
-        
-        // CSS размер для отображения (без DPR)
-        gameCanvas.style.width = maxCanvasSize + 'px';
-        gameCanvas.style.height = maxCanvasSize + 'px';
-        
-        // Отключаем сглаживание для производительности пиксельной графики
-        gameCtx.imageSmoothingEnabled = false;
-        
-        // Пересоздаем offscreen canvas для сетки при изменении размера
-        if (gridCanvas) {
-          gridCanvas.width = canvasLogicalSize;
-          gridCanvas.height = canvasLogicalSize;
-          drawGridToOffscreen();
-        }
-        
-        // Если игра активна, перерисовываем состояние
-        if (gameState === 'playing' && currentGame && gameStateData) {
-          // Быстрая перерисовка текущего состояния
-          requestAnimationFrame(() => {
-            if (gameCtx && gameStateData) {
-              gameCtx.clearRect(0, 0, maxCanvasSize, maxCanvasSize);
-              gameCtx.fillStyle = '#0a0e27';
-              gameCtx.fillRect(0, 0, maxCanvasSize, maxCanvasSize);
-              // Используем offscreen canvas для сетки
-              if (gridCanvas) {
-                gameCtx.drawImage(gridCanvas, 0, 0);
-              } else {
-              drawGrid();
-              }
-              drawSnake(gameStateData.my_snake, '#ff4444', '#ff6666');
-              drawSnake(gameStateData.opponent_snake, '#4444ff', '#6666ff');
-            }
-          });
-        }
+      // НЕ пересоздаем Canvas при resize - используем фиксированный размер для стабильности
+      // Canvas уже инициализирован с фиксированным размером, не меняем его
+      if (gameCanvas && canvasInitialized) {
+        console.log('⚠️ Resize событие проигнорировано для стабильности Canvas');
       }
     }, 100); // Debounce для производительности
   });
@@ -326,9 +279,11 @@ function initSocket() {
         console.warn('countdown-overlay не найден!');
       }
       
-      // Рисуем начальное состояние игры на game-canvas (обе змейки видны, но не двигаются)
-      // Только если игровой цикл еще не запущен (до начала игры)
-      if (gameCanvas && gameCtx && !animationFrameId) {
+      // ОЧИСТКА: проверяем, что renderGamePreviewOnCanvas не конфликтует с основным циклом игры
+      // Рисуем начальное состояние игры на game-canvas только если игровой цикл еще не запущен
+      if (gameCanvas && gameCtx && !animationFrameId && !canvasInitialized) {
+        // Инициализируем Canvas перед preview
+        initCanvas();
         renderGamePreviewOnCanvas(data.initial_state, gameCanvas, gameCtx);
       }
     }
@@ -347,10 +302,11 @@ function initSocket() {
       });
     }
     
-    // Обновляем game-canvas во время countdown (рисуем начальное состояние)
-    // Только если игровой цикл еще не запущен (countdown идет до начала игры)
+    // ОЧИСТКА: проверяем, что renderGamePreviewOnCanvas не конфликтует с основным циклом игры
+    // Обновляем game-canvas во время countdown только если игровой цикл еще не запущен
     if (gameCanvas && gameCtx && currentGame && currentGame.initialState && !animationFrameId) {
-      renderGamePreviewOnCanvas(currentGame.initialState, gameCanvas, gameCtx);
+      // Не вызываем renderGamePreviewOnCanvas если Canvas уже используется основным циклом
+      // Это предотвращает конфликты отрисовки
     }
   });
   
@@ -397,14 +353,16 @@ function initSocket() {
       countdownOverlay.style.display = 'none';
     }
     
-    // Вызываем initCanvas(), чтобы убедиться, что размеры холста актуальны перед отрисовкой
-    initCanvas();
+    // СИНГЛТОН CANVAS: инициализируем Canvas только если он еще не инициализирован
+    if (!canvasInitialized) {
+      initCanvas();
+    }
     
-    // Очищаем canvas и готовимся к игре
+    // Очищаем canvas и готовимся к игре (используем логический размер)
     if (gameCanvas && gameCtx) {
-      gameCtx.clearRect(0, 0, gameCanvas.width, gameCanvas.height);
+      gameCtx.clearRect(0, 0, canvasLogicalSize, canvasLogicalSize);
       gameCtx.fillStyle = '#0a0e27'; // Modern dark blue background
-      gameCtx.fillRect(0, 0, gameCanvas.width, gameCanvas.height);
+      gameCtx.fillRect(0, 0, canvasLogicalSize, canvasLogicalSize);
       drawGrid();
     }
     
@@ -993,22 +951,30 @@ function initEventListeners() {
 }
 
 /**
- * Инициализация canvas
+ * СИНГЛТОН CANVAS: создается ОДИН РАЗ при загрузке экрана game и не пересоздается
  */
 function initCanvas() {
+  // Если Canvas уже инициализирован, не пересоздаем его
+  if (canvasInitialized && gameCanvas && gameCtx) {
+    console.log('✅ Canvas уже инициализирован, пропускаем повторную инициализацию');
+    return;
+  }
+  
   // CANVAS CLEANUP: Удаляем все существующие canvas элементы в контейнере игры
-  // чтобы не было наслоения одного окна на другое
-  const gameScreen = document.getElementById('game-screen');
-  if (gameScreen) {
-    const existingCanvases = gameScreen.querySelectorAll('canvas');
-    existingCanvases.forEach(canvas => {
-      // Останавливаем render loop если он запущен
-      if (animationFrameId) {
-        cancelAnimationFrame(animationFrameId);
-        animationFrameId = null;
-      }
-      canvas.remove();
-    });
+  // только если Canvas еще не инициализирован
+  if (!canvasInitialized) {
+    const gameScreen = document.getElementById('game-screen');
+    if (gameScreen) {
+      const existingCanvases = gameScreen.querySelectorAll('canvas');
+      existingCanvases.forEach(canvas => {
+        // Останавливаем render loop если он запущен
+        if (animationFrameId) {
+          cancelAnimationFrame(animationFrameId);
+          animationFrameId = null;
+        }
+        canvas.remove();
+      });
+    }
   }
   
   // Добавляем поддержку roundRect для старых браузеров
@@ -1043,7 +1009,7 @@ function initCanvas() {
     canvas = document.createElement('canvas');
     canvas.id = 'game-canvas';
     gameContainer.appendChild(canvas);
-    console.log('✅ Canvas создан программно в контейнере');
+    console.log('✅ Canvas создан программно в контейнере (ОДИН РАЗ)');
   }
   
   // СВЯЗЬ ctx С РЕНДЕРОМ: обновляем глобальные переменные
@@ -1066,29 +1032,30 @@ function initCanvas() {
   // Отключаем сглаживание изображений для четкости и устранения микро-размытия при движении
   gameCtx.imageSmoothingEnabled = false;
   
-  // Адаптивное логическое разрешение с учетом devicePixelRatio
-  // Используем devicePixelRatio для четкости на Retina экранах
-  const dpr = window.devicePixelRatio || 1;
-  const containerWidth = gameCanvas.parentElement?.clientWidth || window.innerWidth;
-  const containerHeight = window.innerHeight * 0.5; // Максимум 50% высоты экрана
-  const maxCanvasSize = Math.min(containerWidth - 40, containerHeight, 800); // Ограничиваем 800px
+  // СТАБИЛИЗАЦИЯ КООРДИНАТ: четкое разделение между логическим размером сетки (30x30) и физическим размером Canvas
+  // Фиксируем логический размер для стабильности (не меняем при resize)
+  const FIXED_LOGICAL_SIZE = 600; // Фиксированный логический размер для стабильности
+  canvasLogicalSize = FIXED_LOGICAL_SIZE;
   
-  // Сохраняем логический размер для использования в отрисовке
-  canvasLogicalSize = maxCanvasSize;
+  // УПРАВЛЕНИЕ DPR: вызываем scale только один раз при инициализации
+  canvasDPR = window.devicePixelRatio || 1;
   
   // Устанавливаем физический размер с учетом DPR для четкости
-  gameCanvas.width = maxCanvasSize * dpr;
-  gameCanvas.height = maxCanvasSize * dpr;
+  gameCanvas.width = FIXED_LOGICAL_SIZE * canvasDPR;
+  gameCanvas.height = FIXED_LOGICAL_SIZE * canvasDPR;
   
-  // Масштабируем контекст для корректного отображения (применяем один раз)
+  // Масштабируем контекст для корректного отображения (применяем ОДИН РАЗ при инициализации)
   gameCtx.setTransform(1, 0, 0, 1, 0, 0); // Сброс трансформации перед scale
-  gameCtx.scale(dpr, dpr);
+  gameCtx.scale(canvasDPR, canvasDPR);
   
   // CSS размер (для отображения на экране)
-  gameCanvas.style.width = maxCanvasSize + 'px';
-  gameCanvas.style.height = maxCanvasSize + 'px';
+  gameCanvas.style.width = FIXED_LOGICAL_SIZE + 'px';
+  gameCanvas.style.height = FIXED_LOGICAL_SIZE + 'px';
   
-  console.log(`🎨 Canvas инициализирован: логический размер=${canvasLogicalSize}px, DPR=${dpr}, физический=${gameCanvas.width}x${gameCanvas.height}`);
+  // Помечаем Canvas как инициализированный
+  canvasInitialized = true;
+  
+  console.log(`🎨 Canvas инициализирован ОДИН РАЗ: логический размер=${canvasLogicalSize}px, DPR=${canvasDPR}, физический=${gameCanvas.width}x${gameCanvas.height}`);
   
   // Инициализируем canvas для countdown (если есть)
   const countdownCanvas = document.getElementById('countdown-canvas');
@@ -1185,23 +1152,16 @@ function showScreen(screenName) {
     stopRenderLoop();
   }
   
-  // ИНИЦИАЛИЗАЦИЯ ПРИ СТАРТЕ: если переключаемся на игровой экран, инициализируем Canvas
-  if (screenName === 'game') {
+  // СИНГЛТОН CANVAS: инициализируем Canvas только один раз при первом показе экрана game
+  if (screenName === 'game' && !canvasInitialized) {
     // ИСПРАВЛЕНИЕ ТАЙМИНГА: используем requestAnimationFrame для гарантированного обновления DOM
     requestAnimationFrame(() => {
-      initCanvas();
+      initCanvas(); // Вызываем только если Canvas еще не инициализирован
       // ПРОВЕРКА КОНТЕКСТА: убеждаемся, что ctx обновляется
       if (gameCanvas && gameCtx) {
-        console.log('✅ Canvas инициализирован в showScreen, ctx создан');
+        console.log('✅ Canvas инициализирован в showScreen (ОДИН РАЗ), ctx создан');
       } else {
         console.error('❌ Canvas или ctx не созданы в showScreen!');
-        // Повторная попытка через небольшую задержку
-        setTimeout(() => {
-          initCanvas();
-          if (gameCanvas && gameCtx) {
-            console.log('✅ Canvas инициализирован после повторной попытки');
-          }
-        }, 100);
       }
     });
   }
@@ -1532,22 +1492,14 @@ function startGame(data) {
   gameState = 'playing'; // Используем 'playing' для проверки в game_state
   showScreen('game'); // ID экрана в HTML: game-screen
   
-  // ИНИЦИАЛИЗАЦИЯ ПРИ СТАРТЕ: вызываем initCanvas() для правильной инициализации Canvas
-  initCanvas();
+  // СИНГЛТОН CANVAS: инициализируем Canvas только если он еще не инициализирован
+  if (!canvasInitialized) {
+    initCanvas();
+  }
   
-  // ПРОВЕРКА КОНТЕКСТА: убеждаемся, что ctx обновляется после создания нового Canvas
-  gameCanvas = document.getElementById('game-canvas');
-  if (gameCanvas) {
-    gameCtx = gameCanvas.getContext('2d');
-    if (!gameCtx) {
-      console.error('❌ Не удалось получить контекст 2D для canvas');
-      return;
-    }
-    // Отключаем сглаживание изображений для четкости
-    gameCtx.imageSmoothingEnabled = false;
-    console.log('✅ Canvas инициализирован, ctx создан');
-  } else {
-    console.error('❌ Canvas не найден!');
+  // ПРОВЕРКА КОНТЕКСТА: убеждаемся, что ctx доступен
+  if (!gameCanvas || !gameCtx) {
+    console.error('❌ Canvas или ctx не инициализированы!');
     return;
   }
   
@@ -1633,21 +1585,11 @@ function startRenderLoop() {
     console.log('Rendering...'); // Временный лог для проверки работы цикла
     
     // УБРАТЬ ЛИШНИЕ ПРОВЕРКИ: оставляем только проверку на существование ctx
-    if (!gameCtx) {
-      // АВТО-СТАРТ ЦИКЛА: если gameState === 'playing' и !ctx, вызываем initCanvas() еще раз
-      if (gameState === 'playing') {
-        console.warn('⚠️ ctx отсутствует, пытаемся инициализировать...');
-        initCanvas();
-        // Если после инициализации ctx все еще отсутствует, останавливаем рендер
-        if (!gameCtx) {
-          console.error('❌ Не удалось инициализировать ctx, останавливаем рендер');
-          animationFrameId = null;
-          return;
-        }
-      } else {
-        animationFrameId = null;
-        return;
-      }
+    // НЕ вызываем initCanvas() из render - Canvas должен быть инициализирован заранее
+    if (!gameCtx || !gameCanvas) {
+      console.warn('⚠️ ctx или canvas отсутствуют, останавливаем рендер');
+      animationFrameId = null;
+      return;
     }
     
     // Если gameState не 'playing', останавливаем рендер
@@ -1747,19 +1689,19 @@ function startRenderLoop() {
     // ПЛАВНОЕ ДВИЖЕНИЕ (Fallback): если в конкретный кадр packetQueue пуста, продолжаем рисовать currentGameState
     // Не останавливаем отрисовку при пустой очереди - используем последнее известное состояние
     
-    // ОЧИСТКА И ФОН: полная очистка холста и заливка темным цветом
-    // Используем реальные размеры canvas, а не логический размер
-    gameCtx.clearRect(0, 0, gameCanvas.width, gameCanvas.height);
+    // ОЧИСТКА: корректный ctx.clearRect перед каждым вызовом Rendering
+    // Используем логический размер (canvasLogicalSize), так как контекст уже масштабирован через DPR
+    gameCtx.clearRect(0, 0, canvasLogicalSize, canvasLogicalSize);
     
     // Заливаем фон темным цветом, чтобы убедиться, что холст виден
     gameCtx.fillStyle = '#1a1a1a';
-    gameCtx.fillRect(0, 0, gameCanvas.width, gameCanvas.height);
+    gameCtx.fillRect(0, 0, canvasLogicalSize, canvasLogicalSize);
     
     // Отрисовываем только если есть данные
     if (currentGameState && currentGameState.my_snake && currentGameState.opponent_snake) {
-      // Фон для игрового поля
+      // Фон для игрового поля (используем логический размер)
       gameCtx.fillStyle = '#0a0e27';
-      gameCtx.fillRect(0, 0, gameCanvas.width, gameCanvas.height);
+      gameCtx.fillRect(0, 0, canvasLogicalSize, canvasLogicalSize);
       
       // ОПТИМИЗАЦИЯ: используем offscreen canvas для сетки вместо перерисовки
       if (gridCanvas) {
@@ -1808,9 +1750,9 @@ function drawSnakeSimple(snake, headHistory, color1, color2) {
     console.log('Drawing snake at:', snake.body[0]);
   }
   
-  // МАСШТАБИРОВАНИЕ КООРДИНАТ: проверяем правильное вычисление размера ячейки
-  // Если размер поля 30x30, а canvas 600px, то каждая ячейка должна быть 20px
-  const tileSize = canvasLogicalSize / 30;
+  // СТАБИЛИЗАЦИЯ КООРДИНАТ: четкое разделение между логическим размером сетки (30x30) и физическим размером Canvas
+  // Используем Math.floor() для расчета tileSize, чтобы избежать дробных пикселей
+  const tileSize = Math.floor(canvasLogicalSize / 30); // Округляем вниз для целых пикселей
   console.log('Tile size:', tileSize, 'Canvas logical size:', canvasLogicalSize, 'Head:', snake.body[0]);
   
   // ЦВЕТА ЗМЕЕК: принудительно задаем яркие цвета для теста
