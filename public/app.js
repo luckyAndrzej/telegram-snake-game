@@ -20,8 +20,8 @@ let debugMode = false;
 let currentDirection = null; // Current snake direction (updated from game_state)
 let canvasLogicalSize = 800; // Логический размер canvas (без DPR) для корректной отрисовки
 
-// Константа задержки интерполяции (ровно один тик сервера)
-const INTERPOLATION_OFFSET = 111.11; // мс
+// Константа задержки интерполяции (золотая середина для плавности и отзывчивости)
+const INTERPOLATION_OFFSET = 85; // мс (уменьшено с 111.11 для лучшей отзывчивости)
 
 // Состояние игры для интерполяции (чистая интерполяция без предсказания)
 let gameStateData = null;
@@ -195,7 +195,11 @@ function initSocket() {
     auth: {
       user_id: userId,
       username: username
-    }
+    },
+    // Оптимизация для минимальной задержки
+    transports: ['websocket'],
+    upgrade: false,
+    rememberUpgrade: true
   });
   
   // Socket.io события
@@ -1084,26 +1088,21 @@ function sendDirection(direction) {
   
   // МГНОВЕННАЯ ВИЗУАЛЬНАЯ РЕАКЦИЯ: обновляем направление головы сразу после нажатия
   // Это заставит голову змейки повернуться визуально в следующем кадре render
-  // Тело будет плавно доезжать по старой траектории благодаря интерполяции
-  if (gameStateData && gameStateData.my_snake) {
-    const newDirection = {
-      'up': { dx: 0, dy: -1 },
-      'down': { dx: 0, dy: 1 },
-      'left': { dx: -1, dy: 0 },
-      'right': { dx: 1, dy: 0 }
-    }[direction];
-    
-    if (newDirection) {
-      // Мгновенно обновляем направление головы для визуального отклика
-      // ВАЖНО: НЕ меняем previousGameStateData - это нарушит интерполяцию!
-      // Интерполяция должна идти между правильными состояниями от сервера
-      gameStateData.my_snake.direction = newDirection;
-      // Обновляем currentDirection для следующей проверки
-      currentDirection = direction;
-    }
+  const newDirection = {
+    'up': { dx: 0, dy: -1 },
+    'down': { dx: 0, dy: 1 },
+    'left': { dx: -1, dy: 0 },
+    'right': { dx: 1, dy: 0 }
+  }[direction];
+  
+  if (newDirection && gameStateData && gameStateData.my_snake) {
+    // Мгновенно обновляем направление для визуального отклика
+    gameStateData.my_snake.direction = newDirection;
+    // Обновляем currentDirection для следующей проверки
+    currentDirection = direction;
   }
   
-  // Немедленная отправка на сервер для мгновенного отклика
+  // Немедленная отправка на сервер
   socket.emit('direction', direction);
   lastDirectionSentTime = performance.now();
 }
@@ -1684,6 +1683,11 @@ function interpolateSnake(previousSnake, currentSnake, t) {
   // Направление меняется мгновенно (без плавной интерполяции)
   interpolated.direction = { ...currentSnake.direction };
   
+  // Проверяем, изменилось ли направление (для мгновенного поворота головы)
+  const directionChanged = previousSnake.direction && 
+    (previousSnake.direction.dx !== currentSnake.direction.dx || 
+     previousSnake.direction.dy !== currentSnake.direction.dy);
+  
   // Интерполируем каждую позицию сегмента строго линейно
   // Используем только чистый interpolationT без smoothstep или других функций сглаживания
   interpolated.body = currentSnake.body.map((segment, index) => {
@@ -1693,7 +1697,18 @@ function interpolateSnake(previousSnake, currentSnake, t) {
     const dx = segment.x - prevSegment.x;
     const dy = segment.y - prevSegment.y;
     
-    // Строго линейная интерполяция: prevSegment + dx * t
+    // ИГНОРИРОВАНИЕ ЗАДЕРЖКИ ДЛЯ ГОЛОВЫ: если это голова (index === 0) и направление изменилось,
+    // позволяем ей начать движение в новом направлении немедленно
+    if (index === 0 && directionChanged) {
+      // Для головы при изменении направления используем текущую позицию (t = 1)
+      // Это создаст мгновенный визуальный поворот
+      return {
+        x: segment.x,
+        y: segment.y
+      };
+    }
+    
+    // Строго линейная интерполяция для остальных сегментов: prevSegment + dx * t
     return {
       x: prevSegment.x + dx * interpolationT,
       y: prevSegment.y + dy * interpolationT
