@@ -21,6 +21,7 @@ let currentDirection = null; // Current snake direction (updated from game_state
 let canvasLogicalSize = 800; // Логический размер canvas (без DPR) для корректной отрисовки
 let canvasInitialized = false; // Флаг инициализации Canvas (СИНГЛТОН)
 let canvasDPR = 1; // Сохраненный DPR для стабильности
+const GRID_SIZE = 30; // СИНХРОНИЗАЦИЯ СЕТКИ: размер игрового поля строго 30x30 (совпадает с сервером)
 
 // STABLE PLAYBACK QUEUE: простая очередь пакетов
 let packetQueue = []; // Очередь пакетов game_state
@@ -233,12 +234,29 @@ function initSocket() {
     
       // Сохраняем начальное состояние для отображения во время countdown
       if (data.initial_state) {
-        currentGame.initialState = data.initial_state;
-        console.log('✅ Initial game state received');
+        // ИНИЦИАЛИЗАЦИЯ ПОЗИЦИЙ: валидируем initial_state перед использованием
+        const initialState = data.initial_state;
+        
+        // Валидация координат в initial_state
+        if (initialState.my_snake && initialState.my_snake.body) {
+          const mySnakeHead = initialState.my_snake.body[0];
+          if (mySnakeHead && (mySnakeHead.x < 0 || mySnakeHead.x >= GRID_SIZE || mySnakeHead.y < 0 || mySnakeHead.y >= GRID_SIZE)) {
+            console.error(`❌ CRITICAL: Invalid my_snake initial position: x=${mySnakeHead.x}, y=${mySnakeHead.y}`);
+          }
+        }
+        if (initialState.opponent_snake && initialState.opponent_snake.body) {
+          const opponentSnakeHead = initialState.opponent_snake.body[0];
+          if (opponentSnakeHead && (opponentSnakeHead.x < 0 || opponentSnakeHead.x >= GRID_SIZE || opponentSnakeHead.y < 0 || opponentSnakeHead.y >= GRID_SIZE)) {
+            console.error(`❌ CRITICAL: Invalid opponent_snake initial position: x=${opponentSnakeHead.x}, y=${opponentSnakeHead.y}`);
+          }
+        }
+        
+        currentGame.initialState = initialState;
+        console.log('✅ Initial game state received and validated');
         
         // Инициализируем текущее направление из начального состояния
-        if (data.initial_state.my_snake && data.initial_state.my_snake.direction) {
-          const dir = data.initial_state.my_snake.direction;
+        if (initialState.my_snake && initialState.my_snake.direction) {
+          const dir = initialState.my_snake.direction;
           if (dir.dx === 1 && dir.dy === 0) {
             currentDirection = 'right';
           } else if (dir.dx === -1 && dir.dy === 0) {
@@ -1524,23 +1542,67 @@ function startGame(data) {
 }
 
 /**
+ * Валидация координат змейки: проверка, что координаты в пределах поля 0-29
+ */
+function validateSnakeCoordinates(snake, snakeName = 'snake') {
+  if (!snake || !snake.body) return false;
+  
+  for (let i = 0; i < snake.body.length; i++) {
+    const segment = snake.body[i];
+    if (segment.x < 0 || segment.x >= GRID_SIZE || segment.y < 0 || segment.y >= GRID_SIZE) {
+      console.error(`❌ Error: Invalid ${snakeName} position at segment ${i}: x=${segment.x}, y=${segment.y} (must be 0-${GRID_SIZE-1})`);
+      return false;
+    }
+  }
+  return true;
+}
+
+/**
  * Быстрая функция клонирования только нужных полей (оптимизация производительности)
+ * С ВАЛИДАЦИЕЙ КООРДИНАТ: проверяем, что координаты в пределах поля 0-29
  */
 function cloneSnakeState(data) {
   if (!data) return null;
-  return {
+  
+  const cloned = {
     tick_number: data.tick_number || 0, // Сохраняем номер тика для отслеживания пропусков
-    my_snake: data.my_snake ? {
-      body: data.my_snake.body.map(s => ({ x: s.x, y: s.y })),
+    my_snake: null,
+    opponent_snake: null
+  };
+  
+  // Клонируем и валидируем мою змейку
+  if (data.my_snake) {
+    const body = data.my_snake.body.map(s => ({ x: s.x, y: s.y }));
+    cloned.my_snake = {
+      body: body,
       direction: { dx: data.my_snake.direction.dx, dy: data.my_snake.direction.dy },
       alive: data.my_snake.alive
-    } : null,
-    opponent_snake: data.opponent_snake ? {
-      body: data.opponent_snake.body.map(s => ({ x: s.x, y: s.y })),
+    };
+    
+    // ВАЛИДАЦИЯ: проверяем координаты
+    if (!validateSnakeCoordinates(cloned.my_snake, 'my_snake')) {
+      console.error('❌ Invalid my_snake coordinates, rejecting state');
+      return null; // Отклоняем невалидное состояние
+    }
+  }
+  
+  // Клонируем и валидируем змейку противника
+  if (data.opponent_snake) {
+    const body = data.opponent_snake.body.map(s => ({ x: s.x, y: s.y }));
+    cloned.opponent_snake = {
+      body: body,
       direction: { dx: data.opponent_snake.direction.dx, dy: data.opponent_snake.direction.dy },
       alive: data.opponent_snake.alive
-    } : null
-  };
+    };
+    
+    // ВАЛИДАЦИЯ: проверяем координаты
+    if (!validateSnakeCoordinates(cloned.opponent_snake, 'opponent_snake')) {
+      console.error('❌ Invalid opponent_snake coordinates, rejecting state');
+      return null; // Отклоняем невалидное состояние
+    }
+  }
+  
+  return cloned;
 }
 
 /**
@@ -1551,10 +1613,38 @@ function cloneSnakeState(data) {
 /**
  * STABLE PLAYBACK QUEUE: простая очередь пакетов
  * При получении game_state просто добавляем в очередь
+ * С ВАЛИДАЦИЕЙ КООРДИНАТ: проверяем координаты перед добавлением в очередь
  */
 function updateGameState(data) {
-  // Просто добавляем пакет в очередь
-  packetQueue.push(data);
+  // ВАЛИДАЦИЯ: проверяем координаты перед добавлением в очередь
+  if (!data) {
+    console.error('❌ updateGameState: data is null');
+    return;
+  }
+  
+  // Клонируем и валидируем состояние
+  const cloned = cloneSnakeState(data);
+  if (!cloned) {
+    console.error('❌ updateGameState: invalid coordinates, rejecting state');
+    return; // Не добавляем невалидное состояние в очередь
+  }
+  
+  // Логируем координаты для диагностики
+  if (cloned.my_snake && cloned.my_snake.body && cloned.my_snake.body[0]) {
+    const head = cloned.my_snake.body[0];
+    if (head.x < 0 || head.x >= GRID_SIZE || head.y < 0 || head.y >= GRID_SIZE) {
+      console.error(`❌ CRITICAL: my_snake head out of bounds: x=${head.x}, y=${head.y}, tick=${cloned.tick_number}`);
+    }
+  }
+  if (cloned.opponent_snake && cloned.opponent_snake.body && cloned.opponent_snake.body[0]) {
+    const head = cloned.opponent_snake.body[0];
+    if (head.x < 0 || head.x >= GRID_SIZE || head.y < 0 || head.y >= GRID_SIZE) {
+      console.error(`❌ CRITICAL: opponent_snake head out of bounds: x=${head.x}, y=${head.y}, tick=${cloned.tick_number}`);
+    }
+  }
+  
+  // Добавляем валидный пакет в очередь
+  packetQueue.push(cloned);
   
   // Запускаем цикл отрисовки если он еще не запущен
   if (!animationFrameId && gameState === 'playing') {
@@ -1608,6 +1698,22 @@ function startRenderLoop() {
       const nextState = packetQueue.shift();
       
       if (!nextState) continue;
+      
+      // ВАЛИДАЦИЯ: проверяем координаты перед использованием
+      if (nextState.my_snake && nextState.my_snake.body && nextState.my_snake.body[0]) {
+        const head = nextState.my_snake.body[0];
+        if (head.x < 0 || head.x >= GRID_SIZE || head.y < 0 || head.y >= GRID_SIZE) {
+          console.error(`❌ CRITICAL: Invalid my_snake coordinates in packet: x=${head.x}, y=${head.y}, tick=${nextState.tick_number}`);
+          continue; // Пропускаем невалидный пакет
+        }
+      }
+      if (nextState.opponent_snake && nextState.opponent_snake.body && nextState.opponent_snake.body[0]) {
+        const head = nextState.opponent_snake.body[0];
+        if (head.x < 0 || head.x >= GRID_SIZE || head.y < 0 || head.y >= GRID_SIZE) {
+          console.error(`❌ CRITICAL: Invalid opponent_snake coordinates in packet: x=${head.x}, y=${head.y}, tick=${nextState.tick_number}`);
+          continue; // Пропускаем невалидный пакет
+        }
+      }
       
       // Сохраняем как текущее состояние для отрисовки
       const nextPacket = nextState;
@@ -1716,17 +1822,16 @@ function startRenderLoop() {
         console.log('Drawing snake at:', currentGameState.my_snake.body[0]);
       }
       
-      // ЦВЕТА ЗМЕЕК: принудительно задаем яркие цвета для теста
-      // Моя змейка: ярко-зеленый (#00FF00), Враг: ярко-красный (#FF0000)
-      drawSnakeSimple(currentGameState.my_snake, headHistory, '#00FF00', '#00FF00');
-      drawSnakeSimple(currentGameState.opponent_snake, opponentHeadHistory, '#FF0000', '#FF0000');
+      // Отрисовываем змейки с красивым оформлением
+      drawSnakeSimple(currentGameState.my_snake, headHistory, '#ff4444', '#ff6666');
+      drawSnakeSimple(currentGameState.opponent_snake, opponentHeadHistory, '#4444ff', '#6666ff');
     } else {
       // ПЛАВНОЕ ДВИЖЕНИЕ (Fallback): если данных нет, продолжаем рисовать последнее известное состояние
       // Не останавливаем отрисовку - просто используем то, что есть
       if (currentGameState) {
         // Рисуем последнее известное состояние с яркими цветами для теста
-        drawSnakeSimple(currentGameState.my_snake, headHistory, '#00FF00', '#00FF00');
-        drawSnakeSimple(currentGameState.opponent_snake, opponentHeadHistory, '#FF0000', '#FF0000');
+        drawSnakeSimple(currentGameState.my_snake, headHistory, '#ff4444', '#ff6666');
+        drawSnakeSimple(currentGameState.opponent_snake, opponentHeadHistory, '#4444ff', '#6666ff');
       }
     }
     
@@ -1745,46 +1850,98 @@ function startRenderLoop() {
 function drawSnakeSimple(snake, headHistory, color1, color2) {
   if (!snake || !snake.body || snake.body.length === 0) return;
   
-  // ВИЗУАЛИЗАЦИЯ ДЛЯ ТЕСТА: логируем отрисовку змейки
-  if (snake.body && snake.body[0]) {
-    console.log('Drawing snake at:', snake.body[0]);
+  // ЗАЩИТА ОТ ОТРИСОВКИ ВНЕ ПОЛЯ: проверяем координаты перед отрисовкой
+  const head = snake.body[0];
+  if (head.x < 0 || head.x >= GRID_SIZE || head.y < 0 || head.y >= GRID_SIZE) {
+    console.error(`❌ Error: Invalid snake position - x=${head.x}, y=${head.y} (must be 0-${GRID_SIZE-1}). Skipping draw.`);
+    return; // Не пытаемся рисовать по невалидным координатам
   }
   
-  // СТАБИЛИЗАЦИЯ КООРДИНАТ: четкое разделение между логическим размером сетки (30x30) и физическим размером Canvas
-  // Используем Math.floor() для расчета tileSize, чтобы избежать дробных пикселей
-  const tileSize = Math.floor(canvasLogicalSize / 30); // Округляем вниз для целых пикселей
-  console.log('Tile size:', tileSize, 'Canvas logical size:', canvasLogicalSize, 'Head:', snake.body[0]);
+  // СТАБИЛИЗАЦИЯ КООРДИНАТ: используем константу GRID_SIZE для синхронизации с сервером
+  const tileSize = Math.floor(canvasLogicalSize / GRID_SIZE);
   
-  // ЦВЕТА ЗМЕЕК: принудительно задаем яркие цвета для теста
-  // Моя змейка: ярко-зеленый, Враг: ярко-красный
+  // КРАСИВЫЕ ЦВЕТА: используем переданные цвета вместо тестовых
   const isMySnake = color1 === '#ff4444' || color1 === '#00FF00';
-  const testColor = isMySnake ? '#00FF00' : '#FF0000'; // Ярко-зеленый или ярко-красный
+  const headColor = isMySnake ? '#ff4444' : '#4444ff';
+  const bodyColor = isMySnake ? '#ff6666' : '#6666ff';
+  
+  // Градиент для змейки
+  const gradient = gameCtx.createLinearGradient(0, 0, canvasLogicalSize, canvasLogicalSize);
+  gradient.addColorStop(0, headColor);
+  gradient.addColorStop(1, bodyColor);
   
   // Направление для глаз
   const direction = snake.direction || { dx: 1, dy: 0 };
   
-  // Настраиваем shadow эффекты
-  gameCtx.shadowColor = testColor;
+  // Настраиваем shadow эффекты для головы
+  gameCtx.shadowColor = headColor;
   gameCtx.shadowBlur = 18;
   gameCtx.shadowOffsetX = 0;
   gameCtx.shadowOffsetY = 0;
   
-  // Рисуем голову
-  const head = snake.body[0];
-  // МАСШТАБИРОВАНИЕ: умножаем координаты на размер ячейки
+  // Рисуем голову с красивым оформлением
   const headX = head.x * tileSize;
   const headY = head.y * tileSize;
   const size = tileSize - 2;
   const offset = 1;
   const radius = size * 0.2;
   
-  // Голова с ярким цветом для теста - используем простой fillRect для надежности
-  gameCtx.fillStyle = testColor;
-  // УБРАТЬ ЛИШНИЕ СЛОИ: используем простой fillRect вместо roundRect для теста
-  // МАСШТАБИРОВАНИЕ: координаты уже умножены на tileSize, рисуем прямоугольник
-  gameCtx.fillRect(headX + offset, headY + offset, size, size);
+  // Голова с градиентом и скругленными углами
+  gameCtx.fillStyle = gradient;
+  gameCtx.beginPath();
+  gameCtx.roundRect(headX + offset, headY + offset, size, size, radius);
+  gameCtx.fill();
   
-  // УБРАТЬ ЛИШНИЕ СЛОИ: временно убираем обводку и глаза для упрощения теста
+  // Белая обводка головы для лучшей видимости
+  gameCtx.strokeStyle = '#ffffff';
+  gameCtx.lineWidth = 2;
+  gameCtx.beginPath();
+  gameCtx.roundRect(headX + offset, headY + offset, size, size, radius);
+  gameCtx.stroke();
+  
+  // Глаза на голове с учетом направления
+  gameCtx.shadowBlur = 0;
+  gameCtx.shadowColor = 'transparent';
+  
+  const centerX = headX + offset + size / 2;
+  const centerY = headY + offset + size / 2;
+  const eyeOffset = size * 0.2;
+  const eyeSize = size * 0.12;
+  
+  let eyeX1, eyeY1, eyeX2, eyeY2;
+  
+  if (direction.dx > 0) {
+    eyeX1 = centerX + eyeOffset * 0.5;
+    eyeY1 = centerY - eyeOffset * 0.5;
+    eyeX2 = centerX + eyeOffset * 0.5;
+    eyeY2 = centerY + eyeOffset * 0.5;
+  } else if (direction.dx < 0) {
+    eyeX1 = centerX - eyeOffset * 0.5;
+    eyeY1 = centerY - eyeOffset * 0.5;
+    eyeX2 = centerX - eyeOffset * 0.5;
+    eyeY2 = centerY + eyeOffset * 0.5;
+  } else if (direction.dy > 0) {
+    eyeX1 = centerX - eyeOffset * 0.5;
+    eyeY1 = centerY + eyeOffset * 0.5;
+    eyeX2 = centerX + eyeOffset * 0.5;
+    eyeY2 = centerY + eyeOffset * 0.5;
+  } else {
+    eyeX1 = centerX - eyeOffset * 0.5;
+    eyeY1 = centerY - eyeOffset * 0.5;
+    eyeX2 = centerX + eyeOffset * 0.5;
+    eyeY2 = centerY - eyeOffset * 0.5;
+  }
+  
+  // Рисуем глаза
+  gameCtx.shadowColor = 'rgba(255, 255, 255, 0.5)';
+  gameCtx.shadowBlur = 3;
+  gameCtx.fillStyle = '#ffffff';
+  gameCtx.beginPath();
+  gameCtx.arc(eyeX1, eyeY1, eyeSize, 0, Math.PI * 2);
+  gameCtx.fill();
+  gameCtx.beginPath();
+  gameCtx.arc(eyeX2, eyeY2, eyeSize, 0, Math.PI * 2);
+  gameCtx.fill();
   
   // СИНХРОННЫЙ ХВОСТ: рисуем сегменты из истории позиций головы
   // Каждый сегмент хвоста - это позиция головы N тиков назад
@@ -1795,15 +1952,26 @@ function drawSnakeSimple(snake, headHistory, color1, color2) {
     if (historyIndex < 0 || historyIndex >= headHistory.length) continue;
     
     const tailPos = headHistory[historyIndex];
+    
+    // ЗАЩИТА ОТ ОТРИСОВКИ ВНЕ ПОЛЯ: проверяем координаты хвоста
+    if (tailPos.x < 0 || tailPos.x >= GRID_SIZE || tailPos.y < 0 || tailPos.y >= GRID_SIZE) {
+      console.error(`❌ Error: Invalid tail position at segment ${i}: x=${tailPos.x}, y=${tailPos.y}. Skipping.`);
+      continue; // Пропускаем невалидные сегменты хвоста
+    }
+    
     const tailX = tailPos.x * tileSize;
     const tailY = tailPos.y * tileSize;
     const tailRadius = size * 0.15;
     
-    gameCtx.shadowBlur = i < 5 ? 12 : 0; // Тени только для первых сегментов
-    // ЦВЕТА ЗМЕЕК: используем яркий цвет для теста
-    gameCtx.fillStyle = testColor;
-    // УБРАТЬ ЛИШНИЕ СЛОИ: используем простой fillRect вместо roundRect для теста
-    gameCtx.fillRect(tailX + offset + 1, tailY + offset + 1, size - 2, size - 2);
+    // Тени только для первых сегментов
+    gameCtx.shadowBlur = i < 5 ? 12 : 0;
+    gameCtx.shadowColor = i < 5 ? bodyColor : 'transparent';
+    
+    // Хвост с градиентом и скругленными углами
+    gameCtx.fillStyle = gradient;
+    gameCtx.beginPath();
+    gameCtx.roundRect(tailX + offset + 1, tailY + offset + 1, size - 2, size - 2, tailRadius);
+    gameCtx.fill();
   }
   
   // Сбрасываем shadow эффекты
@@ -1817,7 +1985,8 @@ function drawSnakeSimple(snake, headHistory, color1, color2) {
 function drawGridToOffscreen() {
   if (!gridCtx) return;
   
-  const tileSize = canvasLogicalSize / 30; // 30 клеток по ширине
+  // СИНХРОНИЗАЦИЯ СЕТКИ: используем константу GRID_SIZE для синхронизации с сервером
+  const tileSize = canvasLogicalSize / GRID_SIZE; // GRID_SIZE клеток по ширине
   const width = canvasLogicalSize;
   const height = canvasLogicalSize;
   
@@ -1825,7 +1994,7 @@ function drawGridToOffscreen() {
   gridCtx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
   gridCtx.lineWidth = 0.5;
   
-  for (let i = 0; i <= 30; i++) {
+  for (let i = 0; i <= GRID_SIZE; i++) {
     // Vertical lines
     gridCtx.beginPath();
     gridCtx.moveTo(i * tileSize, 0);
