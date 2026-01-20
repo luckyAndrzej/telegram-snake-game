@@ -43,8 +43,7 @@ let inputBuffer = [];
 let lastDirectionSentTime = 0;
 const INPUT_BUFFER_DELAY = 0; // Немедленная отправка для мгновенного отклика
 
-// Jitter Buffer: задержка рендеринга для стабилизации интерполяции
-const RENDER_DELAY = 0; // Убрано для мгновенного отклика
+// Jitter Buffer: задержка рендеринга теперь используется через RENDER_DELAY (400мс)
 
 // Offscreen canvas для сетки (оптимизация отрисовки)
 let gridCanvas = null;
