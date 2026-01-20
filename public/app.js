@@ -1656,15 +1656,19 @@ function startRenderLoop() {
       return;
     }
     
-    const now = performance.now();
-    const timeSinceLastStep = now - lastStepTime;
+    // УБРАТЬ БЛОКИРОВКУ ПО ВРЕМЕНИ: для теста убираем проверку времени, пусть requestAnimationFrame рисует всё максимально быстро
+    // ИСПРАВЛЕНИЕ УСЛОВИЯ ИЗВЛЕЧЕНИЯ: извлекаем данные из packetQueue без блокировки по времени
+    // СКОРОСТЬ ИЗВЛЕЧЕНИЯ: если в очереди скопилось слишком много пакетов (больше 5), забираем по 2 пакета за раз
+    let packetsToProcess = packetQueue.length > 5 ? 2 : 1;
     
-    // ФИКСИРОВАННЫЙ ШАГ: змейка делает шаг строго каждые 120мс (компенсация сетевых задержек)
-    if (timeSinceLastStep >= TICK_DURATION) {
-      // Обрабатываем пакеты из очереди
-      if (packetQueue.length > 0) {
-        // Берем следующий пакет
-        const nextPacket = packetQueue.shift();
+    for (let i = 0; i < packetsToProcess && packetQueue.length > 0; i++) {
+      // Берем самый старый пакет
+      const nextState = packetQueue.shift();
+      
+      if (!nextState) continue;
+      
+      // Сохраняем как текущее состояние для отрисовки
+      const nextPacket = nextState;
         
         // УСТРАНЕНИЕ 'БРОСКОВ ПО СТОРОНАМ': если позиция изменилась и по X, и по Y - это склеенные пакеты
         // Отрисовываем это как два быстрых поворота под 90 градусов
@@ -1738,28 +1742,10 @@ function startRenderLoop() {
             opponentHeadHistory.shift();
           }
         }
-      } else if (currentGameState) {
-        // Если данных временно нет (лаг сети) - змейка плавно продолжает движение в том же направлении еще 1 тик
-        if (currentGameState.my_snake && currentGameState.my_snake.body && currentGameState.my_snake.body[0]) {
-          const head = currentGameState.my_snake.body[0];
-          const dir = currentGameState.my_snake.direction;
-          currentGameState.my_snake.body[0] = {
-            x: head.x + dir.dx,
-            y: head.y + dir.dy
-          };
-        }
-        if (currentGameState.opponent_snake && currentGameState.opponent_snake.body && currentGameState.opponent_snake.body[0]) {
-          const head = currentGameState.opponent_snake.body[0];
-          const dir = currentGameState.opponent_snake.direction;
-          currentGameState.opponent_snake.body[0] = {
-            x: head.x + dir.dx,
-            y: head.y + dir.dy
-          };
-        }
-      }
-      
-      lastStepTime = now;
     }
+    
+    // ПЛАВНОЕ ДВИЖЕНИЕ (Fallback): если в конкретный кадр packetQueue пуста, продолжаем рисовать currentGameState
+    // Не останавливаем отрисовку при пустой очереди - используем последнее известное состояние
     
     // УПРОЩЕННАЯ ОТРИСОВКА (для теста): временно добавляем яркий фон
     // Полная очистка canvas перед каждым кадром
@@ -1783,13 +1769,22 @@ function startRenderLoop() {
       drawGrid();
       }
       
+      // ВИЗУАЛИЗАЦИЯ ДЛЯ ТЕСТА: логируем отрисовку змейки
+      if (currentGameState.my_snake && currentGameState.my_snake.body && currentGameState.my_snake.body[0]) {
+        console.log('Drawing snake at:', currentGameState.my_snake.body[0]);
+      }
+      
       // Отрисовываем змейки с синхронным хвостом
       drawSnakeSimple(currentGameState.my_snake, headHistory, '#ff4444', '#ff6666');
       drawSnakeSimple(currentGameState.opponent_snake, opponentHeadHistory, '#4444ff', '#6666ff');
     } else {
-      // ПРИВЯЗКА К ПАКЕТНОЙ ОЧЕРЕДИ: если очередь пуста, рисуем последнее известное состояние
-      // или просто зеленый фон для теста
-      console.log('⚠️ Нет данных для отрисовки, очередь:', packetQueue.length);
+      // ПЛАВНОЕ ДВИЖЕНИЕ (Fallback): если данных нет, продолжаем рисовать последнее известное состояние
+      // Не останавливаем отрисовку - просто используем то, что есть
+      if (currentGameState) {
+        // Рисуем последнее известное состояние
+        drawSnakeSimple(currentGameState.my_snake, headHistory, '#ff4444', '#ff6666');
+        drawSnakeSimple(currentGameState.opponent_snake, opponentHeadHistory, '#4444ff', '#6666ff');
+      }
     }
     
     // Продолжаем цикл
@@ -1806,6 +1801,11 @@ function startRenderLoop() {
  */
 function drawSnakeSimple(snake, headHistory, color1, color2) {
   if (!snake || !snake.body || snake.body.length === 0) return;
+  
+  // ВИЗУАЛИЗАЦИЯ ДЛЯ ТЕСТА: логируем отрисовку змейки
+  if (snake.body && snake.body[0]) {
+    console.log('Drawing snake at:', snake.body[0]);
+  }
   
   const tileSize = canvasLogicalSize / 30;
   
