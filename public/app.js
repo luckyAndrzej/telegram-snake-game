@@ -26,12 +26,11 @@ const INTERPOLATION_OFFSET = 500; // мс (жесткий буфер для те
 // Фиксированный шаг интерполяции
 const FIXED_TICK = 111.11; // мс
 
-// История позиций (Trail): храним последние 10 состояний сервера
-let serverStates = []; // Массив объектов { serverTime, data, tick_number }
+// STATE BUFFER: массив для хранения последних 20 состояний игры
+let gameStatesBuffer = []; // Массив объектов { ...data, receiveTime: Date.now() }
 
-// Виртуальное время для отрисовки (увеличивается строго на dt в каждом кадре)
-let renderTime = 0; // Виртуальное время в миллисекундах
-let lastFrameRenderTime = 0; // Время последнего кадра для расчета dt
+// Фиксированная задержка отображения (400мс для сглаживания сетевых ям)
+const RENDER_DELAY = 400; // мс
 
 // Состояние игры (для обратной совместимости)
 let gameStateData = null;
@@ -407,10 +406,8 @@ function initSocket() {
     gameStateData = null;
     lastGameStateUpdate = 0;
     
-    // РЕЛЬСОВАЯ СИСТЕМА: сбрасываем историю позиций и виртуальное время
-    serverStates = [];
-    renderTime = 0;
-    lastFrameRenderTime = 0;
+    // STATE BUFFER: сбрасываем буфер состояний
+    gameStatesBuffer = [];
     
     // ДИАГНОСТИКА: Останавливаем диагностику и очищаем данные
     if (diagnosticsInterval) {
@@ -1566,29 +1563,21 @@ function updateGameState(data) {
   }
   lastPacketTime = now;
   
-  // РЕЛЬСОВАЯ СИСТЕМА: сохраняем состояние в историю позиций (Trail)
-  const serverTime = now - INTERPOLATION_OFFSET; // Время сервера с учетом буфера
-  const stateEntry = {
-    serverTime: serverTime,
-    data: cloneSnakeState(data),
+  // STATE BUFFER: добавляем состояние в буфер с временем получения
+  gameStatesBuffer.push({
+    ...cloneSnakeState(data),
+    receiveTime: Date.now(),
     tick_number: data.tick_number || 0
-  };
+  });
   
-  // Добавляем в массив и ограничиваем до 10 состояний
-  serverStates.push(stateEntry);
-  if (serverStates.length > 10) {
-    serverStates.shift(); // Удаляем самое старое состояние
+  // Ограничиваем буфер до 20 состояний
+  if (gameStatesBuffer.length > 20) {
+    gameStatesBuffer.shift();
   }
   
   // Обратная совместимость: обновляем gameStateData
   previousGameStateData = gameStateData;
   gameStateData = cloneSnakeState(data);
-  
-  // Инициализация виртуального времени при первом обновлении
-  if (renderTime === 0) {
-    renderTime = serverTime;
-    lastFrameRenderTime = performance.now();
-  }
   
   // Запускаем цикл отрисовки если он еще не запущен
   if (!animationFrameId && gameState === 'playing') {
@@ -1637,44 +1626,39 @@ function startRenderLoop() {
     }
     lastFrameTime = frameNow;
     
-    // ПЛАВНОЕ ВИРТУАЛЬНОЕ ВРЕМЯ: увеличиваем строго на dt в каждом кадре
-    const currentFrameTime = performance.now();
-    const dt = currentFrameTime - lastFrameRenderTime; // Дельта времени между кадрами
-    lastFrameRenderTime = currentFrameTime;
+    // ФИКСИРОВАННАЯ ЗАДЕРЖКА ОТОБРАЖЕНИЯ: показываем то, что было 400мс назад
+    const renderTime = Date.now() - RENDER_DELAY;
     
-    // renderTime увеличивается строго на dt (не зависит от прихода пакетов)
-    renderTime += dt;
+    // ПОИСК ДВУХ СОСТОЯНИЙ ДЛЯ ИНТЕРПОЛЯЦИИ: находим A и B в gameStatesBuffer
+    let stateA = null; // stateA.receiveTime < renderTime
+    let stateB = null; // stateB.receiveTime > renderTime
     
-    // ПОИСК ПО ВРЕМЕНИ (Time-Travel Interpolation): находим два состояния для интерполяции
-    let stateA = null; // stateA.serverTime < renderTime
-    let stateB = null; // stateB.serverTime > renderTime
-    
-    for (let i = 0; i < serverStates.length - 1; i++) {
-      if (serverStates[i].serverTime <= renderTime && serverStates[i + 1].serverTime >= renderTime) {
-        stateA = serverStates[i];
-        stateB = serverStates[i + 1];
+    for (let i = 0; i < gameStatesBuffer.length - 1; i++) {
+      if (gameStatesBuffer[i].receiveTime <= renderTime && gameStatesBuffer[i + 1].receiveTime >= renderTime) {
+        stateA = gameStatesBuffer[i];
+        stateB = gameStatesBuffer[i + 1];
         break;
       }
     }
     
     // Если renderTime обогнал последний пакет - используем последнее состояние
-    if (!stateA && serverStates.length > 0) {
-      const lastState = serverStates[serverStates.length - 1];
-      if (renderTime > lastState.serverTime) {
+    if (!stateA && gameStatesBuffer.length > 0) {
+      const lastState = gameStatesBuffer[gameStatesBuffer.length - 1];
+      if (renderTime > lastState.receiveTime) {
         // ПЛАВНАЯ ОСТАНОВКА: если данных нет, останавливаем змейку плавно
         stateA = lastState;
         stateB = lastState; // Используем одно и то же состояние (t = 1)
-      } else if (serverStates.length > 0) {
+      } else {
         // Используем первое состояние если renderTime еще не достиг его
-        stateA = serverStates[0];
-        stateB = serverStates[0];
+        stateA = gameStatesBuffer[0];
+        stateB = gameStatesBuffer[0];
       }
     }
     
     // Рассчитываем t для интерполяции между stateA и stateB
     let t = 0;
-    if (stateA && stateB && stateA.serverTime !== stateB.serverTime) {
-      t = (renderTime - stateA.serverTime) / (stateB.serverTime - stateA.serverTime);
+    if (stateA && stateB && stateA.receiveTime !== stateB.receiveTime) {
+      t = (renderTime - stateA.receiveTime) / (stateB.receiveTime - stateA.receiveTime);
       t = Math.max(0, Math.min(t, 1)); // Ограничиваем [0, 1]
     } else if (stateA) {
       t = 1; // Используем последнее состояние
@@ -1687,7 +1671,7 @@ function startRenderLoop() {
     }
     
     // Отрисовываем только если есть данные
-    if (stateA && stateA.data && stateA.data.my_snake && stateA.data.opponent_snake) {
+    if (stateA && stateA.my_snake && stateA.opponent_snake) {
       // Полная очистка canvas перед каждым кадром
       gameCtx.clearRect(0, 0, canvasLogicalSize, canvasLogicalSize);
       
@@ -1703,17 +1687,17 @@ function startRenderLoop() {
         drawGrid();
       }
       
-      // РЕЛЬСОВАЯ ИНТЕРПОЛЯЦИЯ: интерполируем строго между stateA и stateB
+      // STATE BUFFER ИНТЕРПОЛЯЦИЯ: интерполируем строго между stateA и stateB
       let mySnake, opponentSnake;
       
-      if (stateA && stateB && stateA.data && stateB.data) {
-        // Интерполируем между двумя состояниями из истории
-        mySnake = interpolateSnake(stateA.data.my_snake, stateB.data.my_snake, t);
-        opponentSnake = interpolateSnake(stateA.data.opponent_snake, stateB.data.opponent_snake, t);
-      } else if (stateA && stateA.data) {
+      if (stateA && stateB && stateA.my_snake && stateB.my_snake) {
+        // Интерполируем между двумя состояниями из буфера
+        mySnake = interpolateSnake(stateA.my_snake, stateB.my_snake, t);
+        opponentSnake = interpolateSnake(stateA.opponent_snake, stateB.opponent_snake, t);
+      } else if (stateA && stateA.my_snake) {
         // Используем только stateA (последнее известное состояние)
-        mySnake = stateA.data.my_snake;
-        opponentSnake = stateA.data.opponent_snake;
+        mySnake = stateA.my_snake;
+        opponentSnake = stateA.opponent_snake;
       } else {
         // Fallback: используем gameStateData
         mySnake = gameStateData?.my_snake;
@@ -1939,16 +1923,21 @@ function interpolateSnake(previousSnake, currentSnake, t) {
     };
   }
   
-  // ГАРАНТИЯ ЦЕЛОСТНОСТИ ТЕЛА: сегменты хвоста жестко следуют монолитно
-  const headDeltaX = interpolated.body[headIndex].x - prevHead.x;
-  const headDeltaY = interpolated.body[headIndex].y - prevHead.y;
-  
+  // СИНХРОНИЗАЦИЯ ХВОСТА: не интерполируем каждый сегмент отдельно
+  // Отрисовываем голову в интерполированной позиции, а остальные сегменты строго по точкам из stateB
+  // Это предотвращает 'плавание' сегментов отдельно от головы
   for (let i = 1; i < currentSnake.body.length; i++) {
-    if (i < previousSnake.body.length) {
-      const prevSegment = previousSnake.body[i];
+    if (i < currentSnake.body.length) {
+      // Сегменты хвоста берутся строго из текущего состояния (stateB)
+      // Смещаем их относительно интерполированной головы для сохранения относительных позиций
+      const currSegment = currentSnake.body[i];
+      const currHead = currentSnake.body[0];
+      const headOffsetX = interpolated.body[headIndex].x - currHead.x;
+      const headOffsetY = interpolated.body[headIndex].y - currHead.y;
+      
       interpolated.body[i] = {
-        x: prevSegment.x + headDeltaX,
-        y: prevSegment.y + headDeltaY
+        x: currSegment.x + headOffsetX,
+        y: currSegment.y + headOffsetY
       };
     } else {
       interpolated.body[i] = { x: currentSnake.body[i].x, y: currentSnake.body[i].y };
