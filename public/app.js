@@ -20,22 +20,20 @@ let debugMode = false;
 let currentDirection = null; // Current snake direction (updated from game_state)
 let canvasLogicalSize = 800; // Логический размер canvas (без DPR) для корректной отрисовки
 
-// РЕЛЬСОВАЯ СИСТЕМА: виртуальное время и жесткий буфер
-const INTERPOLATION_OFFSET = 500; // мс (жесткий буфер для теста плавности)
+// STABLE PLAYBACK QUEUE: простая очередь пакетов
+let packetQueue = []; // Очередь пакетов game_state
 
-// Фиксированный шаг интерполяции
-const FIXED_TICK = 111.11; // мс
+// Фиксированный шаг тика сервера
+const TICK_DURATION = 111; // мс (длительность одного тика на сервере)
 
-// STATE BUFFER: массив для хранения последних 20 состояний игры
-let gameStatesBuffer = []; // Массив объектов { ...data, receiveTime: Date.now() }
+// Текущее состояние игры для отрисовки
+let currentGameState = null; // Текущее состояние для отрисовки
+let headHistory = []; // История позиций головы для хвоста (массив {x, y, direction})
+let opponentHeadHistory = []; // История позиций головы противника
 
-// Фиксированная задержка отображения (600мс для обработки пропущенных тиков)
-const RENDER_DELAY = 600; // мс (увеличено для абсолютно предсказуемого движения)
+// Время последнего шага
+let lastStepTime = 0;
 
-// Состояние игры (для обратной совместимости)
-let gameStateData = null;
-let previousGameStateData = null;
-let lastGameStateUpdate = 0;
 let animationFrameId = null;
 
 // Input Buffer: очередь команд для предотвращения потери быстрых нажатий
@@ -43,28 +41,10 @@ let inputBuffer = [];
 let lastDirectionSentTime = 0;
 const INPUT_BUFFER_DELAY = 0; // Немедленная отправка для мгновенного отклика
 
-// Jitter Buffer: задержка рендеринга теперь используется через RENDER_DELAY (400мс)
-
 // Offscreen canvas для сетки (оптимизация отрисовки)
 let gridCanvas = null;
 let gridCtx = null;
 
-// ============================================
-// СИСТЕМА ДИАГНОСТИКИ ПРОИЗВОДИТЕЛЬНОСТИ
-// ============================================
-// Мониторинг t (Interpolation Factor)
-let tValues = []; // Массив значений t для статистики
-
-// Мониторинг сети (Network Jitter)
-let lastPacketTime = 0;
-let networkIntervals = []; // Массив интервалов между пакетами
-
-// Мониторинг кадров (Frame Delta)
-let lastFrameTime = 0;
-let frameDeltas = []; // Массив времени между кадрами
-
-// Интервал для вывода диагностики (каждые 2 секунды)
-let diagnosticsInterval = null;
 
 /**
  * Универсальная функция для открытия/закрытия модальных окон
@@ -177,7 +157,7 @@ document.addEventListener('DOMContentLoaded', () => {
               if (gridCanvas) {
                 gameCtx.drawImage(gridCanvas, 0, 0);
               } else {
-                drawGrid();
+              drawGrid();
               }
               drawSnake(gameStateData.my_snake, '#ff4444', '#ff6666');
               drawSnake(gameStateData.opponent_snake, '#4444ff', '#6666ff');
@@ -402,11 +382,12 @@ function initSocket() {
     // ИСПРАВЛЕНИЕ: Сбрасываем состояние интерполяции для новой игры
     // Это предотвращает использование данных из предыдущей игры
     previousGameStateData = null;
-    gameStateData = null;
-    lastGameStateUpdate = 0;
-    
-    // STATE BUFFER: сбрасываем буфер состояний
-    gameStatesBuffer = [];
+    // Очистка очереди и истории
+    packetQueue = [];
+    currentGameState = null;
+    headHistory = [];
+    opponentHeadHistory = [];
+    lastStepTime = 0;
     
     // ДИАГНОСТИКА: Останавливаем диагностику и очищаем данные
     if (diagnosticsInterval) {
@@ -774,7 +755,7 @@ function initEventListeners() {
   document.getElementById('buy-games-with-winnings-btn')?.addEventListener('click', () => {
     const buyBtn = document.getElementById('buy-games-with-winnings-btn');
     if (buyBtn && !buyBtn.disabled) {
-      handleBuyGamesWithWinnings(1); // По умолчанию 1 игра за 1 TON
+    handleBuyGamesWithWinnings(1); // По умолчанию 1 игра за 1 TON
     }
   });
   
@@ -1549,48 +1530,21 @@ function cloneSnakeState(data) {
  * Использует быстрое клонирование вместо JSON.parse/stringify
  * Виртуальное время мягко следует за реальным, убирая эффект "гармошки"
  */
+/**
+ * STABLE PLAYBACK QUEUE: простая очередь пакетов
+ * При получении game_state просто добавляем в очередь
+ */
 function updateGameState(data) {
-  const now = performance.now();
-  
-  // ДИАГНОСТИКА: Мониторинг сети (Network Jitter)
-  if (lastPacketTime > 0) {
-    const interval = now - lastPacketTime;
-    networkIntervals.push(interval);
-    if (networkIntervals.length > 50) {
-      networkIntervals.shift();
-    }
-  }
-  lastPacketTime = now;
-  
-  // STATE BUFFER: добавляем состояние в буфер с временем получения
-  gameStatesBuffer.push({
-    ...cloneSnakeState(data),
-    receiveTime: Date.now(),
-    tick_number: data.tick_number || 0
-  });
-  
-  // Ограничиваем буфер до 20 состояний
-  if (gameStatesBuffer.length > 20) {
-    gameStatesBuffer.shift();
-  }
-  
-  // Обратная совместимость: обновляем gameStateData
-  previousGameStateData = gameStateData;
-  gameStateData = cloneSnakeState(data);
+  // Просто добавляем пакет в очередь
+  packetQueue.push(data);
   
   // Запускаем цикл отрисовки если он еще не запущен
   if (!animationFrameId && gameState === 'playing') {
     startRenderLoop();
   }
-  
-  // ДИАГНОСТИКА: Запускаем интервал для вывода диагностики (если еще не запущен)
-  if (!diagnosticsInterval && gameState === 'playing') {
-    startDiagnostics();
-  }
 }
 
-// Цикл отрисовки с requestAnimationFrame (60 FPS)
-// Чистая интерполяция без client-side prediction + Jitter Buffer
+// STABLE PLAYBACK QUEUE: простой цикл отрисовки с фиксированным шагом
 function startRenderLoop() {
   if (animationFrameId) return; // Уже запущен
   
@@ -1603,85 +1557,124 @@ function startRenderLoop() {
     drawGridToOffscreen(); // Рисуем сетку один раз на offscreen canvas
   }
   
+  // Инициализация времени последнего шага
+  if (lastStepTime === 0) {
+    lastStepTime = performance.now();
+  }
+  
   function render() {
     if (gameState !== 'playing' || !gameCanvas || !gameCtx) {
       animationFrameId = null;
-      // ДИАГНОСТИКА: Останавливаем диагностику при выходе из игры
-      if (diagnosticsInterval) {
-        clearInterval(diagnosticsInterval);
-        diagnosticsInterval = null;
-      }
       return;
     }
     
-    // ДИАГНОСТИКА: Мониторинг кадров (Frame Delta)
-    const frameNow = performance.now();
-    if (lastFrameTime > 0) {
-      const frameDelta = frameNow - lastFrameTime;
-      frameDeltas.push(frameDelta);
-      if (frameDeltas.length > 300) {
-        frameDeltas.shift();
+    const now = performance.now();
+    const timeSinceLastStep = now - lastStepTime;
+    
+    // ФИКСИРОВАННЫЙ ШАГ: змейка делает шаг строго каждые 111мс
+    if (timeSinceLastStep >= TICK_DURATION) {
+      // Обрабатываем пакеты из очереди
+      if (packetQueue.length > 0) {
+        // Берем следующий пакет
+        const nextPacket = packetQueue.shift();
+        
+        // УСТРАНЕНИЕ 'БРОСКОВ ПО СТОРОНАМ': если позиция изменилась и по X, и по Y - это склеенные пакеты
+        // Отрисовываем это как два быстрых поворота под 90 градусов
+        if (currentGameState && currentGameState.my_snake && nextPacket.my_snake) {
+          const prevHead = currentGameState.my_snake.body[0];
+          const nextHead = nextPacket.my_snake.body[0];
+          const dx = nextHead.x - prevHead.x;
+          const dy = nextHead.y - prevHead.y;
+          
+          // Если изменились обе координаты - это склеенные пакеты, делаем два поворота
+          if (dx !== 0 && dy !== 0) {
+            // Определяем направление движения до поворота
+            const prevDir = currentGameState.my_snake.direction;
+            const wasMovingHorizontally = Math.abs(prevDir.dx) > Math.abs(prevDir.dy);
+            
+            // Первый поворот: двигаемся только по одной оси
+            if (wasMovingHorizontally) {
+              // Двигались горизонтально - сначала завершаем движение по X
+              nextPacket.my_snake.body[0] = { x: nextHead.x, y: prevHead.y };
+            } else {
+              // Двигались вертикально - сначала завершаем движение по Y
+              nextPacket.my_snake.body[0] = { x: prevHead.x, y: nextHead.y };
+            }
+          }
+        }
+        
+        // Аналогично для противника
+        if (currentGameState && currentGameState.opponent_snake && nextPacket.opponent_snake) {
+          const prevHead = currentGameState.opponent_snake.body[0];
+          const nextHead = nextPacket.opponent_snake.body[0];
+          const dx = nextHead.x - prevHead.x;
+          const dy = nextHead.y - prevHead.y;
+          
+          if (dx !== 0 && dy !== 0) {
+            const prevDir = currentGameState.opponent_snake.direction;
+            const wasMovingHorizontally = Math.abs(prevDir.dx) > Math.abs(prevDir.dy);
+            
+            if (wasMovingHorizontally) {
+              nextPacket.opponent_snake.body[0] = { x: nextHead.x, y: prevHead.y };
+            } else {
+              nextPacket.opponent_snake.body[0] = { x: prevHead.x, y: nextHead.y };
+            }
+          }
+        }
+        
+        currentGameState = nextPacket;
+        
+        // Обновляем историю головы для хвоста
+        if (nextPacket.my_snake && nextPacket.my_snake.body && nextPacket.my_snake.body[0]) {
+          const head = nextPacket.my_snake.body[0];
+          headHistory.push({
+            x: head.x,
+            y: head.y,
+            direction: { ...nextPacket.my_snake.direction }
+          });
+          // Ограничиваем историю до длины змейки
+          if (headHistory.length > (nextPacket.my_snake.body.length || 5)) {
+            headHistory.shift();
+          }
+        }
+        
+        if (nextPacket.opponent_snake && nextPacket.opponent_snake.body && nextPacket.opponent_snake.body[0]) {
+          const head = nextPacket.opponent_snake.body[0];
+          opponentHeadHistory.push({
+            x: head.x,
+            y: head.y,
+            direction: { ...nextPacket.opponent_snake.direction }
+          });
+          // Ограничиваем историю до длины змейки
+          if (opponentHeadHistory.length > (nextPacket.opponent_snake.body.length || 5)) {
+            opponentHeadHistory.shift();
+          }
+        }
+      } else if (currentGameState) {
+        // Если данных временно нет (лаг сети) - змейка плавно продолжает движение в том же направлении еще 1 тик
+        if (currentGameState.my_snake && currentGameState.my_snake.body && currentGameState.my_snake.body[0]) {
+          const head = currentGameState.my_snake.body[0];
+          const dir = currentGameState.my_snake.direction;
+          currentGameState.my_snake.body[0] = {
+            x: head.x + dir.dx,
+            y: head.y + dir.dy
+          };
+        }
+        if (currentGameState.opponent_snake && currentGameState.opponent_snake.body && currentGameState.opponent_snake.body[0]) {
+          const head = currentGameState.opponent_snake.body[0];
+          const dir = currentGameState.opponent_snake.direction;
+          currentGameState.opponent_snake.body[0] = {
+            x: head.x + dir.dx,
+            y: head.y + dir.dy
+          };
+        }
       }
-    }
-    lastFrameTime = frameNow;
-    
-    // ФИКСИРОВАННАЯ ЗАДЕРЖКА ОТОБРАЖЕНИЯ: показываем то, что было 400мс назад
-    const renderTime = Date.now() - RENDER_DELAY;
-    
-    // ПОИСК ДВУХ СОСТОЯНИЙ ДЛЯ ИНТЕРПОЛЯЦИИ: находим A и B в gameStatesBuffer
-    let stateA = null; // stateA.receiveTime < renderTime
-    let stateB = null; // stateB.receiveTime > renderTime
-    
-    for (let i = 0; i < gameStatesBuffer.length - 1; i++) {
-      if (gameStatesBuffer[i].receiveTime <= renderTime && gameStatesBuffer[i + 1].receiveTime >= renderTime) {
-        stateA = gameStatesBuffer[i];
-        stateB = gameStatesBuffer[i + 1];
-        break;
-      }
-    }
-    
-    // Если renderTime обогнал последний пакет - используем последнее состояние
-    if (!stateA && gameStatesBuffer.length > 0) {
-      const lastState = gameStatesBuffer[gameStatesBuffer.length - 1];
-      if (renderTime > lastState.receiveTime) {
-        // ПЛАВНАЯ ОСТАНОВКА: если данных нет, останавливаем змейку плавно
-        stateA = lastState;
-        stateB = lastState; // Используем одно и то же состояние (t = 1)
-      } else {
-        // Используем первое состояние если renderTime еще не достиг его
-        stateA = gameStatesBuffer[0];
-        stateB = gameStatesBuffer[0];
-      }
-    }
-    
-    // ИСПОЛЬЗОВАНИЕ TICK TIME: прогресс интерполяции привязан к tick_number
-    // Если между пакетами разница в 2 тика, змейка проходит это расстояние в два раза медленнее
-    let t = 0;
-    if (stateA && stateB && stateA.receiveTime !== stateB.receiveTime) {
-      // Используем реальное время для базового расчета
-      const timeProgress = (renderTime - stateA.receiveTime) / (stateB.receiveTime - stateA.receiveTime);
       
-      // Корректируем на основе разницы тиков
-      const tickDiff = Math.max(1, stateB.tick_number - stateA.tick_number);
-      
-      // Нормализуем прогресс по количеству тиков
-      // Если разница 2 тика, то t должен увеличиваться в 2 раза медленнее для того же расстояния
-      // Это создает эффект более медленного движения при пропуске тиков
-      t = timeProgress / tickDiff;
-      
-      t = Math.max(0, Math.min(t, 1)); // Ограничиваем [0, 1]
-    } else if (stateA) {
-      t = 1; // Используем последнее состояние
-    }
-    
-    // ДИАГНОСТИКА: Мониторинг t (Interpolation Factor)
-    tValues.push(t);
-    if (tValues.length > 300) {
-      tValues.shift();
+      lastStepTime = now;
     }
     
     // Отрисовываем только если есть данные
-    if (stateA && stateA.my_snake && stateA.opponent_snake) {
+    if (currentGameState && currentGameState.my_snake && currentGameState.opponent_snake) {
       // Полная очистка canvas перед каждым кадром
       gameCtx.clearRect(0, 0, canvasLogicalSize, canvasLogicalSize);
       
@@ -1694,31 +1687,12 @@ function startRenderLoop() {
         gameCtx.drawImage(gridCanvas, 0, 0);
       } else {
         // Fallback: если offscreen canvas не создан, рисуем сетку обычным способом
-        drawGrid();
+      drawGrid();
       }
       
-      // STATE BUFFER ИНТЕРПОЛЯЦИЯ: интерполируем строго между stateA и stateB
-      let mySnake, opponentSnake;
-      
-      if (stateA && stateB && stateA.my_snake && stateB.my_snake) {
-        // Интерполируем между двумя состояниями из буфера с учетом разницы тиков
-        const tickDiff = stateB.tick_number - stateA.tick_number;
-        // Передаем gameStatesBuffer для коррекции хвоста из истории
-        mySnake = interpolateSnake(stateA.my_snake, stateB.my_snake, t, tickDiff, gameStatesBuffer, 'my_snake');
-        opponentSnake = interpolateSnake(stateA.opponent_snake, stateB.opponent_snake, t, tickDiff, gameStatesBuffer, 'opponent_snake');
-      } else if (stateA && stateA.my_snake) {
-        // Используем только stateA (последнее известное состояние)
-        mySnake = stateA.my_snake;
-        opponentSnake = stateA.opponent_snake;
-      } else {
-        // Fallback: используем gameStateData
-        mySnake = gameStateData?.my_snake;
-        opponentSnake = gameStateData?.opponent_snake;
-      }
-      
-      // Отрисовываем змейки (без экстраполяции - просто интерполированные данные)
-      drawSnake(mySnake, '#ff4444', '#ff6666');
-      drawSnake(opponentSnake, '#4444ff', '#6666ff');
+      // Отрисовываем змейки с синхронным хвостом
+      drawSnakeSimple(currentGameState.my_snake, headHistory, '#ff4444', '#ff6666');
+      drawSnakeSimple(currentGameState.opponent_snake, opponentHeadHistory, '#4444ff', '#6666ff');
     }
     
     // Продолжаем цикл
@@ -1729,89 +1703,116 @@ function startRenderLoop() {
 }
 
 /**
- * Запуск системы диагностики производительности
- * Выводит метрики в консоль каждые 2 секунды
+ * STABLE PLAYBACK QUEUE: простая отрисовка змейки
+ * Хвост - это просто массив предыдущих позиций головы
+ * Устранение 'бросков по сторонам': движение строго по сетке, без диагоналей
  */
-function startDiagnostics() {
-  if (diagnosticsInterval) return; // Уже запущена
+function drawSnakeSimple(snake, headHistory, color1, color2) {
+  if (!snake || !snake.body || snake.body.length === 0) return;
   
-  diagnosticsInterval = setInterval(() => {
-    if (gameState !== 'playing') {
-      // Останавливаем диагностику если игра не активна
-      clearInterval(diagnosticsInterval);
-      diagnosticsInterval = null;
-      return;
-    }
+  const tileSize = canvasLogicalSize / 30;
+  
+  // Градиент для змейки
+  const gradient = gameCtx.createLinearGradient(0, 0, canvasLogicalSize, canvasLogicalSize);
+  gradient.addColorStop(0, color1);
+  gradient.addColorStop(1, color2);
+  
+  // Направление для глаз
+  const direction = snake.direction || { dx: 1, dy: 0 };
+  
+  // Настраиваем shadow эффекты
+  gameCtx.shadowColor = color1;
+  gameCtx.shadowBlur = 18;
+  gameCtx.shadowOffsetX = 0;
+  gameCtx.shadowOffsetY = 0;
+  
+  // Рисуем голову
+  const head = snake.body[0];
+  const headX = head.x * tileSize;
+  const headY = head.y * tileSize;
+  const size = tileSize - 2;
+  const offset = 1;
+  const radius = size * 0.2;
+  
+  // Голова с градиентом
+  gameCtx.fillStyle = gradient;
+  gameCtx.beginPath();
+  gameCtx.roundRect(headX + offset, headY + offset, size, size, radius);
+  gameCtx.fill();
+  
+  // Белая обводка головы
+  gameCtx.strokeStyle = '#ffffff';
+  gameCtx.lineWidth = 2;
+  gameCtx.beginPath();
+  gameCtx.roundRect(headX + offset, headY + offset, size, size, radius);
+  gameCtx.stroke();
+  
+  // Глаза на голове
+  gameCtx.shadowBlur = 0;
+  gameCtx.shadowColor = 'transparent';
+  
+  const centerX = headX + offset + size / 2;
+  const centerY = headY + offset + size / 2;
+  const eyeOffset = size * 0.2;
+  const eyeSize = size * 0.12;
+  
+  let eyeX1, eyeY1, eyeX2, eyeY2;
+  
+  if (direction.dx > 0) {
+    eyeX1 = centerX + eyeOffset * 0.5;
+    eyeY1 = centerY - eyeOffset * 0.5;
+    eyeX2 = centerX + eyeOffset * 0.5;
+    eyeY2 = centerY + eyeOffset * 0.5;
+  } else if (direction.dx < 0) {
+    eyeX1 = centerX - eyeOffset * 0.5;
+    eyeY1 = centerY - eyeOffset * 0.5;
+    eyeX2 = centerX - eyeOffset * 0.5;
+    eyeY2 = centerY + eyeOffset * 0.5;
+  } else if (direction.dy > 0) {
+    eyeX1 = centerX - eyeOffset * 0.5;
+    eyeY1 = centerY + eyeOffset * 0.5;
+    eyeX2 = centerX + eyeOffset * 0.5;
+    eyeY2 = centerY + eyeOffset * 0.5;
+  } else {
+    eyeX1 = centerX - eyeOffset * 0.5;
+    eyeY1 = centerY - eyeOffset * 0.5;
+    eyeX2 = centerX + eyeOffset * 0.5;
+    eyeY2 = centerY - eyeOffset * 0.5;
+  }
+  
+  gameCtx.shadowColor = 'rgba(255, 255, 255, 0.5)';
+  gameCtx.shadowBlur = 3;
+  gameCtx.fillStyle = '#ffffff';
+  gameCtx.beginPath();
+  gameCtx.arc(eyeX1, eyeY1, eyeSize, 0, Math.PI * 2);
+  gameCtx.fill();
+  gameCtx.beginPath();
+  gameCtx.arc(eyeX2, eyeY2, eyeSize, 0, Math.PI * 2);
+  gameCtx.fill();
+  
+  // СИНХРОННЫЙ ХВОСТ: рисуем сегменты из истории позиций головы
+  // Каждый сегмент хвоста - это позиция головы N тиков назад
+  const tailLength = Math.min(headHistory.length, snake.body.length - 1);
+  
+  for (let i = 0; i < tailLength; i++) {
+    const historyIndex = headHistory.length - 1 - i; // Берем из конца истории
+    if (historyIndex < 0 || historyIndex >= headHistory.length) continue;
     
-    // 1. Мониторинг t (Interpolation Factor)
-    let avgT = 0;
-    let tOverOneCount = 0;
-    let minT = Infinity;
-    let maxT = -Infinity;
+    const tailPos = headHistory[historyIndex];
+    const tailX = tailPos.x * tileSize;
+    const tailY = tailPos.y * tileSize;
+    const tailRadius = size * 0.15;
     
-    if (tValues.length > 0) {
-      let sumT = 0;
-      tValues.forEach(t => {
-        sumT += t;
-        if (t > 1.0) tOverOneCount++;
-        if (t < minT) minT = t;
-        if (t > maxT) maxT = t;
-      });
-      avgT = sumT / tValues.length;
-    } else {
-      minT = 0;
-      maxT = 0;
-    }
-    
-    // 2. Мониторинг сети (Network Jitter)
-    let avgInterval = 0;
-    let jitter = 0;
-    
-    if (networkIntervals.length > 0) {
-      let sumInterval = 0;
-      let minInterval = Infinity;
-      let maxInterval = -Infinity;
-      
-      networkIntervals.forEach(interval => {
-        sumInterval += interval;
-        if (interval < minInterval) minInterval = interval;
-        if (interval > maxInterval) maxInterval = interval;
-      });
-      
-      avgInterval = sumInterval / networkIntervals.length;
-      jitter = maxInterval - minInterval;
-    }
-    
-    // 3. Мониторинг кадров (Frame Delta)
-    let avgFPS = 0;
-    let longFramesCount = 0;
-    
-    if (frameDeltas.length > 0) {
-      let sumDelta = 0;
-      frameDeltas.forEach(delta => {
-        sumDelta += delta;
-        if (delta > 20) longFramesCount++; // Кадры длиннее 20мс
-      });
-      const avgDelta = sumDelta / frameDeltas.length;
-      avgFPS = avgDelta > 0 ? Math.round(1000 / avgDelta) : 0;
-    }
-    
-    // Вывод диагностики в консоль
-    console.log(
-      `[DIAG] FPS: ${avgFPS} | ` +
-      `Avg T: ${avgT.toFixed(2)} | ` +
-      `T > 1.0: ${tOverOneCount} times | ` +
-      `T range: [${minT.toFixed(2)}, ${maxT.toFixed(2)}] | ` +
-      `Net Interval: ${Math.round(avgInterval)}ms | ` +
-      `Jitter: ${Math.round(jitter)}ms | ` +
-      `Long frames (>20ms): ${longFramesCount}`
-    );
-    
-    // Очищаем массивы для следующего периода (опционально, можно оставить накопление)
-    // tValues = [];
-    // networkIntervals = [];
-    // frameDeltas = [];
-  }, 5000); // Каждые 5 секунд (уменьшена частота для снижения нагрузки)
+    gameCtx.shadowBlur = i < 5 ? 12 : 0; // Тени только для первых сегментов
+    gameCtx.fillStyle = gradient;
+    gameCtx.beginPath();
+    gameCtx.roundRect(tailX + offset + 1, tailY + offset + 1, size - 2, size - 2, tailRadius);
+    gameCtx.fill();
+  }
+  
+  // Сбрасываем shadow эффекты
+  gameCtx.shadowBlur = 0;
+  gameCtx.shadowColor = 'transparent';
 }
 
 /**
@@ -2141,22 +2142,22 @@ function drawSnake(snake, color1, color2) {
       let eyeX1, eyeY1, eyeX2, eyeY2;
       
       // Определяем позицию глаз на основе направления
-      if (direction.dx > 0) {
-        eyeX1 = centerX + eyeOffset * 0.5;
-        eyeY1 = centerY - eyeOffset * 0.5;
-        eyeX2 = centerX + eyeOffset * 0.5;
-        eyeY2 = centerY + eyeOffset * 0.5;
-      } else if (direction.dx < 0) {
-        eyeX1 = centerX - eyeOffset * 0.5;
-        eyeY1 = centerY - eyeOffset * 0.5;
-        eyeX2 = centerX - eyeOffset * 0.5;
-        eyeY2 = centerY + eyeOffset * 0.5;
-      } else if (direction.dy > 0) {
-        eyeX1 = centerX - eyeOffset * 0.5;
-        eyeY1 = centerY + eyeOffset * 0.5;
-        eyeX2 = centerX + eyeOffset * 0.5;
-        eyeY2 = centerY + eyeOffset * 0.5;
-      } else {
+        if (direction.dx > 0) {
+          eyeX1 = centerX + eyeOffset * 0.5;
+          eyeY1 = centerY - eyeOffset * 0.5;
+          eyeX2 = centerX + eyeOffset * 0.5;
+          eyeY2 = centerY + eyeOffset * 0.5;
+        } else if (direction.dx < 0) {
+          eyeX1 = centerX - eyeOffset * 0.5;
+          eyeY1 = centerY - eyeOffset * 0.5;
+          eyeX2 = centerX - eyeOffset * 0.5;
+          eyeY2 = centerY + eyeOffset * 0.5;
+        } else if (direction.dy > 0) {
+          eyeX1 = centerX - eyeOffset * 0.5;
+          eyeY1 = centerY + eyeOffset * 0.5;
+          eyeX2 = centerX + eyeOffset * 0.5;
+          eyeY2 = centerY + eyeOffset * 0.5;
+        } else {
         eyeX1 = centerX - eyeOffset * 0.5;
         eyeY1 = centerY - eyeOffset * 0.5;
         eyeX2 = centerX + eyeOffset * 0.5;
@@ -2193,10 +2194,10 @@ function drawSnake(snake, color1, color2) {
       gameCtx.fill();
     }
   });
-  
+    
   // ОПТИМИЗАЦИЯ: сбрасываем shadow эффекты один раз после цикла
-  gameCtx.shadowBlur = 0;
-  gameCtx.shadowColor = 'transparent';
+    gameCtx.shadowBlur = 0;
+    gameCtx.shadowColor = 'transparent';
 }
 
 /**
