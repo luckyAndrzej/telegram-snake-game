@@ -269,6 +269,16 @@ async function scanTransactions(io) {
         return base64Pattern.test(str) && str.length >= 4;
       }
       
+      // Функция безопасного логирования (для бинарных данных)
+      function safeLogString(str, maxLen = 50) {
+        if (!str) return '';
+        // Если строка содержит непечатаемые символы, показываем как hex
+        if (/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/.test(str)) {
+          return Buffer.from(str, 'utf-8').toString('hex').substring(0, maxLen) + '...';
+        }
+        return str.substring(0, maxLen);
+      }
+      
       // ПРИОРИТЕТ 1: Если msg_data.text существует, сначала пробуем декодировать из Base64
       if (inMsg.msg_data && inMsg.msg_data.text && typeof inMsg.msg_data.text === 'string') {
         const trimmed = inMsg.msg_data.text.trim();
@@ -320,8 +330,10 @@ async function scanTransactions(io) {
       let foundPayment = null;
       const pendingComments = Object.values(pendingPayments).map(p => (p.comment || '').toUpperCase().trim());
 
-      // Единственный лог сравнения
-      console.log(`[Сканер] Сверяю: полученный [${comment}] и ожидаемый [${pendingComments.join(', ')}]`);
+      // Безопасное логирование комментариев (без бинарных данных)
+      const safeComment = safeLogString(comment);
+      const safePending = pendingComments.map(c => safeLogString(c)).join(', ');
+      console.log(`[Сканер] Сверяю: полученный [${safeComment}] и ожидаемый [${safePending}]`);
 
       // Точное совпадение: сравниваем комментарий с базой
       for (const [paymentId, payment] of Object.entries(pendingPayments)) {
