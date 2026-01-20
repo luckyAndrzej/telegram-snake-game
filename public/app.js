@@ -44,6 +44,23 @@ const RENDER_DELAY = 0; // Убрано для мгновенного откли
 let gridCanvas = null;
 let gridCtx = null;
 
+// ============================================
+// СИСТЕМА ДИАГНОСТИКИ ПРОИЗВОДИТЕЛЬНОСТИ
+// ============================================
+// Мониторинг t (Interpolation Factor)
+let tValues = []; // Массив значений t для статистики
+
+// Мониторинг сети (Network Jitter)
+let lastPacketTime = 0;
+let networkIntervals = []; // Массив интервалов между пакетами
+
+// Мониторинг кадров (Frame Delta)
+let lastFrameTime = 0;
+let frameDeltas = []; // Массив времени между кадрами
+
+// Интервал для вывода диагностики (каждые 2 секунды)
+let diagnosticsInterval = null;
+
 /**
  * Универсальная функция для открытия/закрытия модальных окон
  */
@@ -382,6 +399,17 @@ function initSocket() {
     previousGameStateData = null;
     gameStateData = null;
     lastGameStateUpdate = 0; // Сбрасываем для нового ритма при следующей игре
+    
+    // ДИАГНОСТИКА: Останавливаем диагностику и очищаем данные
+    if (diagnosticsInterval) {
+      clearInterval(diagnosticsInterval);
+      diagnosticsInterval = null;
+    }
+    tValues = [];
+    networkIntervals = [];
+    frameDeltas = [];
+    lastPacketTime = 0;
+    lastFrameTime = 0;
     
     // Скрываем countdown overlay
     const countdownOverlay = document.getElementById('countdown-overlay');
@@ -1515,6 +1543,17 @@ function cloneSnakeState(data) {
 function updateGameState(data) {
   const now = performance.now();
   
+  // ДИАГНОСТИКА: Мониторинг сети (Network Jitter)
+  if (lastPacketTime > 0) {
+    const interval = now - lastPacketTime;
+    networkIntervals.push(interval);
+    // Ограничиваем размер массива (храним последние 100 значений)
+    if (networkIntervals.length > 100) {
+      networkIntervals.shift();
+    }
+  }
+  lastPacketTime = now;
+  
   // Сохраняем предыдущее состояние перед обновлением
   previousGameStateData = gameStateData;
   
@@ -1539,6 +1578,11 @@ function updateGameState(data) {
   if (!animationFrameId && gameState === 'playing') {
     startRenderLoop();
   }
+  
+  // ДИАГНОСТИКА: Запускаем интервал для вывода диагностики (если еще не запущен)
+  if (!diagnosticsInterval && gameState === 'playing') {
+    startDiagnostics();
+  }
 }
 
 // Цикл отрисовки с requestAnimationFrame (60 FPS)
@@ -1558,8 +1602,25 @@ function startRenderLoop() {
   function render() {
     if (gameState !== 'playing' || !gameCanvas || !gameCtx) {
       animationFrameId = null;
+      // ДИАГНОСТИКА: Останавливаем диагностику при выходе из игры
+      if (diagnosticsInterval) {
+        clearInterval(diagnosticsInterval);
+        diagnosticsInterval = null;
+      }
       return;
     }
+    
+    // ДИАГНОСТИКА: Мониторинг кадров (Frame Delta)
+    const frameNow = performance.now();
+    if (lastFrameTime > 0) {
+      const frameDelta = frameNow - lastFrameTime;
+      frameDeltas.push(frameDelta);
+      // Ограничиваем размер массива (храним последние 120 значений, ~2 секунды при 60 FPS)
+      if (frameDeltas.length > 120) {
+        frameDeltas.shift();
+      }
+    }
+    lastFrameTime = frameNow;
     
     // Рассчитываем локальную переменную t для интерполяции
     // Используем "игровое время" с задержкой для плавной интерполяции
@@ -1573,6 +1634,13 @@ function startRenderLoop() {
     // Ограничиваем t до 1.2 (экстраполяция на 20% пути вперед),
     // чтобы скрыть микро-паузы между пакетами и убрать эффект "гармошки"
     t = Math.max(0, Math.min(t, 1.2));
+    
+    // ДИАГНОСТИКА: Мониторинг t (Interpolation Factor)
+    tValues.push(t);
+    // Ограничиваем размер массива (храним последние 120 значений, ~2 секунды при 60 FPS)
+    if (tValues.length > 120) {
+      tValues.shift();
+    }
     
     // Отрисовываем только если есть данные
     if (gameStateData && gameStateData.my_snake && gameStateData.opponent_snake) {
@@ -1615,6 +1683,92 @@ function startRenderLoop() {
   }
   
   animationFrameId = requestAnimationFrame(render);
+}
+
+/**
+ * Запуск системы диагностики производительности
+ * Выводит метрики в консоль каждые 2 секунды
+ */
+function startDiagnostics() {
+  if (diagnosticsInterval) return; // Уже запущена
+  
+  diagnosticsInterval = setInterval(() => {
+    if (gameState !== 'playing') {
+      // Останавливаем диагностику если игра не активна
+      clearInterval(diagnosticsInterval);
+      diagnosticsInterval = null;
+      return;
+    }
+    
+    // 1. Мониторинг t (Interpolation Factor)
+    let avgT = 0;
+    let tOverOneCount = 0;
+    let minT = Infinity;
+    let maxT = -Infinity;
+    
+    if (tValues.length > 0) {
+      let sumT = 0;
+      tValues.forEach(t => {
+        sumT += t;
+        if (t > 1.0) tOverOneCount++;
+        if (t < minT) minT = t;
+        if (t > maxT) maxT = t;
+      });
+      avgT = sumT / tValues.length;
+    } else {
+      minT = 0;
+      maxT = 0;
+    }
+    
+    // 2. Мониторинг сети (Network Jitter)
+    let avgInterval = 0;
+    let jitter = 0;
+    
+    if (networkIntervals.length > 0) {
+      let sumInterval = 0;
+      let minInterval = Infinity;
+      let maxInterval = -Infinity;
+      
+      networkIntervals.forEach(interval => {
+        sumInterval += interval;
+        if (interval < minInterval) minInterval = interval;
+        if (interval > maxInterval) maxInterval = interval;
+      });
+      
+      avgInterval = sumInterval / networkIntervals.length;
+      jitter = maxInterval - minInterval;
+    }
+    
+    // 3. Мониторинг кадров (Frame Delta)
+    let avgFPS = 0;
+    let longFramesCount = 0;
+    
+    if (frameDeltas.length > 0) {
+      let sumDelta = 0;
+      frameDeltas.forEach(delta => {
+        sumDelta += delta;
+        if (delta > 20) longFramesCount++; // Кадры длиннее 20мс
+      });
+      const avgDelta = sumDelta / frameDeltas.length;
+      avgFPS = avgDelta > 0 ? Math.round(1000 / avgDelta) : 0;
+    }
+    
+    // Вывод диагностики в консоль
+    console.log(
+      `[DIAG] FPS: ${avgFPS} | ` +
+      `Avg T: ${avgT.toFixed(2)} | ` +
+      `T > 1.0: ${tOverOneCount} times | ` +
+      `T range: [${minT.toFixed(2)}, ${maxT.toFixed(2)}] | ` +
+      `Net Interval: ${Math.round(avgInterval)}ms | ` +
+      `Jitter: ${Math.round(jitter)}ms | ` +
+      `Long frames (>20ms): ${longFramesCount}`
+    );
+    
+    // Очищаем массивы для следующего периода (опционально, можно оставить накопление)
+    // tValues = [];
+    // networkIntervals = [];
+    // frameDeltas = [];
+  }, 2000); // Каждые 2 секунды
 }
 
 /**
