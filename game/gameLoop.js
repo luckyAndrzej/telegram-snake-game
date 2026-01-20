@@ -23,6 +23,7 @@ function start(io, activeGames, config, endGameCallback) {
   
   // Запускаем цикл обновления игры
   gameLoopInterval = setInterval(() => {
+    const tickStartTime = performance.now(); // Замер времени выполнения тика
     const currentTime = Date.now();
     const gameIds = Array.from(activeGames.keys());
     
@@ -39,10 +40,14 @@ function start(io, activeGames, config, endGameCallback) {
         // Выполняем тик игры (внутренняя логика всегда обновляется)
         const result = gameLogic.tick(game);
         
-        // Отправляем состояние игры всем игрокам только с нужной частотой (throttle)
+        // ОПТИМИЗАЦИЯ: Используем setImmediate для рассылки состояний,
+        // чтобы они не блокировались тяжелыми запросами к БД
         const currentTime = Date.now();
         if (currentTime - lastSendTime >= sendInterval) {
-          broadcastGameState(io, game, gameId);
+          // Откладываем рассылку на следующий тик event loop
+          setImmediate(() => {
+            broadcastGameState(io, game, gameId);
+          });
           lastSendTime = currentTime;
         }
         
@@ -58,6 +63,12 @@ function start(io, activeGames, config, endGameCallback) {
         }
       }
     });
+    
+    // ЛОГИРОВАНИЕ ЛАГОВ: Если расчет тика занимает более 20мс, выводим предупреждение
+    const tickDuration = performance.now() - tickStartTime;
+    if (tickDuration > 20) {
+      console.warn(`⚠️ SERVER LAG: ${tickDuration.toFixed(2)}ms`);
+    }
   }, tickInterval);
   
   console.log(`✅ Игровой цикл запущен: ${config.TICK_RATE} тиков/сек (интервал: ${tickInterval.toFixed(2)}ms)`);

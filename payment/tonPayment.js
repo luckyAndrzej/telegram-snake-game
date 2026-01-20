@@ -236,6 +236,7 @@ async function scanTransactions(io) {
     }
 
     // Обрабатываем каждую транзакцию
+    // Операции внутри цикла асинхронные (await), поэтому не блокируют event loop
     for (const tx of transactions) {
       const txHash = tx.transaction_id?.hash || tx.hash || tx.txHash;
       
