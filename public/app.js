@@ -1028,8 +1028,26 @@ function initCanvas() {
     };
   }
   
-  gameCanvas = document.getElementById('game-canvas');
-  if (!gameCanvas) return;
+  // ГАРАНТИРОВАННЫЙ CANVAS: если элемента canvas нет, создаем его программно
+  let canvas = document.getElementById('game-canvas');
+  if (!canvas) {
+    // Ищем контейнер (game-container внутри game-screen или game-canvas-container)
+    const gameContainer = document.querySelector('#game-screen .game-container') || 
+                          document.getElementById('game-canvas-container') ||
+                          document.getElementById('game-screen');
+    if (!gameContainer) {
+      console.error('❌ Контейнер для canvas не найден!');
+      return;
+    }
+    
+    canvas = document.createElement('canvas');
+    canvas.id = 'game-canvas';
+    gameContainer.appendChild(canvas);
+    console.log('✅ Canvas создан программно в контейнере');
+  }
+  
+  // СВЯЗЬ ctx С РЕНДЕРОМ: обновляем глобальные переменные
+  gameCanvas = canvas;
   
   // Убеждаемся, что canvas имеет правильные стили позиционирования
   if (gameCanvas.style.position !== 'absolute') {
@@ -1039,6 +1057,11 @@ function initCanvas() {
   }
   
   gameCtx = gameCanvas.getContext('2d');
+  
+  if (!gameCtx) {
+    console.error('❌ Не удалось получить контекст 2D для canvas');
+    return;
+  }
   
   // Отключаем сглаживание изображений для четкости и устранения микро-размытия при движении
   gameCtx.imageSmoothingEnabled = false;
@@ -1164,23 +1187,23 @@ function showScreen(screenName) {
   
   // ИНИЦИАЛИЗАЦИЯ ПРИ СТАРТЕ: если переключаемся на игровой экран, инициализируем Canvas
   if (screenName === 'game') {
-    // Небольшая задержка для того, чтобы DOM успел обновиться
-    setTimeout(() => {
+    // ИСПРАВЛЕНИЕ ТАЙМИНГА: используем requestAnimationFrame для гарантированного обновления DOM
+    requestAnimationFrame(() => {
       initCanvas();
       // ПРОВЕРКА КОНТЕКСТА: убеждаемся, что ctx обновляется
-      gameCanvas = document.getElementById('game-canvas');
-      if (gameCanvas) {
-        gameCtx = gameCanvas.getContext('2d');
-        if (gameCtx) {
-          gameCtx.imageSmoothingEnabled = false;
-          console.log('✅ Canvas инициализирован в showScreen, ctx создан');
-        } else {
-          console.error('❌ Не удалось получить контекст 2D для canvas');
-        }
+      if (gameCanvas && gameCtx) {
+        console.log('✅ Canvas инициализирован в showScreen, ctx создан');
       } else {
-        console.error('❌ Canvas не найден в showScreen!');
+        console.error('❌ Canvas или ctx не созданы в showScreen!');
+        // Повторная попытка через небольшую задержку
+        setTimeout(() => {
+          initCanvas();
+          if (gameCanvas && gameCtx) {
+            console.log('✅ Canvas инициализирован после повторной попытки');
+          }
+        }, 100);
       }
-    }, 50);
+    });
   }
   
   // Находим все элементы с классом screen и принудительно скрываем их
@@ -1609,8 +1632,26 @@ function startRenderLoop() {
     // ИСПРАВЛЕНИЕ ЦИКЛА ОТРИСОВКИ: добавляем console.log для отладки
     console.log('Rendering...'); // Временный лог для проверки работы цикла
     
-    if (gameState !== 'playing' || !gameCanvas || !gameCtx) {
-      console.warn('⚠️ Render остановлен:', { gameState, hasCanvas: !!gameCanvas, hasCtx: !!gameCtx });
+    // УБРАТЬ ЛИШНИЕ ПРОВЕРКИ: оставляем только проверку на существование ctx
+    if (!gameCtx) {
+      // АВТО-СТАРТ ЦИКЛА: если gameState === 'playing' и !ctx, вызываем initCanvas() еще раз
+      if (gameState === 'playing') {
+        console.warn('⚠️ ctx отсутствует, пытаемся инициализировать...');
+        initCanvas();
+        // Если после инициализации ctx все еще отсутствует, останавливаем рендер
+        if (!gameCtx) {
+          console.error('❌ Не удалось инициализировать ctx, останавливаем рендер');
+          animationFrameId = null;
+          return;
+        }
+      } else {
+        animationFrameId = null;
+        return;
+      }
+    }
+    
+    // Если gameState не 'playing', останавливаем рендер
+    if (gameState !== 'playing') {
       animationFrameId = null;
       return;
     }
