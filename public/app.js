@@ -31,6 +31,8 @@ const TICK_DURATION = 120; // мс (длительность одного тик
 
 // Текущее состояние игры для отрисовки
 let currentGameState = null; // Текущее состояние для отрисовки
+let previousGameState = null; // Предыдущее состояние для интерполяции
+let lastStateUpdateTime = 0; // Время последнего обновления состояния
 let headHistory = []; // История позиций головы для хвоста (массив {x, y, direction})
 let opponentHeadHistory = []; // История позиций головы противника
 
@@ -325,7 +327,10 @@ function initSocket() {
     // ОБНОВЛЕНИЕ ИГРОВОГО ПОЛЯ ВО ВРЕМЯ COUNTDOWN: рисуем начальное состояние, чтобы не было черного экрана
     if (gameCanvas && gameCtx && currentGame && currentGame.initialState && !animationFrameId) {
       // Обновляем отрисовку игрового поля во время countdown, чтобы пользователь видел змеек
-      renderGamePreviewOnCanvas(currentGame.initialState, gameCanvas, gameCtx);
+      // Используем requestAnimationFrame для плавного обновления
+      requestAnimationFrame(() => {
+        renderGamePreviewOnCanvas(currentGame.initialState, gameCanvas, gameCtx);
+      });
     }
   });
   
@@ -362,6 +367,8 @@ function initSocket() {
     // Очистка очереди и истории
     packetQueue = [];
     currentGameState = null;
+    previousGameState = null; // Очищаем предыдущее состояние
+    lastStateUpdateTime = 0; // Сбрасываем время обновления
     headHistory = [];
     opponentHeadHistory = [];
     lastStepTime = 0;
@@ -1035,10 +1042,9 @@ function initCanvas() {
   gameCanvas = canvas;
   
   // Убеждаемся, что canvas имеет правильные стили позиционирования
-  if (gameCanvas.style.position !== 'absolute') {
-    gameCanvas.style.position = 'absolute';
-    gameCanvas.style.top = '0';
-    gameCanvas.style.left = '0';
+  // Изменено на relative для правильного центрирования через CSS (width: 95vw)
+  if (gameCanvas.style.position !== 'relative') {
+    gameCanvas.style.position = 'relative';
   }
   
   gameCtx = gameCanvas.getContext('2d');
@@ -1051,25 +1057,29 @@ function initCanvas() {
   // Отключаем сглаживание изображений для четкости и устранения микро-размытия при движении
   gameCtx.imageSmoothingEnabled = false;
   
-  // СТАБИЛИЗАЦИЯ КООРДИНАТ: четкое разделение между логическим размером сетки (30x30) и физическим размером Canvas
-  // Фиксируем логический размер для стабильности (не меняем при resize)
-  const FIXED_LOGICAL_SIZE = 600; // Фиксированный логический размер для стабильности
-  canvasLogicalSize = FIXED_LOGICAL_SIZE;
+  // АДАПТИВНЫЙ РАЗМЕР: Canvas подстраивается под ширину контейнера (95vw), но сохраняет соотношение сторон (квадрат)
+  // Вычисляем размер на основе CSS (95vw или 95vh, в зависимости от того, что меньше)
+  const containerWidth = gameCanvas.parentElement?.clientWidth || window.innerWidth;
+  const containerHeight = window.innerHeight;
+  // Используем 95% от меньшего измерения для квадрата
+  const cssSize = Math.min(containerWidth * 0.95, containerHeight * 0.95);
+  
+  // Логический размер Canvas (для отрисовки) равен CSS размеру
+  canvasLogicalSize = Math.floor(cssSize);
   
   // УПРАВЛЕНИЕ DPR: вызываем scale только один раз при инициализации
   canvasDPR = window.devicePixelRatio || 1;
   
   // Устанавливаем физический размер с учетом DPR для четкости
-  gameCanvas.width = FIXED_LOGICAL_SIZE * canvasDPR;
-  gameCanvas.height = FIXED_LOGICAL_SIZE * canvasDPR;
+  gameCanvas.width = canvasLogicalSize * canvasDPR;
+  gameCanvas.height = canvasLogicalSize * canvasDPR;
   
   // Масштабируем контекст для корректного отображения (применяем ОДИН РАЗ при инициализации)
   gameCtx.setTransform(1, 0, 0, 1, 0, 0); // Сброс трансформации перед scale
   gameCtx.scale(canvasDPR, canvasDPR);
   
-  // CSS размер (для отображения на экране)
-  gameCanvas.style.width = FIXED_LOGICAL_SIZE + 'px';
-  gameCanvas.style.height = FIXED_LOGICAL_SIZE + 'px';
+  // CSS размер (для отображения на экране) - устанавливается через CSS (95vw)
+  // Не устанавливаем здесь, чтобы CSS мог управлять размером
   
   // Помечаем Canvas как инициализированный
   canvasInitialized = true;
@@ -1742,8 +1752,8 @@ function startRenderLoop() {
   }
   
   function render() {
-    // ИСПРАВЛЕНИЕ ЦИКЛА ОТРИСОВКИ: добавляем console.log для отладки
-    console.log('Rendering...'); // Временный лог для проверки работы цикла
+    // ИНТЕРПОЛЯЦИЯ ИЛИ ПЛАВНЫЙ РЕНДЕРИНГ: отрисовываем только когда gameState действительно обновился
+    // Убираем избыточное логирование - логируем только при обновлении состояния
     
     // УБРАТЬ ЛИШНИЕ ПРОВЕРКИ: оставляем только проверку на существование ctx
     // НЕ вызываем initCanvas() из render - Canvas должен быть инициализирован заранее
@@ -1778,18 +1788,25 @@ function startRenderLoop() {
       if (!nextState) continue;
       
       // ВАЛИДАЦИЯ: проверяем координаты перед использованием
+      // ИСПРАВЛЕНИЕ: если игра завершена (finished: true), разрешаем невалидные координаты
+      const isFinished = nextState.finished === true;
+      
       if (nextState.my_snake && nextState.my_snake.body && nextState.my_snake.body[0]) {
         const head = nextState.my_snake.body[0];
         if (head.x < 0 || head.x >= GRID_SIZE || head.y < 0 || head.y >= GRID_SIZE) {
-          console.error(`❌ CRITICAL: Invalid my_snake coordinates in packet: x=${head.x}, y=${head.y}, tick=${nextState.tick_number}`);
-          continue; // Пропускаем невалидный пакет
+          if (!isFinished) {
+            console.error(`❌ CRITICAL: Invalid my_snake coordinates in packet: x=${head.x}, y=${head.y}, tick=${nextState.tick_number}`);
+            continue; // Пропускаем невалидный пакет только если игра не завершена
+          }
         }
       }
       if (nextState.opponent_snake && nextState.opponent_snake.body && nextState.opponent_snake.body[0]) {
         const head = nextState.opponent_snake.body[0];
         if (head.x < 0 || head.x >= GRID_SIZE || head.y < 0 || head.y >= GRID_SIZE) {
-          console.error(`❌ CRITICAL: Invalid opponent_snake coordinates in packet: x=${head.x}, y=${head.y}, tick=${nextState.tick_number}`);
-          continue; // Пропускаем невалидный пакет
+          if (!isFinished) {
+            console.error(`❌ CRITICAL: Invalid opponent_snake coordinates in packet: x=${head.x}, y=${head.y}, tick=${nextState.tick_number}`);
+            continue; // Пропускаем невалидный пакет только если игра не завершена
+          }
         }
       }
       
@@ -1840,7 +1857,13 @@ function startRenderLoop() {
           }
         }
         
+        // ИНТЕРПОЛЯЦИЯ: сохраняем предыдущее состояние для плавного движения
+        previousGameState = currentGameState ? JSON.parse(JSON.stringify(currentGameState)) : null; // Глубокое клонирование
         currentGameState = nextPacket;
+        lastStateUpdateTime = performance.now();
+        
+        // ЛОГИРОВАНИЕ: логируем только при обновлении состояния, а не каждый кадр
+        console.log(`📦 State updated: tick=${nextPacket.tick_number}, my_snake at (${nextPacket.my_snake?.body?.[0]?.x}, ${nextPacket.my_snake?.body?.[0]?.y}), opponent at (${nextPacket.opponent_snake?.body?.[0]?.x}, ${nextPacket.opponent_snake?.body?.[0]?.y})`);
         
         // Обновляем историю головы для хвоста
         if (nextPacket.my_snake && nextPacket.my_snake.body && nextPacket.my_snake.body[0]) {
@@ -1870,45 +1893,90 @@ function startRenderLoop() {
         }
     }
     
-    // ПЛАВНОЕ ДВИЖЕНИЕ (Fallback): если в конкретный кадр packetQueue пуста, продолжаем рисовать currentGameState
-    // Не останавливаем отрисовку при пустой очереди - используем последнее известное состояние
-    
-    // ОЧИСТКА: корректный ctx.clearRect перед каждым вызовом Rendering
+    // ОЧИСТКА СТАРЫХ КАДРОВ: полная очистка canvas перед каждым кадром
     // Используем логический размер (canvasLogicalSize), так как контекст уже масштабирован через DPR
     gameCtx.clearRect(0, 0, canvasLogicalSize, canvasLogicalSize);
     
-    // Заливаем фон темным цветом, чтобы убедиться, что холст виден
-    gameCtx.fillStyle = '#1a1a1a';
+    // Заливаем фон игрового поля
+    gameCtx.fillStyle = '#0a0e27';
     gameCtx.fillRect(0, 0, canvasLogicalSize, canvasLogicalSize);
     
-    // Отрисовываем только если есть данные
-    if (currentGameState && currentGameState.my_snake && currentGameState.opponent_snake) {
-      // Фон для игрового поля (используем логический размер)
-      gameCtx.fillStyle = '#0a0e27';
-      gameCtx.fillRect(0, 0, canvasLogicalSize, canvasLogicalSize);
-      
-      // ОПТИМИЗАЦИЯ: используем offscreen canvas для сетки вместо перерисовки
-      if (gridCanvas) {
-        gameCtx.drawImage(gridCanvas, 0, 0);
-      } else {
-        // Fallback: если offscreen canvas не создан, рисуем сетку обычным способом
-      drawGrid();
-      }
-      
-      // ВИЗУАЛИЗАЦИЯ ДЛЯ ТЕСТА: логируем отрисовку змейки
-      if (currentGameState.my_snake && currentGameState.my_snake.body && currentGameState.my_snake.body[0]) {
-        console.log('Drawing snake at:', currentGameState.my_snake.body[0]);
-      }
-      
-      // Отрисовываем змейки с красивым оформлением
-      drawSnakeSimple(currentGameState.my_snake, headHistory, '#ff4444', '#ff6666');
-      drawSnakeSimple(currentGameState.opponent_snake, opponentHeadHistory, '#4444ff', '#6666ff');
+    // ОПТИМИЗАЦИЯ: используем offscreen canvas для сетки вместо перерисовки
+    if (gridCanvas) {
+      gameCtx.drawImage(gridCanvas, 0, 0);
     } else {
+      // Fallback: если offscreen canvas не создан, рисуем сетку обычным способом
+      drawGrid();
+    }
+    
+    // ИНТЕРПОЛЯЦИЯ ИЛИ ПЛАВНЫЙ РЕНДЕРИНГ: отрисовываем змейку с интерполяцией между состояниями
+    if (currentGameState && currentGameState.my_snake && currentGameState.opponent_snake) {
+      // Вычисляем коэффициент интерполяции (0-1) на основе времени с последнего обновления
+      // ИНТЕРПОЛЯЦИЯ: плавное движение между состояниями
+      const timeSinceUpdate = lastStateUpdateTime > 0 ? performance.now() - lastStateUpdateTime : 0;
+      const serverTickInterval = 111.11; // 1000ms / 9 ticks per second
+      let interpolationFactor = Math.min(timeSinceUpdate / serverTickInterval, 1.0);
+      
+      // Если lastStateUpdateTime не инициализирован, используем текущее состояние без интерполяции
+      if (lastStateUpdateTime === 0) {
+        interpolationFactor = 1.0;
+      }
+      
+      // Если есть предыдущее состояние, используем интерполяцию
+      let mySnakeToDraw = currentGameState.my_snake;
+      let opponentSnakeToDraw = currentGameState.opponent_snake;
+      
+      if (previousGameState && interpolationFactor < 1.0 && previousGameState.my_snake && previousGameState.opponent_snake) {
+        // Интерполируем позицию головы между предыдущим и текущим состоянием
+        if (previousGameState.my_snake.body && previousGameState.my_snake.body[0] && 
+            currentGameState.my_snake.body && currentGameState.my_snake.body[0]) {
+          const prevHead = previousGameState.my_snake.body[0];
+          const currHead = currentGameState.my_snake.body[0];
+          const interpolatedHead = {
+            x: prevHead.x + (currHead.x - prevHead.x) * interpolationFactor,
+            y: prevHead.y + (currHead.y - prevHead.y) * interpolationFactor
+          };
+          // Создаем интерполированную копию змейки
+          mySnakeToDraw = {
+            ...currentGameState.my_snake,
+            body: [{ ...interpolatedHead }, ...currentGameState.my_snake.body.slice(1)]
+          };
+        }
+        
+        if (previousGameState.opponent_snake.body && previousGameState.opponent_snake.body[0] && 
+            currentGameState.opponent_snake.body && currentGameState.opponent_snake.body[0]) {
+          const prevHead = previousGameState.opponent_snake.body[0];
+          const currHead = currentGameState.opponent_snake.body[0];
+          const interpolatedHead = {
+            x: prevHead.x + (currHead.x - prevHead.x) * interpolationFactor,
+            y: prevHead.y + (currHead.y - prevHead.y) * interpolationFactor
+          };
+          opponentSnakeToDraw = {
+            ...currentGameState.opponent_snake,
+            body: [{ ...interpolatedHead }, ...currentGameState.opponent_snake.body.slice(1)]
+          };
+        }
+      }
+      
+      // ЛОГИРОВАНИЕ ОТРИСОВКИ: добавляем цвет змейки для понимания, какая змейка рисуется
+      if (mySnakeToDraw && mySnakeToDraw.body && mySnakeToDraw.body[0]) {
+        console.log('Drawing MY snake (RED) at:', mySnakeToDraw.body[0]);
+      }
+      if (opponentSnakeToDraw && opponentSnakeToDraw.body && opponentSnakeToDraw.body[0]) {
+        console.log('Drawing OPPONENT snake (BLUE) at:', opponentSnakeToDraw.body[0]);
+      }
+      
+      // Отрисовываем змейки с интерполированными позициями
+      drawSnakeSimple(mySnakeToDraw, headHistory, '#ff4444', '#ff6666');
+      drawSnakeSimple(opponentSnakeToDraw, opponentHeadHistory, '#4444ff', '#6666ff');
+    } else if (currentGameState) {
       // ПЛАВНОЕ ДВИЖЕНИЕ (Fallback): если данных нет, продолжаем рисовать последнее известное состояние
-      // Не останавливаем отрисовку - просто используем то, что есть
-      if (currentGameState) {
-        // Рисуем последнее известное состояние с яркими цветами для теста
+      if (currentGameState.my_snake) {
+        console.log('Drawing MY snake (RED) at (fallback):', currentGameState.my_snake.body?.[0]);
         drawSnakeSimple(currentGameState.my_snake, headHistory, '#ff4444', '#ff6666');
+      }
+      if (currentGameState.opponent_snake) {
+        console.log('Drawing OPPONENT snake (BLUE) at (fallback):', currentGameState.opponent_snake.body?.[0]);
         drawSnakeSimple(currentGameState.opponent_snake, opponentHeadHistory, '#4444ff', '#6666ff');
       }
     }
