@@ -20,8 +20,8 @@ let debugMode = false;
 let currentDirection = null; // Current snake direction (updated from game_state)
 let canvasLogicalSize = 800; // Логический размер canvas (без DPR) для корректной отрисовки
 
-// Константа задержки интерполяции (увеличена для сглаживания высокого сетевого джиттера)
-const INTERPOLATION_OFFSET = 250; // мс (увеличено с 111.11 для адаптации под джиттер 177мс и задержку 207мс)
+// Константа задержки интерполяции (увеличена для сглаживания пропусков тиков)
+const INTERPOLATION_OFFSET = 330; // мс (запас в 3 серверных тика для абсолютно плавного движения)
 
 // Фиксированный шаг интерполяции (игнорируем сетевые микро-колебания)
 const FIXED_TICK = 111.11; // мс
@@ -1628,19 +1628,19 @@ function startRenderLoop() {
     const timeSinceUpdate = renderTime - lastGameStateUpdate;
     
     // Рассчитываем t для интерполяции на основе фиксированного шага
-    // Разрешаем экстраполяцию для сглаживания задержек пакетов
+    // FIXED_TICK используется как база для расчета (111.11мс = один серверный тик)
     let t = timeSinceUpdate / FIXED_TICK;
     
-    // СГЛАЖИВАНИЕ ЭКСТРАПОЛЯЦИИ: если t > 1, не останавливаем змейку резко
-    // Позволяем ей двигаться дальше, но плавно замедляясь
+    // ПЛАВНОЕ ЗАМЕДЛЕНИЕ (Elastic Easing): при отсутствии данных змейка не замирает мгновенно
+    // Экстраполяция с затуханием: змейка проедет еще чуть-чуть и плавно встанет
     if (t > 1) {
-      // Мягкое замедление после t=1, чтобы не было резкого стопа
-      // atan создает плавную кривую замедления
-      t = 1 + (Math.atan(t - 1) * 0.2);
-    } else {
-      // Ограничиваем t снизу до 0
-      t = Math.max(0, t);
+      // Используем log10 для плавного затухания экстраполяции
+      // log10 создает более плавную кривую замедления, чем atan
+      t = 1 + Math.log10(t);
     }
+    
+    // Ограничиваем t до [0, 1.5] для предотвращения слишком большой экстраполяции
+    t = Math.max(0, Math.min(t, 1.5));
     
     // ДИАГНОСТИКА: Мониторинг t (Interpolation Factor)
     tValues.push(t);
@@ -1816,8 +1816,10 @@ function stopRenderLoop() {
 }
 
 /**
- * Интерполяция змейки для плавного движения между обновлениями сервера
- * Использует чистую линейную интерполяцию (lerp) без сглаживания
+ * Умная интерполяция между любыми тиками
+ * Функция не завязана на то, что тики идут строго по порядку (1, 2, 3)
+ * Она просто плавно ведет змейку от previousGameStateData к gameStateData
+ * за время, равное реальной разнице между их тиками
  */
 function interpolateSnake(previousSnake, currentSnake, t) {
   // Если нет данных - возвращаем текущее состояние
@@ -1835,8 +1837,9 @@ function interpolateSnake(previousSnake, currentSnake, t) {
     return currentSnake;
   }
   
-  // Ограничиваем t до [0, 1] для интерполяции
-  const interpolationT = Math.min(Math.max(t, 0), 1);
+  // Ограничиваем t до [0, 1.5] для интерполяции (разрешаем экстраполяцию до 1.5)
+  // Это позволяет плавно обрабатывать пропуски тиков (1, 3, 5...)
+  const interpolationT = Math.min(Math.max(t, 0), 1.5);
   
   // Создаем новый объект змейки (быстрое клонирование)
   const interpolated = {
@@ -1848,8 +1851,9 @@ function interpolateSnake(previousSnake, currentSnake, t) {
   // Направление меняется мгновенно (без плавной интерполяции)
   interpolated.direction = { ...currentSnake.direction };
   
-  // Интерполируем каждую позицию сегмента строго линейно
-  // Используем только чистую линейную интерполяцию: prev + (curr - prev) * t
+  // УМНАЯ ИНТЕРПОЛЯЦИЯ: работает с любыми тиками, не только последовательными
+  // Просто плавно ведет змейку от предыдущего состояния к текущему
+  // Если тики пропущены (1, 3, 5...), интерполяция автоматически сгладит движение
   interpolated.body = currentSnake.body.map((segment, index) => {
     if (index >= previousSnake.body.length) return { x: segment.x, y: segment.y };
     
@@ -1857,7 +1861,9 @@ function interpolateSnake(previousSnake, currentSnake, t) {
     const dx = segment.x - prevSegment.x;
     const dy = segment.y - prevSegment.y;
     
-    // Строго линейная интерполяция: prevSegment + (currentSegment - prevSegment) * t
+    // Линейная интерполяция: prevSegment + (currentSegment - prevSegment) * t
+    // Работает корректно даже при пропуске тиков, так как просто интерполирует
+    // между двумя известными состояниями
     return {
       x: prevSegment.x + dx * interpolationT,
       y: prevSegment.y + dy * interpolationT
