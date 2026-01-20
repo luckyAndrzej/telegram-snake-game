@@ -32,7 +32,7 @@ let lastDirectionSentTime = 0;
 const INPUT_BUFFER_DELAY = 50; // Минимальная задержка между отправками (мс)
 
 // Jitter Buffer: задержка рендеринга для стабилизации интерполяции
-const RENDER_DELAY = 100; // Задержка рендеринга в миллисекундах (чуть меньше одного тика)
+const RENDER_DELAY = 50; // Уменьшено с 100 до 50ms для более отзывчивого движения
 
 // Offscreen canvas для сетки (оптимизация отрисовки)
 let gridCanvas = null;
@@ -364,6 +364,12 @@ function initSocket() {
     
     // Очищаем старое начальное состояние сразу после скрытия overlay
     currentGame.initialState = null;
+    
+    // ИСПРАВЛЕНИЕ: Сбрасываем состояние интерполяции для новой игры
+    // Это предотвращает использование данных из предыдущей игры
+    previousGameStateData = null;
+    gameStateData = null;
+    lastGameStateUpdate = 0;
     
     // Скрываем countdown overlay
     const countdownOverlay = document.getElementById('countdown-overlay');
@@ -1503,8 +1509,17 @@ function startGame(data) {
  * Только сохранение состояния для интерполяции
  */
 function updateGameState(data) {
-  previousGameStateData = gameStateData; // Переносим старое в previous
-  gameStateData = data; // Записываем новое
+  // ИСПРАВЛЕНИЕ: Правильное клонирование для корректной интерполяции
+  // При первом обновлении копируем текущее состояние в previous (если есть)
+  if (!previousGameStateData && gameStateData) {
+    previousGameStateData = JSON.parse(JSON.stringify(gameStateData));
+  } else if (gameStateData) {
+    // Клонируем предыдущее состояние для интерполяции
+    previousGameStateData = JSON.parse(JSON.stringify(gameStateData));
+  }
+  
+  // Клонируем новое состояние
+  gameStateData = JSON.parse(JSON.stringify(data));
   lastGameStateUpdate = performance.now();
   
   // Запускаем цикл отрисовки если он еще не запущен
@@ -1540,8 +1555,9 @@ function startRenderLoop() {
     
     // Рассчитываем локальную переменную t для интерполяции с учетом задержки
     let t = (renderTime - lastGameStateUpdate) / 111.11;
-    // Защита от отрицательных значений
+    // ИСПРАВЛЕНИЕ: Ограничиваем t в диапазоне [0, 1] для предотвращения рывков
     if (t < 0) t = 0;
+    if (t > 1) t = 1; // Предотвращает "вылет" змейки за пределы текущего сегмента
     
     // Отрисовываем только если есть данные
     if (gameStateData && gameStateData.my_snake && gameStateData.opponent_snake) {

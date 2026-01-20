@@ -729,9 +729,11 @@ async function handleReady(socket, userId) {
  * Создание игры
  */
 async function createGame(player1Id, player2Id, socket1Id, socket2Id) {
-  // Списываем баланс у обоих игроков
-  const player1 = await getUser(player1Id);
-  const player2 = await getUser(player2Id);
+  // ОПТИМИЗАЦИЯ: Параллельные запросы к БД для уменьшения задержки
+  const [player1, player2] = await Promise.all([
+    getUser(player1Id),
+    getUser(player2Id)
+  ]);
   
   // Проверка баланса
   if (player1.games_balance < GAME_CONFIG.ENTRY_PRICE || 
@@ -749,9 +751,11 @@ async function createGame(player1Id, player2Id, socket1Id, socket2Id) {
     return;
   }
   
-  // Списываем баланс
-  await updateUser(player1Id, { games_balance: player1.games_balance - GAME_CONFIG.ENTRY_PRICE });
-  await updateUser(player2Id, { games_balance: player2.games_balance - GAME_CONFIG.ENTRY_PRICE });
+  // ОПТИМИЗАЦИЯ: Параллельное списание баланса у обоих игроков
+  await Promise.all([
+    updateUser(player1Id, { games_balance: player1.games_balance - GAME_CONFIG.ENTRY_PRICE }),
+    updateUser(player2Id, { games_balance: player2.games_balance - GAME_CONFIG.ENTRY_PRICE })
+  ]);
   
   // Создаем игру
   const gameId = `game_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
@@ -811,7 +815,7 @@ function startCountdown(gameId) {
   game.is_running = false; // Игра еще не началась
   
   // Сбрасываем переменную отсчета при каждом новом старте (важно для предотвращения наложения)
-  let count = 5; // Start countdown from 5
+  let count = 3; // Уменьшено с 5 до 3 секунд для быстрого старта
   
   // Очищаем предыдущий интервал, если он существует (защита от дублирования)
   if (game.countdownInterval) {
