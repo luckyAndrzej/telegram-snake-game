@@ -20,8 +20,8 @@ let debugMode = false;
 let currentDirection = null; // Current snake direction (updated from game_state)
 let canvasLogicalSize = 800; // Логический размер canvas (без DPR) для корректной отрисовки
 
-// Константа задержки интерполяции (ровно один тик сервера)
-const INTERPOLATION_OFFSET = 111.11; // мс
+// Константа задержки интерполяции (увеличена для сглаживания высокого сетевого джиттера)
+const INTERPOLATION_OFFSET = 250; // мс (увеличено с 111.11 для адаптации под джиттер 177мс и задержку 207мс)
 
 // Фиксированный шаг интерполяции (игнорируем сетевые микро-колебания)
 const FIXED_TICK = 111.11; // мс
@@ -1547,8 +1547,8 @@ function updateGameState(data) {
   if (lastPacketTime > 0) {
     const interval = now - lastPacketTime;
     networkIntervals.push(interval);
-    // Ограничиваем размер массива (храним последние 100 значений)
-    if (networkIntervals.length > 100) {
+    // Ограничиваем размер массива (храним последние 50 значений для 5-секундного периода)
+    if (networkIntervals.length > 50) {
       networkIntervals.shift();
     }
   }
@@ -1568,10 +1568,10 @@ function updateGameState(data) {
     // Первое обновление - инициализируем время
     lastGameStateUpdate = targetTime;
   } else {
-    // Коэффициент 0.2 позволяет времени плавно подстраиваться под сетевые задержки
-    // без резких скачков позиции
+    // Коэффициент 0.1 делает синхронизацию более инертной, игнорируя разовые всплески лагов
+    // Это заставит время подстраиваться медленнее, создавая более стабильное движение
     const diff = targetTime - lastGameStateUpdate;
-    lastGameStateUpdate += diff * 0.2;
+    lastGameStateUpdate += diff * 0.1;
   }
   
   // Запускаем цикл отрисовки если он еще не запущен
@@ -1615,8 +1615,8 @@ function startRenderLoop() {
     if (lastFrameTime > 0) {
       const frameDelta = frameNow - lastFrameTime;
       frameDeltas.push(frameDelta);
-      // Ограничиваем размер массива (храним последние 120 значений, ~2 секунды при 60 FPS)
-      if (frameDeltas.length > 120) {
+      // Ограничиваем размер массива (храним последние 300 значений, ~5 секунд при 60 FPS)
+      if (frameDeltas.length > 300) {
         frameDeltas.shift();
       }
     }
@@ -1628,17 +1628,24 @@ function startRenderLoop() {
     const timeSinceUpdate = renderTime - lastGameStateUpdate;
     
     // Рассчитываем t для интерполяции на основе фиксированного шага
-    // Разрешаем экстраполяцию до 1.2 (20% пути вперед), чтобы скрыть микро-паузы между пакетами
+    // Разрешаем экстраполяцию для сглаживания задержек пакетов
     let t = timeSinceUpdate / FIXED_TICK;
     
-    // Ограничиваем t до 1.2 (экстраполяция на 20% пути вперед),
-    // чтобы скрыть микро-паузы между пакетами и убрать эффект "гармошки"
-    t = Math.max(0, Math.min(t, 1.2));
+    // СГЛАЖИВАНИЕ ЭКСТРАПОЛЯЦИИ: если t > 1, не останавливаем змейку резко
+    // Позволяем ей двигаться дальше, но плавно замедляясь
+    if (t > 1) {
+      // Мягкое замедление после t=1, чтобы не было резкого стопа
+      // atan создает плавную кривую замедления
+      t = 1 + (Math.atan(t - 1) * 0.2);
+    } else {
+      // Ограничиваем t снизу до 0
+      t = Math.max(0, t);
+    }
     
     // ДИАГНОСТИКА: Мониторинг t (Interpolation Factor)
     tValues.push(t);
-    // Ограничиваем размер массива (храним последние 120 значений, ~2 секунды при 60 FPS)
-    if (tValues.length > 120) {
+    // Ограничиваем размер массива (храним последние 300 значений, ~5 секунд при 60 FPS)
+    if (tValues.length > 300) {
       tValues.shift();
     }
     
@@ -1768,7 +1775,7 @@ function startDiagnostics() {
     // tValues = [];
     // networkIntervals = [];
     // frameDeltas = [];
-  }, 2000); // Каждые 2 секунды
+  }, 5000); // Каждые 5 секунд (уменьшена частота для снижения нагрузки)
 }
 
 /**
