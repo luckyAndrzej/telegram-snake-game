@@ -93,28 +93,6 @@ document.addEventListener('DOMContentLoaded', () => {
   toggleModal('withdrawal-modal', false);
   toggleModal('payment-modal', false);
   
-  // Инициализация debug stats overlay (только если элемент существует)
-  try {
-    const debugStats = document.getElementById('debug-stats');
-    if (debugStats) {
-      // По умолчанию скрыт (можно включить для разработки, раскомментировав следующую строку)
-      // debugStats.style.display = 'block';
-      
-      // Добавляем возможность скрыть/показать блок по клику
-      debugStats.style.pointerEvents = 'auto'; // Включаем клики
-      debugStats.style.cursor = 'pointer'; // Курсор указатель
-      debugStats.addEventListener('click', () => {
-        if (debugStats.style.display === 'none') {
-          debugStats.style.display = 'block';
-        } else {
-          debugStats.style.display = 'none';
-        }
-      });
-    }
-  } catch (error) {
-    console.warn('⚠️ Ошибка инициализации debug stats:', error);
-  }
-  
   // СНАЧАЛА показываем меню, чтобы интерфейс не блокировался
   showScreen('menu');
   
@@ -408,16 +386,6 @@ function initSocket() {
       countdownOverlay.style.display = 'none';
     }
     
-    // Скрываем debug stats при выходе из игры
-    try {
-      const debugStats = document.getElementById('debug-stats');
-      if (debugStats) {
-        debugStats.style.display = 'none';
-      }
-    } catch (error) {
-      // Игнорируем ошибки
-    }
-    
     // Вызываем initCanvas(), чтобы убедиться, что размеры холста актуальны перед отрисовкой
     initCanvas();
     
@@ -453,23 +421,6 @@ function initSocket() {
     // Логирование для диагностики
     console.log('Данные игры получены:', data);
     
-    // Мониторинг сетевых задержек
-    try {
-      const nowNet = performance.now();
-      if (window.lastPacketTime) {
-        const interval = nowNet - window.lastPacketTime;
-        const netElement = document.getElementById('net-val');
-        if (netElement) {
-          netElement.textContent = Math.round(interval);
-          // Подсветка проблем: если интервал больше 140мс, красим в красный
-          netElement.style.color = interval > 140 ? '#ff4444' : '#00ff00';
-        }
-      }
-      window.lastPacketTime = nowNet;
-    } catch (error) {
-      // Игнорируем ошибки сетевого мониторинга, чтобы не ломать игру
-    }
-    
     // Обновляем состояние игры только если игра активна (после countdown)
     // Проверяем и 'playing' и 'countdown', чтобы не пропустить первые обновления
     if (currentGame && (gameState === 'playing' || gameState === 'countdown')) {
@@ -483,16 +434,6 @@ function initSocket() {
           countdownOverlay.style.display = 'none';
         }
         console.log('✅ Overlay очищен при первом game_state');
-        
-        // Показываем debug stats при начале игры
-        try {
-          const debugStats = document.getElementById('debug-stats');
-          if (debugStats) {
-            debugStats.style.display = 'block';
-          }
-        } catch (error) {
-          // Игнорируем ошибки
-        }
       }
       updateGameState(data);
     } else {
@@ -1601,25 +1542,6 @@ function startRenderLoop() {
     if (gameState !== 'playing' || !gameCanvas || !gameCtx) {
       animationFrameId = null;
       return;
-    }
-    
-    // Мониторинг FPS (обновляем не каждый кадр, чтобы не тормозить)
-    try {
-      if (!window.lastFrameUpdate) window.lastFrameUpdate = performance.now();
-      const now = performance.now();
-      const delta = now - window.lastFrameUpdate;
-      window.lastFrameUpdate = now;
-      
-      // Защита от деления на ноль и обновляем не каждый кадр
-      if (delta > 0 && Math.random() > 0.9) {
-        const fpsElement = document.getElementById('fps-val');
-        if (fpsElement) {
-          const fps = Math.round(1000 / delta);
-          fpsElement.textContent = isFinite(fps) ? fps : 60; // Fallback если Infinity
-        }
-      }
-    } catch (error) {
-      // Игнорируем ошибки FPS мониторинга, чтобы не ломать игру
     }
     
     // Рассчитываем локальную переменную t для интерполяции
