@@ -563,6 +563,12 @@ function initSocket() {
       window.appState.game.snakes = [window.appState.game.my_snake, window.appState.game.opponent_snake].filter(s => s !== null);
       window.appState.game.finished = data.finished === true || data.game_finished === true;
       console.log('✅ window.appState обновлен (игнорируя gameId):', window.appState);
+      
+      // ПРИНУДИТЕЛЬНЫЙ РЕНДЕР: Добавляем принудительный вызов функции отрисовки, если основной цикл requestAnimationFrame почему-то замер
+      if (gameState === 'playing' && !animationFrameId) {
+        console.log('🔄 Принудительный запуск render loop после обновления window.appState');
+        startRenderLoop();
+      }
     }
     
     // CURRENT GAME STATE: Синхронизируем currentGameState с appState
@@ -2417,15 +2423,15 @@ function startRenderLoop() {
       }
     }
     
-    // ЕДИНЫЙ ИСТОЧНИК В RENDER(): Функция render берет координаты змеек только из window.appState.game.snakes или gameStateJSON
-    // Если данных нет (массив пустой), Canvas не очищается в пустоту, а показывает последнее известное положение
+    // ПРОВЕРКА ИСТОЧНИКА В RENDERPLAYING: Когда gameState === 'playing', функция рендеринга ищет координаты в window.appState.game.my_snake и window.appState.game.opponent_snake
+    // Важно: В логах видно, что сервер присылает ключи my_snake и opponent_snake. Используем их напрямую, не старые названия (например, просто snakes)
     if (gameState === 'playing') {
-      // ЕДИНЫЙ ИСТОЧНИК: Используем gameStateJSON как основной источник данных для отрисовки
-      let mySnakeToDraw = null;
-      let opponentSnakeToDraw = null;
+      // ПРОВЕРКА ИСТОЧНИКА: Используем window.appState.game.my_snake и window.appState.game.opponent_snake напрямую
+      const mySnake = window.appState?.game?.my_snake;
+      const opponentSnake = window.appState?.game?.opponent_snake;
       
-      if (gameStateJSON && gameStateJSON.my_snake && gameStateJSON.opponent_snake) {
-        console.log('🎨 Rendering snake at:', gameStateJSON.my_snake.body?.[0], 'opponent at:', gameStateJSON.opponent_snake.body?.[0]);
+      if (mySnake && opponentSnake) {
+        console.log('🎨 Rendering MY snake at:', mySnake.body?.[0], 'OPPONENT snake at:', opponentSnake.body?.[0]);
         
         // Вычисляем коэффициент интерполяции (0-1) на основе времени с последнего обновления
         const timeSinceUpdate = lastStateUpdateTime > 0 ? performance.now() - lastStateUpdateTime : 0;
@@ -2438,66 +2444,52 @@ function startRenderLoop() {
         }
         
         // Если есть предыдущее состояние, используем интерполяцию для плавного движения
-        mySnakeToDraw = gameStateJSON.my_snake;
-        opponentSnakeToDraw = gameStateJSON.opponent_snake;
+        let mySnakeToDraw = mySnake;
+        let opponentSnakeToDraw = opponentSnake;
         
         if (previousGameState && interpolationFactor < 1.0 && previousGameState.my_snake && previousGameState.opponent_snake) {
           // ОПТИМИЗАЦИЯ: Интерполируем позицию головы между предыдущим и текущим состоянием
           if (previousGameState.my_snake.body && previousGameState.my_snake.body[0] && 
-              gameStateJSON.my_snake.body && gameStateJSON.my_snake.body[0]) {
+              mySnake.body && mySnake.body[0]) {
             const prevHead = previousGameState.my_snake.body[0];
-            const currHead = gameStateJSON.my_snake.body[0];
+            const currHead = mySnake.body[0];
             const interpolatedHead = {
               x: prevHead.x + (currHead.x - prevHead.x) * interpolationFactor,
               y: prevHead.y + (currHead.y - prevHead.y) * interpolationFactor
             };
             mySnakeToDraw = {
-              ...gameStateJSON.my_snake,
-              body: [{ ...interpolatedHead }, ...gameStateJSON.my_snake.body.slice(1)]
+              ...mySnake,
+              body: [{ ...interpolatedHead }, ...mySnake.body.slice(1)]
             };
           }
           
           if (previousGameState.opponent_snake.body && previousGameState.opponent_snake.body[0] && 
-              gameStateJSON.opponent_snake.body && gameStateJSON.opponent_snake.body[0]) {
+              opponentSnake.body && opponentSnake.body[0]) {
             const prevHead = previousGameState.opponent_snake.body[0];
-            const currHead = gameStateJSON.opponent_snake.body[0];
+            const currHead = opponentSnake.body[0];
             const interpolatedHead = {
               x: prevHead.x + (currHead.x - prevHead.x) * interpolationFactor,
               y: prevHead.y + (currHead.y - prevHead.y) * interpolationFactor
             };
             opponentSnakeToDraw = {
-              ...gameStateJSON.opponent_snake,
-              body: [{ ...interpolatedHead }, ...gameStateJSON.opponent_snake.body.slice(1)]
+              ...opponentSnake,
+              body: [{ ...interpolatedHead }, ...opponentSnake.body.slice(1)]
             };
           }
         }
-      } else if (window.appState && window.appState.game && window.appState.game.snakes && window.appState.game.snakes.length > 0) {
-        // ЕДИНЫЙ ИСТОЧНИК: Fallback на window.appState.game.snakes если gameStateJSON пуст
-        console.log('⚠️ gameStateJSON пуст, используем window.appState.game.snakes для отрисовки');
-        mySnakeToDraw = window.appState.game.my_snake;
-        opponentSnakeToDraw = window.appState.game.opponent_snake;
-      } else if (window.appState && window.appState.game && (window.appState.game.my_snake || window.appState.game.opponent_snake)) {
-        // ЕДИНЫЙ ИСТОЧНИК: Fallback на window.appState.game если массив snakes пуст
-        console.log('⚠️ window.appState.game.snakes пуст, используем window.appState.game для отрисовки');
-        mySnakeToDraw = window.appState.game.my_snake;
-        opponentSnakeToDraw = window.appState.game.opponent_snake;
-      }
-      
-      // ЕДИНЫЙ ИСТОЧНИК: Если данных нет (массив пустой), показываем последнее известное положение
-      if (mySnakeToDraw && opponentSnakeToDraw) {
+        
+        // ПРОВЕРКА ИСТОЧНИКА: Отрисовываем змейки из window.appState.game.my_snake и window.appState.game.opponent_snake
         drawSnakeSimple(mySnakeToDraw, headHistory, '#ff4444', '#ff6666');
         drawSnakeSimple(opponentSnakeToDraw, opponentHeadHistory, '#4444ff', '#6666ff');
       } else {
-        // Если данных нет, логируем для диагностики, но не очищаем Canvas в пустоту
-        console.warn('⚠️ gameState === "playing", но нет данных для отрисовки. gameStateJSON:', gameStateJSON, 'appState.game:', window.appState?.game);
+        // Если данных нет, логируем для диагностики
+        console.warn('⚠️ gameState === "playing", но нет данных для отрисовки. my_snake:', mySnake, 'opponent_snake:', opponentSnake, 'appState.game:', window.appState?.game);
         // Показываем последнее известное положение из window.appState.game если оно есть
-        if (window.appState && window.appState.game) {
-          if (window.appState.game.my_snake) {
-            drawSnakeSimple(window.appState.game.my_snake, headHistory, '#ff4444', '#ff6666');
-          }
-          if (window.appState.game.opponent_snake) {
-            drawSnakeSimple(window.appState.game.opponent_snake, opponentHeadHistory, '#4444ff', '#6666ff');
-          }
+        if (mySnake) {
+          drawSnakeSimple(mySnake, headHistory, '#ff4444', '#ff6666');
+        }
+        if (opponentSnake) {
+          drawSnakeSimple(opponentSnake, opponentHeadHistory, '#4444ff', '#6666ff');
         }
       }
     }
@@ -2517,10 +2509,13 @@ function startRenderLoop() {
 // Флаг для предотвращения бесконечного логирования невалидных координат
 let invalidPositionLogged = false;
 
+/**
+ * ЦЕЛЬНАЯ ОТРИСОВКА (SNAKE BODY) - БЕЗ КВАДРАТИКОВ
+ * Чтобы змейка не выглядела как "пунктир" и не исчезала, используем метод рисования пути
+ */
 function drawSnakeSimple(snake, headHistory, color1, color2) {
-  // STATE MANAGEMENT: Используем данные из window.appState.game.snakes если snake не передан
-  if (!snake && window.appState && window.appState.game && window.appState.game.snakes) {
-    // Ищем змейку по цвету в appState
+  // STATE MANAGEMENT: Используем данные из window.appState.game если snake не передан
+  if (!snake && window.appState && window.appState.game) {
     const isMySnake = color1 === '#ff4444' || color1 === '#00FF00';
     snake = isMySnake ? window.appState.game.my_snake : window.appState.game.opponent_snake;
   }
@@ -2543,143 +2538,30 @@ function drawSnakeSimple(snake, headHistory, color1, color2) {
   
   const tileSize = Math.floor(canvasLogicalSize / GRID_SIZE);
   const isMySnake = color1 === '#ff4444' || color1 === '#00FF00';
-  const headColor = isMySnake ? '#ff4444' : '#4444ff';
-  const bodyColor = isMySnake ? '#ff6666' : '#6666ff';
-  const direction = snake.direction || { dx: isMySnake ? 1 : -1, dy: 0 }; // ИСПРАВЛЕНИЕ: горизонтальное направление
+  const snakeColor = isMySnake ? '#ff4444' : '#4444ff';
+  const direction = snake.direction || { dx: isMySnake ? 1 : -1, dy: 0 };
   
-  // STATE MANAGEMENT: Рисуем змейку как единый путь через beginPath() и lineTo()
-  // Это убирает "дыры" в теле змейки, которые видны при отрисовке отдельных квадратов
+  // ЦЕЛЬНАЯ ОТРИСОВКА БЕЗ КВАДРАТИКОВ: Используем простой метод рисования пути
+  // Это сделает змейку цельной и плавной, без "пунктирного" эффекта
+  if (!snake.body || snake.body.length === 0) return;
   
-  // Вычисляем центры всех сегментов для создания плавного пути
-  const pathPoints = snake.body.map(segment => ({
-    x: segment.x * tileSize + tileSize / 2,
-    y: segment.y * tileSize + tileSize / 2
-  }));
-  
-  if (pathPoints.length < 2) {
-    // Если только один сегмент, рисуем его как голову
-    const point = pathPoints[0];
-    const headSize = tileSize * 0.8;
-    gameCtx.fillStyle = headColor;
-    gameCtx.shadowColor = headColor;
-    gameCtx.shadowBlur = 25;
-    gameCtx.beginPath();
-    gameCtx.arc(point.x, point.y, headSize / 2, 0, Math.PI * 2);
-    gameCtx.fill();
-    return;
-  }
-  
-  // ВИЗУАЛЬНОЕ СОЕДИНЕНИЕ: Рисуем тело змейки как единую толстую линию
-  // Толщина линии (lineWidth) должна быть равна tileSize для цельного вида
-  const bodyWidth = tileSize; // ИСПРАВЛЕНИЕ: lineWidth = tileSize для цельной отрисовки
-  
-  // Создаем градиент для тела
-  const bodyGradient = gameCtx.createLinearGradient(
-    pathPoints[0].x, pathPoints[0].y,
-    pathPoints[pathPoints.length - 1].x, pathPoints[pathPoints.length - 1].y
-  );
-  bodyGradient.addColorStop(0, headColor);
-  bodyGradient.addColorStop(0.3, bodyColor);
-  bodyGradient.addColorStop(1, bodyColor);
-  
-  // ВИЗУАЛЬНОЕ СОЕДИНЕНИЕ: Рисуем тело как единый путь через beginPath() и lineTo()
-  // Используем цикл, который соединяет точки для устранения "дыр" между частями тела
-  gameCtx.strokeStyle = bodyGradient;
-  gameCtx.fillStyle = bodyGradient;
-  gameCtx.lineWidth = bodyWidth; // ИСПРАВЛЕНИЕ: lineWidth = tileSize
-  gameCtx.lineCap = 'round'; // Закругленные концы - убирает "пунктирный" эффект
-  gameCtx.lineJoin = 'round'; // Закругленные соединения
-  gameCtx.shadowColor = bodyColor;
-  gameCtx.shadowBlur = 12;
-  
-  // ВИЗУАЛЬНОЕ СОЕДИНЕНИЕ: Начинаем путь с первого сегмента
+  // ЦЕЛЬНАЯ ОТРИСОВКА: Начинаем путь с первого сегмента
   gameCtx.beginPath();
-  gameCtx.moveTo(pathPoints[0].x, pathPoints[0].y);
+  gameCtx.strokeStyle = snakeColor;
+  gameCtx.lineWidth = tileSize - 2; // Толстая линия
+  gameCtx.lineJoin = 'round';
+  gameCtx.lineCap = 'round';
   
-  // ВИЗУАЛЬНОЕ СОЕДИНЕНИЕ: Соединяем все точки из массива segments линиями
-  // Это убирает "дыры" между частями тела, которые были видны на скриншотах
-  for (let i = 1; i < pathPoints.length; i++) {
-    gameCtx.lineTo(pathPoints[i].x, pathPoints[i].y);
+  // ЦЕЛЬНАЯ ОТРИСОВКА: Перемещаемся к первому сегменту
+  gameCtx.moveTo(snake.body[0].x * tileSize + tileSize / 2, snake.body[0].y * tileSize + tileSize / 2);
+  
+  // ЦЕЛЬНАЯ ОТРИСОВКА: Соединяем все сегменты линиями
+  for (let i = 1; i < snake.body.length; i++) {
+    gameCtx.lineTo(snake.body[i].x * tileSize + tileSize / 2, snake.body[i].y * tileSize + tileSize / 2);
   }
   
+  // ЦЕЛЬНАЯ ОТРИСОВКА: Рисуем путь (БЕЗ КВАДРАТИКОВ)
   gameCtx.stroke();
-  gameCtx.fill();
-  
-  // Рисуем голову отдельным ярким элементом
-  const headPoint = pathPoints[0];
-  const headSize = tileSize * 1.0; // Голова немного больше тела
-  const headRadius = headSize / 2;
-  
-  // Голова с более ярким градиентом
-  const headGradient = gameCtx.createRadialGradient(
-    headPoint.x, headPoint.y, 0,
-    headPoint.x, headPoint.y, headRadius
-  );
-  headGradient.addColorStop(0, isMySnake ? '#ff2222' : '#2222ff');
-  headGradient.addColorStop(0.7, headColor);
-  headGradient.addColorStop(1, bodyColor);
-  
-  gameCtx.shadowColor = headColor;
-  gameCtx.shadowBlur = 25;
-  gameCtx.fillStyle = headGradient;
-  gameCtx.beginPath();
-  gameCtx.arc(headPoint.x, headPoint.y, headRadius, 0, Math.PI * 2);
-  gameCtx.fill();
-  
-  // Белая обводка головы
-  gameCtx.strokeStyle = '#ffffff';
-  gameCtx.lineWidth = 3;
-  gameCtx.shadowBlur = 0;
-  gameCtx.beginPath();
-  gameCtx.arc(headPoint.x, headPoint.y, headRadius, 0, Math.PI * 2);
-  gameCtx.stroke();
-  
-  // Глаза на голове с учетом направления (горизонтально для countdown)
-  const eyeOffset = headRadius * 0.4;
-  const eyeSize = headRadius * 0.2;
-  let eyeX1, eyeY1, eyeX2, eyeY2;
-  
-  // ИСПРАВЛЕНИЕ: Горизонтальное направление для countdown (одна влево, другая вправо)
-  if (direction.dx > 0) {
-    // Движется вправо - глаза справа
-    eyeX1 = headPoint.x + eyeOffset;
-    eyeY1 = headPoint.y - eyeOffset * 0.5;
-    eyeX2 = headPoint.x + eyeOffset;
-    eyeY2 = headPoint.y + eyeOffset * 0.5;
-  } else if (direction.dx < 0) {
-    // Движется влево - глаза слева
-    eyeX1 = headPoint.x - eyeOffset;
-    eyeY1 = headPoint.y - eyeOffset * 0.5;
-    eyeX2 = headPoint.x - eyeOffset;
-    eyeY2 = headPoint.y + eyeOffset * 0.5;
-  } else if (direction.dy > 0) {
-    // Движется вниз - глаза внизу
-    eyeX1 = headPoint.x - eyeOffset * 0.5;
-    eyeY1 = headPoint.y + eyeOffset;
-    eyeX2 = headPoint.x + eyeOffset * 0.5;
-    eyeY2 = headPoint.y + eyeOffset;
-  } else {
-    // Движется вверх - глаза вверху
-    eyeX1 = headPoint.x - eyeOffset * 0.5;
-    eyeY1 = headPoint.y - eyeOffset;
-    eyeX2 = headPoint.x + eyeOffset * 0.5;
-    eyeY2 = headPoint.y - eyeOffset;
-  }
-  
-  // Рисуем глаза
-  gameCtx.shadowColor = 'rgba(255, 255, 255, 0.8)';
-  gameCtx.shadowBlur = 5;
-  gameCtx.fillStyle = '#ffffff';
-  gameCtx.beginPath();
-  gameCtx.arc(eyeX1, eyeY1, eyeSize, 0, Math.PI * 2);
-  gameCtx.fill();
-  gameCtx.beginPath();
-  gameCtx.arc(eyeX2, eyeY2, eyeSize, 0, Math.PI * 2);
-  gameCtx.fill();
-  
-  // Сбрасываем shadow эффекты
-  gameCtx.shadowBlur = 0;
-  gameCtx.shadowColor = 'transparent';
 }
 
 /**
