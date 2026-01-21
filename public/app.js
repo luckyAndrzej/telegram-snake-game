@@ -270,7 +270,7 @@ function initSocket() {
           }
         }
         
-        // Сразу переключаемся на игровой экран (но игра еще не началась - ждем countdown)
+        // ОПТИМИЗАЦИЯ: Сразу переключаемся на игровой экран при получении initial_state
         gameState = 'countdown'; // Устанавливаем 'countdown' вместо 'playing' до начала игры
         showScreen('game');
       
@@ -298,12 +298,24 @@ function initSocket() {
         console.warn('countdown-overlay не найден!');
       }
       
-      // ОТРИСОВКА ИГРОВОГО ПОЛЯ ВО ВРЕМЯ COUNTDOWN: рисуем начальное состояние сразу
+      // ОПТИМИЗАЦИЯ: Сразу вызываем render() для отрисовки начального состояния
       // Используем requestAnimationFrame для гарантии, что Canvas готов
       requestAnimationFrame(() => {
         if (gameCanvas && gameCtx && data.initial_state) {
+          // Сохраняем начальное состояние для использования в render()
+          if (!currentGame) {
+            currentGame = {};
+          }
+          currentGame.initialState = data.initial_state;
+          
+          // Отрисовываем начальное состояние
           renderGamePreviewOnCanvas(data.initial_state, gameCanvas, gameCtx);
           console.log('🎨 Начальное состояние отрисовано во время countdown');
+          
+          // Запускаем цикл render для плавного обновления во время countdown
+          if (!animationFrameId) {
+            startRenderLoop();
+          }
         }
       });
     }
@@ -327,7 +339,7 @@ function initSocket() {
       // Обновляем отрисовку игрового поля во время countdown, чтобы пользователь видел змеек
       // Используем requestAnimationFrame для плавного обновления
       requestAnimationFrame(() => {
-        renderGamePreviewOnCanvas(currentGame.initialState, gameCanvas, gameCtx);
+      renderGamePreviewOnCanvas(currentGame.initialState, gameCanvas, gameCtx);
         console.log('🎨 Обновлено начальное состояние во время countdown:', data.number);
       });
     }
@@ -380,7 +392,7 @@ function initSocket() {
     
     // СИНГЛТОН CANVAS: инициализируем Canvas только если он еще не инициализирован
     if (!canvasInitialized) {
-      initCanvas();
+    initCanvas();
     }
     
     // Очищаем canvas и готовимся к игре (используем логический размер)
@@ -437,12 +449,47 @@ function initSocket() {
   
   socket.on('game_end', (data) => {
     console.log('📨 Событие game_end получено!', data);
+    
+    // ОПТИМИЗАЦИЯ: Получаем финальный JSON с результатом и только тогда обновляем баланс из БД
+    // Сначала обрабатываем финальное состояние игры
     endGame(data);
+    
+    // Затем запрашиваем актуальный баланс из БД (если есть выигрыш)
+    if (data.prize && data.prize > 0) {
+      // Запрашиваем актуальный баланс из БД через API
+      fetch(`/api/user/${userId}`)
+        .then(response => response.json())
+        .then(userData => {
+          // Обновляем баланс из БД только после получения финального результата
+          updateBalance(userData.games_balance, userData.winnings_ton);
+          console.log('💰 Баланс обновлен из БД после завершения игры:', userData);
+        })
+        .catch(error => {
+          console.error('❌ Ошибка при получении баланса из БД:', error);
+          // Fallback: используем данные из game_end события
+          if (data.winnings_ton !== undefined) {
+            updateBalance(data.games_balance || 0, data.winnings_ton);
+          }
+        });
+    }
   });
   
   // Обновление баланса после начисления выигрыша
   socket.on('balance_updated', (data) => {
     console.log('💰 Баланс обновлен:', data);
+    
+    // ОПТИМИЗАЦИЯ: Если есть флаг rollback, откатываем оптимистичное обновление
+    if (data.rollback) {
+      console.warn('⚠️ Откат оптимистичного обновления баланса');
+    }
+    
+    updateBalance(data.games_balance, data.winnings_ton);
+  });
+  
+  // ОПТИМИЗАЦИЯ: Обработчик подтверждения покупки игр (финальное состояние из БД)
+  socket.on('buy_games_confirmed', (data) => {
+    console.log('✅ Покупка игр подтверждена (БД обновлена):', data);
+    // Обновляем баланс финальными данными из БД
     updateBalance(data.games_balance, data.winnings_ton);
   });
   
@@ -528,11 +575,12 @@ function initSocket() {
     }
   });
   
-  // Обработчик успешной покупки игр с выигрышного баланса
+  // Обработчик успешной покупки игр с выигрышного баланса (оптимистичное обновление)
   socket.on('buy_games_success', (data) => {
-    console.log('✅ Игры куплены за выигрыши:', data);
+    console.log('✅ Игры куплены за выигрыши (оптимистичное обновление):', data);
     
-    // Обновляем баланс на экране без перезагрузки
+    // ОПТИМИЗАЦИЯ: Мгновенно обновляем баланс в локальном стейте (UI)
+    // Это оптимистичное обновление, финальное подтверждение придет через buy_games_confirmed
     updateBalance(data.games_balance, data.winnings_ton);
     
     // Восстанавливаем кнопку: разблокируем и возвращаем оригинальный текст (текст цены)
@@ -571,6 +619,38 @@ function initSocket() {
       buyBtn.style.cursor = 'pointer';
       buyBtn.style.transform = '';
     }
+  });
+  
+  // ОПТИМИЗАЦИЯ: Обработчик подтверждения покупки игр (финальное состояние из БД)
+  socket.on('buy_games_confirmed', (data) => {
+    console.log('✅ Покупка игр подтверждена (БД обновлена):', data);
+    // Обновляем баланс финальными данными из БД
+    updateBalance(data.games_balance, data.winnings_ton);
+  });
+  
+  // ОПТИМИЗАЦИЯ: Обработчик ошибки покупки с откатом оптимистичного обновления
+  socket.on('buy_games_error', (data) => {
+    console.error('❌ Ошибка покупки игр:', data);
+    
+    // Если есть флаг rollback, откатываем оптимистичное обновление
+    if (data.rollback && data.games_balance !== undefined && data.winnings_ton !== undefined) {
+      console.warn('⚠️ Откат оптимистичного обновления баланса');
+      updateBalance(data.games_balance, data.winnings_ton);
+    }
+    
+    // Восстанавливаем кнопку
+    const buyBtn = document.getElementById('buy-games-with-winnings-btn');
+    if (buyBtn) {
+      buyBtn.disabled = false;
+      buyBtn.classList.remove('processing');
+      const originalText = buyBtn.dataset.originalText || '🔄 Buy Games with Winnings (1 TON = 1 Game)';
+      buyBtn.innerHTML = originalText;
+      buyBtn.style.opacity = '1';
+      buyBtn.style.cursor = 'pointer';
+      buyBtn.style.transform = '';
+    }
+    
+    tg.showAlert(data.message || '❌ Ошибка при покупке игр');
   });
   
   // Обработчик ошибки покупки игр с выигрышного баланса
@@ -1056,17 +1136,27 @@ function initCanvas() {
   // Отключаем сглаживание изображений для четкости и устранения микро-размытия при движении
   gameCtx.imageSmoothingEnabled = false;
   
-  // АДАПТИВНЫЙ РАЗМЕР: Canvas подстраивается под максимально возможную ширину контейнера, сохраняя пропорцию 1:1
-  // Вычисляем размер на основе CSS (95vw или 95vh, в зависимости от того, что меньше)
+  // ОПТИМИЗАЦИЯ: Canvas занимает 100% ширины родительского контейнера, высота подстраивается под ширину
+  // Это обеспечивает максимально крупное поле на экране телефона
   const containerWidth = gameCanvas.parentElement?.clientWidth || window.innerWidth;
   const containerHeight = window.innerHeight;
-  // Используем максимально возможный размер (95% от меньшего измерения) для квадрата
-  const cssSize = Math.min(containerWidth * 0.95, containerHeight * 0.95);
   
-  // Логический размер Canvas (для отрисовки) равен CSS размеру
-  canvasLogicalSize = Math.floor(cssSize);
+  // Используем 98% ширины контейнера (с небольшим отступом для визуального комфорта)
+  const cssWidth = containerWidth * 0.98;
+  // Высота подстраивается под ширину для квадрата (1:1), но ограничиваем высотой экрана
+  const cssHeight = Math.min(cssWidth, containerHeight * 0.95);
   
-  // Пересчитываем tileSize на основе нового размера: tileSize = canvasLogicalSize / 30
+  // Логический размер Canvas (для отрисовки) равен меньшей стороне для квадрата
+  canvasLogicalSize = Math.floor(cssHeight);
+  
+  // ОПТИМИЗАЦИЯ: Устанавливаем CSS размеры для адаптивности
+  gameCanvas.style.width = '98%'; // 98% ширины контейнера
+  gameCanvas.style.height = 'auto'; // Высота подстраивается автоматически
+  gameCanvas.style.aspectRatio = '1 / 1'; // Сохраняем квадратную форму
+  gameCanvas.style.maxWidth = '100%';
+  gameCanvas.style.maxHeight = '95vh'; // Ограничиваем высотой экрана
+  
+  // Пересчитываем tileSize динамически на основе нового размера: tileSize = canvasLogicalSize / 30
   // Это будет использовано в drawGridToOffscreen и drawSnakeSimple
   
   // УПРАВЛЕНИЕ DPR: вызываем scale только один раз при инициализации
@@ -1466,19 +1556,53 @@ function handleBuyGamesWithWinnings(amount = 1) {
 /**
  * Обновление баланса
  */
+// ОПТИМИЗАЦИЯ: Локальный объект пользователя для моментального обновления баланса
+let localUserState = {
+  games_balance: 0,
+  winnings_ton: 0
+};
+
 function updateBalance(gamesBalance, winningsTon) {
+  // ОПТИМИЗАЦИЯ: Мгновенно обновляем локальный объект пользователя
+  // Не ждем перезагрузки страницы - баланс обновляется сразу
+  if (gamesBalance !== undefined) {
+    localUserState.games_balance = gamesBalance;
+  }
+  if (winningsTon !== undefined) {
+    localUserState.winnings_ton = winningsTon;
+  }
+  
   const gamesEl = document.getElementById('games-balance');
   const winningsEl = document.getElementById('winnings-balance');
   
-  if (gamesEl) gamesEl.textContent = gamesBalance || 0;
-  if (winningsEl) winningsEl.textContent = `${(winningsTon || 0).toFixed(2)} TON`;
+  // ОПТИМИЗАЦИЯ: Мгновенно обновляем UI без ожидания перезагрузки страницы
+  if (gamesEl) {
+    gamesEl.textContent = localUserState.games_balance || 0;
+    // Добавляем визуальную анимацию обновления для обратной связи
+    gamesEl.style.transition = 'transform 0.2s ease';
+    gamesEl.style.transform = 'scale(1.1)';
+    setTimeout(() => {
+      if (gamesEl) gamesEl.style.transform = 'scale(1)';
+    }, 200);
+  }
+  if (winningsEl) {
+    winningsEl.textContent = `${(localUserState.winnings_ton || 0).toFixed(2)} TON`;
+    // Добавляем визуальную анимацию обновления для обратной связи
+    winningsEl.style.transition = 'transform 0.2s ease';
+    winningsEl.style.transform = 'scale(1.1)';
+    setTimeout(() => {
+      if (winningsEl) winningsEl.style.transform = 'scale(1)';
+    }, 200);
+  }
   
   // Показываем/скрываем кнопку покупки игр с выигрышного баланса
   const buyWithWinningsBtn = document.getElementById('buy-games-with-winnings-btn');
   if (buyWithWinningsBtn) {
-    const hasWinnings = winningsTon && winningsTon >= 1;
+    const hasWinnings = localUserState.winnings_ton && localUserState.winnings_ton >= 1;
     buyWithWinningsBtn.style.display = hasWinnings ? 'block' : 'none';
   }
+  
+  console.log(`💰 Баланс обновлен мгновенно: игры=${localUserState.games_balance}, выигрыши=${localUserState.winnings_ton.toFixed(2)} TON`);
 }
 
 /**
@@ -1897,12 +2021,12 @@ function startRenderLoop() {
     
     // ОЧИСТКА СТАРЫХ КАДРОВ: полная очистка canvas перед каждым кадром
     // Используем логический размер (canvasLogicalSize), так как контекст уже масштабирован через DPR
-    gameCtx.clearRect(0, 0, canvasLogicalSize, canvasLogicalSize);
-    
+      gameCtx.clearRect(0, 0, canvasLogicalSize, canvasLogicalSize);
+      
     // Заливаем фон игрового поля
-    gameCtx.fillStyle = '#0a0e27';
-    gameCtx.fillRect(0, 0, canvasLogicalSize, canvasLogicalSize);
-    
+      gameCtx.fillStyle = '#0a0e27';
+      gameCtx.fillRect(0, 0, canvasLogicalSize, canvasLogicalSize);
+      
     // ОПТИМИЗАЦИЯ: используем offscreen canvas для сетки вместо перерисовки
     if (gridCanvas) {
       gameCtx.drawImage(gridCanvas, 0, 0);
@@ -1923,10 +2047,11 @@ function startRenderLoop() {
         return; // Выходим из функции, чтобы не рисовать текущее состояние игры
       }
     }
-    // ИНТЕРПОЛЯЦИЯ ИЛИ ПЛАВНЫЙ РЕНДЕРИНГ: отрисовываем змейку с интерполяцией между состояниями
+    // ОПТИМИЗАЦИЯ: ПЛАВНАЯ ИНТЕРПОЛЯЦИЯ - змейка плавно скользит между клетками
+    // Вместо телепортации из клетки 5 в клетку 6, она плавно перемещается в течение времени между тиками
     else if (currentGameState && currentGameState.my_snake && currentGameState.opponent_snake) {
       // Вычисляем коэффициент интерполяции (0-1) на основе времени с последнего обновления
-      // ИНТЕРПОЛЯЦИЯ: плавное движение между состояниями
+      // ИНТЕРПОЛЯЦИЯ: плавное движение между состояниями с использованием requestAnimationFrame
       const timeSinceUpdate = lastStateUpdateTime > 0 ? performance.now() - lastStateUpdateTime : 0;
       const serverTickInterval = 111.11; // 1000ms / 9 ticks per second
       let interpolationFactor = Math.min(timeSinceUpdate / serverTickInterval, 1.0);
@@ -1936,21 +2061,23 @@ function startRenderLoop() {
         interpolationFactor = 1.0;
       }
       
-      // Если есть предыдущее состояние, используем интерполяцию
+      // Если есть предыдущее состояние, используем интерполяцию для плавного движения
       let mySnakeToDraw = currentGameState.my_snake;
       let opponentSnakeToDraw = currentGameState.opponent_snake;
       
       if (previousGameState && interpolationFactor < 1.0 && previousGameState.my_snake && previousGameState.opponent_snake) {
-        // Интерполируем позицию головы между предыдущим и текущим состоянием
+        // ОПТИМИЗАЦИЯ: Интерполируем позицию головы между предыдущим и текущим состоянием
+        // Это создает плавное скольжение вместо телепортации
         if (previousGameState.my_snake.body && previousGameState.my_snake.body[0] && 
             currentGameState.my_snake.body && currentGameState.my_snake.body[0]) {
           const prevHead = previousGameState.my_snake.body[0];
           const currHead = currentGameState.my_snake.body[0];
+          // Плавная интерполяция: от предыдущей позиции к текущей
           const interpolatedHead = {
             x: prevHead.x + (currHead.x - prevHead.x) * interpolationFactor,
             y: prevHead.y + (currHead.y - prevHead.y) * interpolationFactor
           };
-          // Создаем интерполированную копию змейки
+          // Создаем интерполированную копию змейки с плавно движущейся головой
           mySnakeToDraw = {
             ...currentGameState.my_snake,
             body: [{ ...interpolatedHead }, ...currentGameState.my_snake.body.slice(1)]
@@ -1961,6 +2088,7 @@ function startRenderLoop() {
             currentGameState.opponent_snake.body && currentGameState.opponent_snake.body[0]) {
           const prevHead = previousGameState.opponent_snake.body[0];
           const currHead = currentGameState.opponent_snake.body[0];
+          // Плавная интерполяция для противника
           const interpolatedHead = {
             x: prevHead.x + (currHead.x - prevHead.x) * interpolationFactor,
             y: prevHead.y + (currHead.y - prevHead.y) * interpolationFactor

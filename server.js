@@ -329,24 +329,66 @@ io.on('connection', async (socket) => {
       
       console.log(`📥 Запрос на покупку ${amount} игр за выигрыши от пользователя: ${userId}`);
       
-      // Используем функцию buyGamesWithWinnings с транзакцией
-      const result = await buyGamesWithWinnings(userId, amount);
+      // ОПТИМИЗАЦИЯ: Получаем текущий баланс для мгновенного обновления UI
+      const currentUser = await getUser(userId);
       
-      if (result.success) {
-        // Отправляем успешный ответ с обновленными данными
-        socket.emit('buy_games_success', {
-          games_purchased: result.gamesPurchased,
-          games_balance: result.user.games_balance,
-          winnings_ton: result.user.winnings_ton
-        });
-        
-        console.log(`✅ Игрок ${userId} успешно купил ${result.gamesPurchased} игр за выигрыши`);
-      } else {
+      // Проверка баланса выигрышей
+      if (currentUser.winnings_ton < amount) {
         socket.emit('buy_games_error', {
-          message: result.error || 'Ошибка при покупке игр'
+          message: `Недостаточно выигрышей! Доступно: ${currentUser.winnings_ton.toFixed(2)} TON, требуется: ${amount} TON`
         });
-        console.log(`❌ Ошибка покупки игр для игрока ${userId}: ${result.error}`);
+        return;
       }
+      
+      // ОПТИМИЗАЦИЯ: Мгновенно отправляем обновленный баланс клиенту (локальный стейт)
+      // Клиент увидит изменения сразу, не дожидаясь записи в БД
+      const optimisticGamesBalance = currentUser.games_balance + amount;
+      const optimisticWinningsTon = currentUser.winnings_ton - amount;
+      
+      socket.emit('buy_games_success', {
+        games_purchased: amount,
+        games_balance: optimisticGamesBalance,
+        winnings_ton: optimisticWinningsTon
+      });
+      
+      console.log(`✅ Мгновенное обновление баланса отправлено игроку ${userId} (оптимистичное обновление)`);
+      
+      // ОПТИМИЗАЦИЯ: Запись в БД выполняется фоном (не блокирует ответ клиенту)
+      setImmediate(async () => {
+        try {
+          const result = await buyGamesWithWinnings(userId, amount);
+          
+          if (result.success) {
+            // Отправляем финальное подтверждение с актуальными данными из БД
+            socket.emit('buy_games_confirmed', {
+              games_purchased: result.gamesPurchased,
+              games_balance: result.user.games_balance,
+              winnings_ton: result.user.winnings_ton
+            });
+            
+            console.log(`✅ Игрок ${userId} успешно купил ${result.gamesPurchased} игр за выигрыши (БД обновлена)`);
+          } else {
+            // Если запись в БД не удалась, отправляем ошибку и откатываем оптимистичное обновление
+            socket.emit('buy_games_error', {
+              message: result.error || 'Ошибка при покупке игр',
+              rollback: true,
+              games_balance: currentUser.games_balance,
+              winnings_ton: currentUser.winnings_ton
+            });
+            
+            console.log(`❌ Ошибка покупки игр для игрока ${userId}: ${result.error}`);
+          }
+        } catch (error) {
+          console.error(`❌ Ошибка при покупке игр за выигрыши (фоновая запись):`, error);
+          // Откатываем оптимистичное обновление
+          socket.emit('buy_games_error', {
+            message: error.message || 'Ошибка при покупке игр',
+            rollback: true,
+            games_balance: currentUser.games_balance,
+            winnings_ton: currentUser.winnings_ton
+          });
+        }
+      });
     } catch (error) {
       console.error(`❌ Ошибка при покупке игр за выигрыши:`, error);
       socket.emit('buy_games_error', {
@@ -765,11 +807,49 @@ async function createGame(player1Id, player2Id, socket1Id, socket2Id) {
     return;
   }
   
-  // ОПТИМИЗАЦИЯ: Параллельное списание баланса у обоих игроков
-  await Promise.all([
-    updateUser(player1Id, { games_balance: player1.games_balance - GAME_CONFIG.ENTRY_PRICE }),
-    updateUser(player2Id, { games_balance: player2.games_balance - GAME_CONFIG.ENTRY_PRICE })
-  ]);
+  // ОПТИМИЗАЦИЯ: Мгновенно отправляем обновленный баланс клиентам (локальный стейт)
+  // Игра создается сразу, списание баланса выполняется фоном
+  const player1Socket = io.sockets.sockets.get(socket1Id);
+  const player2Socket = io.sockets.sockets.get(socket2Id);
+  
+  const optimisticBalance1 = player1.games_balance - GAME_CONFIG.ENTRY_PRICE;
+  const optimisticBalance2 = player2.games_balance - GAME_CONFIG.ENTRY_PRICE;
+  
+  // Отправляем оптимистичное обновление баланса клиентам
+  player1Socket?.emit('balance_updated', {
+    games_balance: optimisticBalance1,
+    winnings_ton: player1.winnings_ton
+  });
+  player2Socket?.emit('balance_updated', {
+    games_balance: optimisticBalance2,
+    winnings_ton: player2.winnings_ton
+  });
+  
+  console.log(`✅ Мгновенное обновление баланса отправлено игрокам (оптимистичное обновление)`);
+  
+  // ОПТИМИЗАЦИЯ: Списание баланса выполняется фоном (не блокирует создание игры)
+  setImmediate(async () => {
+    try {
+      await Promise.all([
+        updateUser(player1Id, { games_balance: optimisticBalance1 }),
+        updateUser(player2Id, { games_balance: optimisticBalance2 })
+      ]);
+      console.log(`✅ Баланс списан в БД для игроков ${player1Id} и ${player2Id}`);
+    } catch (error) {
+      console.error(`❌ Ошибка при списании баланса в БД:`, error);
+      // В случае ошибки отправляем откат оптимистичного обновления
+      player1Socket?.emit('balance_updated', {
+        games_balance: player1.games_balance,
+        winnings_ton: player1.winnings_ton,
+        rollback: true
+      });
+      player2Socket?.emit('balance_updated', {
+        games_balance: player2.games_balance,
+        winnings_ton: player2.winnings_ton,
+        rollback: true
+      });
+    }
+  });
   
   // Создаем игру
   const gameId = `game_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;

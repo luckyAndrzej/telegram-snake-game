@@ -545,11 +545,11 @@ body::before {
     position: relative; /* Изменено с absolute на relative для правильного центрирования */
     display: block !important; /* Принудительно block для видимости */
     z-index: 10 !important; /* Высокий z-index чтобы не перекрывался фоном */
-    width: 95vw; /* Заполняет 95% ширины экрана */
-    height: 95vw; /* Квадрат (соотношение 1:1) */
-    max-width: 95vh; /* Ограничение по высоте для вертикальных экранов */
-    max-height: 95vh; /* Ограничение по высоте */
-    aspect-ratio: 1/1; /* Сохраняем квадрат */
+    width: 98% !important; /* 100% ширины родительского контейнера (с небольшим отступом) */
+    height: auto !important; /* Высота подстраивается под ширину */
+    max-width: 100%; /* Ограничение по ширине */
+    max-height: 95vh; /* Ограничение по высоте экрана */
+    aspect-ratio: 1/1; /* Сохраняем квадратную форму */
     object-fit: contain;
     margin: 0 auto;
     border: 2px solid var(--neon-cyan);
