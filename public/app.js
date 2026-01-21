@@ -8,6 +8,26 @@ const tg = window.Telegram.WebApp;
 tg.ready();
 tg.expand();
 
+// STATE MANAGEMENT: Единое состояние приложения
+// Все данные сначала записываются в window.appState, затем вызывается рендер
+window.appState = {
+  user: {
+    id: null,
+    username: null,
+    games_balance: 0,
+    winnings_ton: 0
+  },
+  game: {
+    snakes: [],
+    food: null,
+    status: 'menu', // menu, countdown, playing, finished
+    my_snake: null,
+    opponent_snake: null,
+    tick_number: 0,
+    finished: false
+  }
+};
+
 // Глобальные переменные
 let socket = null;
 let userId = null;
@@ -217,6 +237,13 @@ function initSocket() {
   
   socket.on('user_data', (data) => {
     debugMode = data.debug_mode;
+    
+    // STATE MANAGEMENT: Обновляем window.appState перед обновлением UI
+    window.appState.user.games_balance = data.games_balance || 0;
+    window.appState.user.winnings_ton = data.winnings_ton || 0;
+    window.appState.user.id = data.id || userId;
+    window.appState.user.username = data.username || username;
+    
     updateBalance(data.games_balance, data.winnings_ton);
     
     // Показываем TEST MODE badge если DEBUG_MODE активен
@@ -284,20 +311,27 @@ function initSocket() {
         currentGame.initialState = initialState;
         console.log('✅ Initial game state received and validated');
         
-        // CURRENT GAME STATE: Обновляем currentGameState из initial_state
-        currentGameState.status = 'countdown';
-        currentGameState.my_snake = initialState.my_snake ? {
+        // STATE MANAGEMENT: Обновляем window.appState из initial_state
+        window.appState.game.status = 'countdown';
+        window.appState.game.my_snake = initialState.my_snake ? {
           body: initialState.my_snake.body ? [...initialState.my_snake.body] : [],
           direction: initialState.my_snake.direction ? { ...initialState.my_snake.direction } : { dx: 1, dy: 0 },
           alive: initialState.my_snake.alive !== undefined ? initialState.my_snake.alive : true
         } : null;
-        currentGameState.opponent_snake = initialState.opponent_snake ? {
+        window.appState.game.opponent_snake = initialState.opponent_snake ? {
           body: initialState.opponent_snake.body ? [...initialState.opponent_snake.body] : [],
           direction: initialState.opponent_snake.direction ? { ...initialState.opponent_snake.direction } : { dx: -1, dy: 0 },
           alive: initialState.opponent_snake.alive !== undefined ? initialState.opponent_snake.alive : true
         } : null;
-        currentGameState.snakes = [currentGameState.my_snake, currentGameState.opponent_snake].filter(s => s !== null);
-        console.log('✅ currentGameState инициализирован из initial_state:', currentGameState);
+        window.appState.game.snakes = [window.appState.game.my_snake, window.appState.game.opponent_snake].filter(s => s !== null);
+        
+        // CURRENT GAME STATE: Синхронизируем currentGameState с appState
+        currentGameState.status = 'countdown';
+        currentGameState.my_snake = window.appState.game.my_snake;
+        currentGameState.opponent_snake = window.appState.game.opponent_snake;
+        currentGameState.snakes = window.appState.game.snakes;
+        
+        console.log('✅ window.appState инициализирован из initial_state:', window.appState);
         
         // Инициализируем текущее направление из начального состояния
         if (initialState.my_snake && initialState.my_snake.direction) {
@@ -477,21 +511,31 @@ function initSocket() {
     // Логирование для диагностики
     console.log('Данные игры получены:', data);
     
-    // CURRENT GAME STATE: Обновляем объект currentGameState перед отрисовкой
+    // STATE MANAGEMENT: Обновляем window.appState перед отрисовкой
     if (data) {
-      currentGameState.status = 'playing';
-      currentGameState.my_snake = data.my_snake ? {
+      window.appState.game.status = 'playing';
+      window.appState.game.tick_number = data.tick_number || 0;
+      window.appState.game.my_snake = data.my_snake ? {
         body: data.my_snake.body ? [...data.my_snake.body] : [],
         direction: data.my_snake.direction ? { ...data.my_snake.direction } : { dx: 1, dy: 0 },
         alive: data.my_snake.alive !== undefined ? data.my_snake.alive : true
       } : null;
-      currentGameState.opponent_snake = data.opponent_snake ? {
+      window.appState.game.opponent_snake = data.opponent_snake ? {
         body: data.opponent_snake.body ? [...data.opponent_snake.body] : [],
         direction: data.opponent_snake.direction ? { ...data.opponent_snake.direction } : { dx: -1, dy: 0 },
         alive: data.opponent_snake.alive !== undefined ? data.opponent_snake.alive : true
       } : null;
-      currentGameState.snakes = [currentGameState.my_snake, currentGameState.opponent_snake].filter(s => s !== null);
-      console.log('✅ currentGameState обновлен:', currentGameState);
+      window.appState.game.snakes = [window.appState.game.my_snake, window.appState.game.opponent_snake].filter(s => s !== null);
+      window.appState.game.finished = data.finished === true || data.game_finished === true;
+      console.log('✅ window.appState обновлен:', window.appState);
+    }
+    
+    // CURRENT GAME STATE: Синхронизируем currentGameState с appState
+    if (data) {
+      currentGameState.status = 'playing';
+      currentGameState.my_snake = window.appState.game.my_snake;
+      currentGameState.opponent_snake = window.appState.game.opponent_snake;
+      currentGameState.snakes = window.appState.game.snakes;
     }
     
     // IN-MEMORY STATE: Обновляем JSON-объект состояния игры в памяти
@@ -499,8 +543,8 @@ function initSocket() {
     if (data) {
       gameStateJSON = {
         tick_number: data.tick_number || 0,
-        my_snake: currentGameState.my_snake,
-        opponent_snake: currentGameState.opponent_snake,
+        my_snake: window.appState.game.my_snake,
+        opponent_snake: window.appState.game.opponent_snake,
         finished: data.finished === true || data.game_finished === true,
         game_finished: data.game_finished === true || data.finished === true
       };
@@ -682,8 +726,16 @@ function initSocket() {
       balanceValueEl.textContent = localUserState.games_balance || 0;
     }
     
-    // ЛОГИКА ПОКУПКИ: Вызываем updateUI() для мгновенного обновления всех элементов интерфейса
-    updateUI();
+    // STATE MANAGEMENT: Обновляем appState перед обновлением UI
+    if (data.games_balance !== undefined) {
+      window.appState.user.games_balance = data.games_balance;
+    }
+    if (data.winnings_ton !== undefined) {
+      window.appState.user.winnings_ton = data.winnings_ton;
+    }
+    
+    // ЛОГИКА ПОКУПКИ: Вызываем updateBalance для мгновенного обновления всех элементов интерфейса
+    updateBalance(localUserState.games_balance, localUserState.winnings_ton);
     
     // Восстанавливаем кнопку: разблокируем и возвращаем оригинальный текст (текст цены)
     const buyBtn = document.getElementById('buy-games-with-winnings-btn');
@@ -958,6 +1010,11 @@ function initEventListeners() {
       
       console.log('Opening Tonkeeper URL:', tonkeeperUrl);
       
+      // STATE MANAGEMENT: Обновление баланса после транзакции
+      // Если транзакция инициирована, при закрытии модального окна через 3-5 секунд
+      // принудительно запрашиваем /api/user/profile для обновления баланса игр
+      let paymentInitiated = false;
+      
       // В Telegram Mini App для Deep Links ton:// лучше использовать временную ссылку
       // Создаем временный <a> элемент и кликаем по нему
       const link = document.createElement('a');
@@ -969,6 +1026,7 @@ function initEventListeners() {
       try {
         link.click();
         console.log('Clicked Tonkeeper link');
+        paymentInitiated = true; // Транзакция инициирована
         
         // Удаляем ссылку после клика
         setTimeout(() => {
@@ -981,6 +1039,14 @@ function initEventListeners() {
           statusEl.textContent = '⏳ Waiting for payment...';
           statusEl.style.color = '#667eea';
         }
+        
+        // STATE MANAGEMENT: Обновление баланса через 3-5 секунд после инициирования транзакции
+        if (paymentInitiated) {
+          setTimeout(() => {
+            console.log('🔄 Обновление баланса после транзакции...');
+            refreshUserProfile();
+          }, 4000); // 4 секунды для обработки транзакции
+        }
       } catch (linkError) {
         // Если клик не сработал, пробуем tg.openLink()
         console.warn('Link click failed, trying tg.openLink():', linkError);
@@ -990,21 +1056,39 @@ function initEventListeners() {
           try {
             window.Telegram.WebApp.openLink(tonkeeperUrl, { try_instant_view: false });
             console.log('Opened Tonkeeper via tg.openLink()');
+            paymentInitiated = true; // Транзакция инициирована
             
             const statusEl = document.getElementById('payment-status');
             if (statusEl) {
               statusEl.textContent = '⏳ Waiting for payment...';
               statusEl.style.color = '#667eea';
             }
+            
+            // STATE MANAGEMENT: Обновление баланса через 3-5 секунд после инициирования транзакции
+            if (paymentInitiated) {
+              setTimeout(() => {
+                console.log('🔄 Обновление баланса после транзакции...');
+                refreshUserProfile();
+              }, 4000); // 4 секунды для обработки транзакции
+            }
           } catch (tgError) {
             // Если tg.openLink() тоже не сработал, пробуем window.location
             console.warn('tg.openLink() failed, trying window.location:', tgError);
             try {
               window.location.href = tonkeeperUrl;
+              paymentInitiated = true; // Транзакция инициирована
               const statusEl = document.getElementById('payment-status');
               if (statusEl) {
                 statusEl.textContent = '⏳ Waiting for payment...';
                 statusEl.style.color = '#667eea';
+              }
+              
+              // STATE MANAGEMENT: Обновление баланса через 3-5 секунд после инициирования транзакции
+              if (paymentInitiated) {
+                setTimeout(() => {
+                  console.log('🔄 Обновление баланса после транзакции...');
+                  refreshUserProfile();
+                }, 4000); // 4 секунды для обработки транзакции
               }
             } catch (locationError) {
               console.error('All methods to open Tonkeeper failed:', locationError);
@@ -1020,10 +1104,19 @@ function initEventListeners() {
           // Fallback: используем window.location
           try {
             window.location.href = tonkeeperUrl;
+            paymentInitiated = true; // Транзакция инициирована
             const statusEl = document.getElementById('payment-status');
             if (statusEl) {
               statusEl.textContent = '⏳ Waiting for payment...';
               statusEl.style.color = '#667eea';
+            }
+            
+            // STATE MANAGEMENT: Обновление баланса через 3-5 секунд после инициирования транзакции
+            if (paymentInitiated) {
+              setTimeout(() => {
+                console.log('🔄 Обновление баланса после транзакции...');
+                refreshUserProfile();
+              }, 4000); // 4 секунды для обработки транзакции
             }
           } catch (locationError) {
             console.error('Failed to open Tonkeeper:', locationError);
@@ -1047,11 +1140,11 @@ function initEventListeners() {
   
   document.getElementById('close-payment-btn')?.addEventListener('click', () => {
     toggleModal('payment-modal', false);
-    // ИСПРАВЛЕНИЕ: Принудительный вызов updateUI() после закрытия модального окна оплаты
+    // STATE MANAGEMENT: Обновляем баланс после закрытия модального окна оплаты
+    // Запрашиваем профиль через 3-5 секунд для обновления баланса после транзакции
     setTimeout(() => {
-      updateUI();
       refreshUserProfile();
-    }, 100);
+    }, 3500); // 3.5 секунды для обработки транзакции
   });
   
   // Rules toggle (collapsible)
@@ -1690,6 +1783,12 @@ async function refreshUserProfile() {
     
     const userData = await response.json();
     
+    // STATE MANAGEMENT: Обновляем window.appState перед обновлением UI
+    window.appState.user.games_balance = userData.games_balance || 0;
+    window.appState.user.winnings_ton = userData.winnings_ton || 0;
+    window.appState.user.id = userData.id || userId;
+    window.appState.user.username = userData.username || username;
+    
     // Синхронизируем локальный стейт с данными сервера
     localUserState.games_balance = userData.games_balance || 0;
     localUserState.winnings_ton = userData.winnings_ton || 0;
@@ -1704,12 +1803,13 @@ async function refreshUserProfile() {
 }
 
 function updateBalance(gamesBalance, winningsTon) {
-  // ОПТИМИЗАЦИЯ: Мгновенно обновляем локальный объект пользователя
-  // Не ждем перезагрузки страницы - баланс обновляется сразу
+  // STATE MANAGEMENT: Обновляем window.appState перед обновлением UI
   if (gamesBalance !== undefined) {
+    window.appState.user.games_balance = gamesBalance;
     localUserState.games_balance = gamesBalance;
   }
   if (winningsTon !== undefined) {
+    window.appState.user.winnings_ton = winningsTon;
     localUserState.winnings_ton = winningsTon;
   }
   
@@ -1719,7 +1819,7 @@ function updateBalance(gamesBalance, winningsTon) {
   
   // ИСПРАВЛЕНИЕ: Обновляем элемент #balance-value если он существует
   if (balanceValueEl) {
-    balanceValueEl.textContent = localUserState.games_balance || 0;
+    balanceValueEl.textContent = window.appState.user.games_balance || 0;
   }
   
   // ОПТИМИЗАЦИЯ: Мгновенно обновляем UI без ожидания перезагрузки страницы
@@ -2180,22 +2280,30 @@ function startRenderLoop() {
           opponent_snake: currentGameState.opponent_snake
         })) : null;
         
-        // CURRENT GAME STATE: Обновляем currentGameState из nextPacket
+        // STATE MANAGEMENT: Обновляем window.appState из nextPacket
         if (nextPacket.my_snake) {
-          currentGameState.my_snake = {
+          window.appState.game.my_snake = {
             body: nextPacket.my_snake.body ? [...nextPacket.my_snake.body] : [],
             direction: nextPacket.my_snake.direction ? { ...nextPacket.my_snake.direction } : { dx: 1, dy: 0 },
             alive: nextPacket.my_snake.alive !== undefined ? nextPacket.my_snake.alive : true
           };
         }
         if (nextPacket.opponent_snake) {
-          currentGameState.opponent_snake = {
+          window.appState.game.opponent_snake = {
             body: nextPacket.opponent_snake.body ? [...nextPacket.opponent_snake.body] : [],
             direction: nextPacket.opponent_snake.direction ? { ...nextPacket.opponent_snake.direction } : { dx: -1, dy: 0 },
             alive: nextPacket.opponent_snake.alive !== undefined ? nextPacket.opponent_snake.alive : true
           };
         }
-        currentGameState.snakes = [currentGameState.my_snake, currentGameState.opponent_snake].filter(s => s !== null);
+        window.appState.game.snakes = [window.appState.game.my_snake, window.appState.game.opponent_snake].filter(s => s !== null);
+        window.appState.game.status = 'playing';
+        window.appState.game.tick_number = nextPacket.tick_number || 0;
+        window.appState.game.finished = nextPacket.finished === true || nextPacket.game_finished === true;
+        
+        // CURRENT GAME STATE: Синхронизируем currentGameState с appState
+        currentGameState.my_snake = window.appState.game.my_snake;
+        currentGameState.opponent_snake = window.appState.game.opponent_snake;
+        currentGameState.snakes = window.appState.game.snakes;
         currentGameState.status = 'playing';
         
         lastStateUpdateTime = performance.now();
@@ -2327,19 +2435,19 @@ function startRenderLoop() {
         console.log('Drawing OPPONENT snake (BLUE) at:', opponentSnakeToDraw.body[0]);
       }
       
-      // CURRENT GAME STATE: Отрисовываем змейки из currentGameState с интерполированными позициями
-      // Используем данные из currentGameState.snakes для единой логики отрисовки
+      // STATE MANAGEMENT: Отрисовываем змейки из window.appState.game с интерполированными позициями
+      // Используем данные из window.appState.game.snakes для единой логики отрисовки
       drawSnakeSimple(mySnakeToDraw, headHistory, '#ff4444', '#ff6666');
       drawSnakeSimple(opponentSnakeToDraw, opponentHeadHistory, '#4444ff', '#6666ff');
-    } else if (currentGameState && (currentGameState.my_snake || currentGameState.opponent_snake)) {
-      // CURRENT GAME STATE: Fallback - используем currentGameState для отрисовки
-      if (currentGameState.my_snake) {
-        console.log('Drawing MY snake (RED) at (fallback from currentGameState):', currentGameState.my_snake.body?.[0]);
-        drawSnakeSimple(currentGameState.my_snake, headHistory, '#ff4444', '#ff6666');
+    } else if (window.appState && window.appState.game && (window.appState.game.my_snake || window.appState.game.opponent_snake)) {
+      // STATE MANAGEMENT: Fallback - используем window.appState.game для отрисовки
+      if (window.appState.game.my_snake) {
+        console.log('Drawing MY snake (RED) at (fallback from appState):', window.appState.game.my_snake.body?.[0]);
+        drawSnakeSimple(window.appState.game.my_snake, headHistory, '#ff4444', '#ff6666');
       }
-      if (currentGameState.opponent_snake) {
-        console.log('Drawing OPPONENT snake (BLUE) at (fallback from currentGameState):', currentGameState.opponent_snake.body?.[0]);
-        drawSnakeSimple(currentGameState.opponent_snake, opponentHeadHistory, '#4444ff', '#6666ff');
+      if (window.appState.game.opponent_snake) {
+        console.log('Drawing OPPONENT snake (BLUE) at (fallback from appState):', window.appState.game.opponent_snake.body?.[0]);
+        drawSnakeSimple(window.appState.game.opponent_snake, opponentHeadHistory, '#4444ff', '#6666ff');
       }
     }
     
@@ -2351,13 +2459,21 @@ function startRenderLoop() {
 }
 
 /**
- * IN-MEMORY STATE: Отрисовка змейки как единого пути
+ * STATE MANAGEMENT: Отрисовка змейки как единого пути из window.appState.game.snakes
  * Использует ctx.beginPath() и ctx.lineTo() для создания цельного тела без "дыр"
+ * Голова рисуется отдельным ярким элементом
  */
 // Флаг для предотвращения бесконечного логирования невалидных координат
 let invalidPositionLogged = false;
 
 function drawSnakeSimple(snake, headHistory, color1, color2) {
+  // STATE MANAGEMENT: Используем данные из window.appState.game.snakes если snake не передан
+  if (!snake && window.appState && window.appState.game && window.appState.game.snakes) {
+    // Ищем змейку по цвету в appState
+    const isMySnake = color1 === '#ff4444' || color1 === '#00FF00';
+    snake = isMySnake ? window.appState.game.my_snake : window.appState.game.opponent_snake;
+  }
+  
   if (!snake || !snake.body || snake.body.length === 0) return;
   
   // ОПТИМИЗАЦИЯ: Проверка координат без бесконечного логирования
@@ -2378,9 +2494,9 @@ function drawSnakeSimple(snake, headHistory, color1, color2) {
   const isMySnake = color1 === '#ff4444' || color1 === '#00FF00';
   const headColor = isMySnake ? '#ff4444' : '#4444ff';
   const bodyColor = isMySnake ? '#ff6666' : '#6666ff';
-  const direction = snake.direction || { dx: 1, dy: 0 };
+  const direction = snake.direction || { dx: isMySnake ? 1 : -1, dy: 0 }; // ИСПРАВЛЕНИЕ: горизонтальное направление
   
-  // IN-MEMORY STATE: Рисуем змейку как единый путь через beginPath() и lineTo()
+  // STATE MANAGEMENT: Рисуем змейку как единый путь через beginPath() и lineTo()
   // Это убирает "дыры" в теле змейки, которые видны при отрисовке отдельных квадратов
   
   // Вычисляем центры всех сегментов для создания плавного пути
@@ -2402,8 +2518,8 @@ function drawSnakeSimple(snake, headHistory, color1, color2) {
     return;
   }
   
-  // Рисуем тело змейки как единый путь
-  const bodyWidth = tileSize * 0.85; // Ширина тела змейки
+  // Рисуем тело змейки как единую толстую линию с закругленными краями
+  const bodyWidth = tileSize * 0.9; // Увеличена ширина для более цельного вида
   
   // Создаем градиент для тела
   const bodyGradient = gameCtx.createLinearGradient(
@@ -2414,11 +2530,11 @@ function drawSnakeSimple(snake, headHistory, color1, color2) {
   bodyGradient.addColorStop(0.3, bodyColor);
   bodyGradient.addColorStop(1, bodyColor);
   
-  // Рисуем тело как единый путь с закругленными углами
+  // Рисуем тело как единый путь с закругленными краями (lineCap = 'round')
   gameCtx.strokeStyle = bodyGradient;
   gameCtx.fillStyle = bodyGradient;
   gameCtx.lineWidth = bodyWidth;
-  gameCtx.lineCap = 'round'; // Закругленные концы
+  gameCtx.lineCap = 'round'; // Закругленные концы - убирает "пунктирный" эффект
   gameCtx.lineJoin = 'round'; // Закругленные соединения
   gameCtx.shadowColor = bodyColor;
   gameCtx.shadowBlur = 12;
@@ -2428,32 +2544,15 @@ function drawSnakeSimple(snake, headHistory, color1, color2) {
   
   // Создаем плавную кривую через все точки
   for (let i = 1; i < pathPoints.length; i++) {
-    const point = pathPoints[i];
-    const prevPoint = pathPoints[i - 1];
-    
-    // Используем quadraticCurveTo для плавных поворотов
-    if (i === 1) {
-      gameCtx.lineTo(point.x, point.y);
-    } else {
-      // Вычисляем контрольную точку для плавного поворота
-      const controlX = (prevPoint.x + point.x) / 2;
-      const controlY = (prevPoint.y + point.y) / 2;
-      gameCtx.quadraticCurveTo(prevPoint.x, prevPoint.y, controlX, controlY);
-    }
-  }
-  
-  // Завершаем путь до последней точки
-  if (pathPoints.length > 1) {
-    const lastPoint = pathPoints[pathPoints.length - 1];
-    gameCtx.lineTo(lastPoint.x, lastPoint.y);
+    gameCtx.lineTo(pathPoints[i].x, pathPoints[i].y);
   }
   
   gameCtx.stroke();
   gameCtx.fill();
   
-  // Рисуем голову (более яркая и крупная)
+  // Рисуем голову отдельным ярким элементом
   const headPoint = pathPoints[0];
-  const headSize = tileSize * 0.9;
+  const headSize = tileSize * 1.0; // Голова немного больше тела
   const headRadius = headSize / 2;
   
   // Голова с более ярким градиентом
@@ -2480,27 +2579,32 @@ function drawSnakeSimple(snake, headHistory, color1, color2) {
   gameCtx.arc(headPoint.x, headPoint.y, headRadius, 0, Math.PI * 2);
   gameCtx.stroke();
   
-  // Глаза на голове с учетом направления
+  // Глаза на голове с учетом направления (горизонтально для countdown)
   const eyeOffset = headRadius * 0.4;
   const eyeSize = headRadius * 0.2;
   let eyeX1, eyeY1, eyeX2, eyeY2;
   
+  // ИСПРАВЛЕНИЕ: Горизонтальное направление для countdown (одна влево, другая вправо)
   if (direction.dx > 0) {
+    // Движется вправо - глаза справа
     eyeX1 = headPoint.x + eyeOffset;
     eyeY1 = headPoint.y - eyeOffset * 0.5;
     eyeX2 = headPoint.x + eyeOffset;
     eyeY2 = headPoint.y + eyeOffset * 0.5;
   } else if (direction.dx < 0) {
+    // Движется влево - глаза слева
     eyeX1 = headPoint.x - eyeOffset;
     eyeY1 = headPoint.y - eyeOffset * 0.5;
     eyeX2 = headPoint.x - eyeOffset;
     eyeY2 = headPoint.y + eyeOffset * 0.5;
   } else if (direction.dy > 0) {
+    // Движется вниз - глаза внизу
     eyeX1 = headPoint.x - eyeOffset * 0.5;
     eyeY1 = headPoint.y + eyeOffset;
     eyeX2 = headPoint.x + eyeOffset * 0.5;
     eyeY2 = headPoint.y + eyeOffset;
   } else {
+    // Движется вверх - глаза вверху
     eyeX1 = headPoint.x - eyeOffset * 0.5;
     eyeY1 = headPoint.y - eyeOffset;
     eyeX2 = headPoint.x + eyeOffset * 0.5;
