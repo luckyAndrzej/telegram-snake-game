@@ -436,6 +436,14 @@ function initSocket() {
   socket.on('countdown', (data) => {
     console.log('⏰ Countdown:', data.number);
     
+    // ИСПРАВЛЕНИЕ: Обновляем countdownValue в window.appState.game
+    if (window.appState && window.appState.game) {
+      window.appState.game.countdownValue = String(data.number);
+      window.appState.game.status = 'countdown';
+    }
+    // Также обновляем глобальную переменную для совместимости
+    countdownValue = String(data.number);
+    
     // ВИДИМОСТЬ ОТСЧЕТА: Прямо сейчас отсчет перекрыт другими слоями
     // В функции countdown добавляем команду для видимости отсчета
     const gameScreen = document.getElementById('game-screen');
@@ -2321,27 +2329,36 @@ function startRenderLoop() {
     // ИСПРАВЛЕНИЕ: Отрисовка змеек должна идти ВСЕГДА на основе данных из window.appState.game
     // (даже если новых пакетов нет) - это уберет мерцание и исчезновение змеек
     
-    // 3. Логика отсчета
-    if (gameState === 'countdown') {
-      // ИСПРАВЛЕНИЕ: Отрисовку отсчета делаем прямо внутри основного Canvas через fillText
-      const countdownNumber = document.getElementById('countdown-number');
-      const displayCount = countdownNumber?.textContent || window.appState?.game?.countdownValue || "...";
-      gameCtx.fillStyle = "white";
-      gameCtx.font = "bold 80px Arial";
-      gameCtx.textAlign = "center";
-      gameCtx.textBaseline = "middle";
-      gameCtx.fillText(displayCount, canvasLogicalSize / 2, canvasLogicalSize / 2);
-    }
-    
-    // 4. Отрисовка змеек (всегда, если есть данные)
+    // 3. Рисуем Змейку Игрока (Зеленая/Неоновая)
     const mySnake = window.appState?.game?.my_snake;
-    const oppSnake = window.appState?.game?.opponent_snake;
-
     if (mySnake && (mySnake.segments || mySnake.body)) {
-      drawSnakeSimple(mySnake, headHistory, '#00FF41', '#008F11'); // Зеленая - твоя
+      // Используем ярко-зеленый для себя
+      drawSnakeSimple(mySnake, headHistory, '#00FF41', '#008F11'); 
     }
+
+    // 4. Рисуем Змейку Оппонента (Красная/Розовая)
+    const oppSnake = window.appState?.game?.opponent_snake;
     if (oppSnake && (oppSnake.segments || oppSnake.body)) {
-      drawSnakeSimple(oppSnake, opponentHeadHistory, '#FF3131', '#8B0000'); // Красная - враг
+      // Используем ярко-красный для врага
+      drawSnakeSimple(oppSnake, opponentHeadHistory, '#FF3131', '#8B0000');
+    }
+
+    // 5. Рисуем ОТСЧЕТ (поверх всего)
+    // Проверяем и глобальную переменную, и состояние в appState
+    if (gameState === 'countdown' || window.appState?.game?.status === 'countdown') {
+      const countdownNumber = document.getElementById('countdown-number');
+      const val = window.appState?.game?.countdownValue || countdownNumber?.textContent || countdownValue || "";
+      if (val) {
+        gameCtx.save();
+        gameCtx.fillStyle = "#ffffff";
+        gameCtx.shadowBlur = 20;
+        gameCtx.shadowColor = "rgba(0, 245, 255, 0.8)";
+        gameCtx.font = "bold 120px Arial"; // Крупно
+        gameCtx.textAlign = "center";
+        gameCtx.textBaseline = "middle";
+        gameCtx.fillText(val, canvasLogicalSize / 2, canvasLogicalSize / 2);
+        gameCtx.restore();
+      }
     }
 
     animationFrameId = requestAnimationFrame(render);
@@ -2731,10 +2748,13 @@ function drawSnake(snake, color1, color2) {
   gameCtx.shadowOffsetX = 0;
   gameCtx.shadowOffsetY = 0;
   
+  // ИСПРАВЛЕНИЕ: Используем s (segments или body) вместо snake.body
   // ОПТИМИЗАЦИЯ FPS: для длинных змеек используем упрощенную отрисовку
-  const isLongSnake = snake.body.length > 10;
+  const isLongSnake = s && s.length > 10;
   
-  snake.body.forEach((segment, index) => {
+  if (!s || s.length === 0) return; // Защита от пустого массива
+  
+  s.forEach((segment, index) => {
     const x = segment.x * tileSize;
     const y = segment.y * tileSize;
     const size = tileSize - 2;
