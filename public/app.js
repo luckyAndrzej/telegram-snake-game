@@ -19,7 +19,6 @@ window.appState = {
   },
   game: {
     snakes: [],
-    food: null,
     status: 'menu', // menu, countdown, playing, finished
     my_snake: null,
     opponent_snake: null,
@@ -76,7 +75,6 @@ let gameStateJSON = {
 // Используется для синхронизации отрисовки и управления состоянием
 let currentGameState = {
   snakes: [],
-  food: null,
   status: 'idle', // idle, countdown, playing, finished
   my_snake: null,
   opponent_snake: null
@@ -294,15 +292,17 @@ function initSocket() {
         // ИНИЦИАЛИЗАЦИЯ ПОЗИЦИЙ: валидируем initial_state перед использованием
         const initialState = data.initial_state;
         
-        // Валидация координат в initial_state
-        if (initialState.my_snake && initialState.my_snake.body) {
-          const mySnakeHead = initialState.my_snake.body[0];
+        // Валидация координат в initial_state (используем segments)
+        const mySnakeSegments = initialState.my_snake?.segments || initialState.my_snake?.body;
+        const opponentSnakeSegments = initialState.opponent_snake?.segments || initialState.opponent_snake?.body;
+        if (mySnakeSegments && mySnakeSegments[0]) {
+          const mySnakeHead = mySnakeSegments[0];
           if (mySnakeHead && (mySnakeHead.x < 0 || mySnakeHead.x >= GRID_SIZE || mySnakeHead.y < 0 || mySnakeHead.y >= GRID_SIZE)) {
             console.error(`❌ CRITICAL: Invalid my_snake initial position: x=${mySnakeHead.x}, y=${mySnakeHead.y}`);
           }
         }
-        if (initialState.opponent_snake && initialState.opponent_snake.body) {
-          const opponentSnakeHead = initialState.opponent_snake.body[0];
+        if (opponentSnakeSegments && opponentSnakeSegments[0]) {
+          const opponentSnakeHead = opponentSnakeSegments[0];
           if (opponentSnakeHead && (opponentSnakeHead.x < 0 || opponentSnakeHead.x >= GRID_SIZE || opponentSnakeHead.y < 0 || opponentSnakeHead.y >= GRID_SIZE)) {
             console.error(`❌ CRITICAL: Invalid opponent_snake initial position: x=${opponentSnakeHead.x}, y=${opponentSnakeHead.y}`);
           }
@@ -313,13 +313,15 @@ function initSocket() {
         
         // STATE MANAGEMENT: Обновляем window.appState из initial_state
         window.appState.game.status = 'countdown';
+        // ПОЗИЦИОНИРОВАНИЕ НА СТАРТЕ: Используем данные из initial_state
+        // ИСПРАВЛЕНИЕ ДОСТУПА К КООРДИНАТАМ: Сервер присылает segments, а не body
         window.appState.game.my_snake = initialState.my_snake ? {
-          body: initialState.my_snake.body ? [...initialState.my_snake.body] : [],
+          segments: initialState.my_snake.segments ? [...initialState.my_snake.segments] : (initialState.my_snake.body ? [...initialState.my_snake.body] : []),
           direction: initialState.my_snake.direction ? { ...initialState.my_snake.direction } : { dx: 1, dy: 0 },
           alive: initialState.my_snake.alive !== undefined ? initialState.my_snake.alive : true
         } : null;
         window.appState.game.opponent_snake = initialState.opponent_snake ? {
-          body: initialState.opponent_snake.body ? [...initialState.opponent_snake.body] : [],
+          segments: initialState.opponent_snake.segments ? [...initialState.opponent_snake.segments] : (initialState.opponent_snake.body ? [...initialState.opponent_snake.body] : []),
           direction: initialState.opponent_snake.direction ? { ...initialState.opponent_snake.direction } : { dx: -1, dy: 0 },
           alive: initialState.opponent_snake.alive !== undefined ? initialState.opponent_snake.alive : true
         } : null;
@@ -470,7 +472,6 @@ function initSocket() {
     // CURRENT GAME STATE: Сбрасываем currentGameState при сбросе игры
     currentGameState = {
       snakes: [],
-      food: null,
       status: 'idle',
       my_snake: null,
       opponent_snake: null
@@ -550,13 +551,14 @@ function initSocket() {
     if (data && (gameState === 'playing' || gameState === 'countdown')) {
       window.appState.game.status = 'playing';
       window.appState.game.tick_number = data.tick_number || 0;
+      // ИСПРАВЛЕНИЕ ДОСТУПА К КООРДИНАТАМ: Сервер присылает segments, а не body
       window.appState.game.my_snake = data.my_snake ? {
-        body: data.my_snake.body ? [...data.my_snake.body] : [],
+        segments: data.my_snake.segments ? [...data.my_snake.segments] : (data.my_snake.body ? [...data.my_snake.body] : []),
         direction: data.my_snake.direction ? { ...data.my_snake.direction } : { dx: 1, dy: 0 },
         alive: data.my_snake.alive !== undefined ? data.my_snake.alive : true
       } : null;
       window.appState.game.opponent_snake = data.opponent_snake ? {
-        body: data.opponent_snake.body ? [...data.opponent_snake.body] : [],
+        segments: data.opponent_snake.segments ? [...data.opponent_snake.segments] : (data.opponent_snake.body ? [...data.opponent_snake.body] : []),
         direction: data.opponent_snake.direction ? { ...data.opponent_snake.direction } : { dx: -1, dy: 0 },
         alive: data.opponent_snake.alive !== undefined ? data.opponent_snake.alive : true
       } : null;
@@ -1983,10 +1985,12 @@ function startGame(data) {
  * ЛОГИКА ГРАНИЦ: если игра завершена (finished: true), разрешаем невалидные координаты для отрисовки последнего кадра
  */
 function validateSnakeCoordinates(snake, snakeName = 'snake', allowInvalidOnFinish = false) {
-  if (!snake || !snake.body) return false;
+  // ИСПРАВЛЕНИЕ ДОСТУПА К КООРДИНАТАМ: Используем segments вместо body
+  const segments = snake?.segments || snake?.body;
+  if (!snake || !segments) return false;
   
-  for (let i = 0; i < snake.body.length; i++) {
-    const segment = snake.body[i];
+  for (let i = 0; i < segments.length; i++) {
+    const segment = segments[i];
     if (segment.x < 0 || segment.x >= GRID_SIZE || segment.y < 0 || segment.y >= GRID_SIZE) {
       if (allowInvalidOnFinish) {
         // Если игра завершена, логируем но разрешаем отрисовку для показа последнего кадра
@@ -2023,11 +2027,12 @@ function cloneSnakeState(data) {
     opponent_snake: null
   };
   
+  // ИСПРАВЛЕНИЕ ДОСТУПА К КООРДИНАТАМ: Используем segments вместо body
   // Клонируем и валидируем мою змейку
   if (data.my_snake) {
-    const body = data.my_snake.body.map(s => ({ x: s.x, y: s.y }));
+    const segments = (data.my_snake.segments || data.my_snake.body || []).map(s => ({ x: s.x, y: s.y }));
     cloned.my_snake = {
-      body: body,
+      segments: segments,
       direction: { dx: data.my_snake.direction.dx, dy: data.my_snake.direction.dy },
       alive: data.my_snake.alive
     };
@@ -2043,9 +2048,9 @@ function cloneSnakeState(data) {
   
   // Клонируем и валидируем змейку противника
   if (data.opponent_snake) {
-    const body = data.opponent_snake.body.map(s => ({ x: s.x, y: s.y }));
+    const segments = (data.opponent_snake.segments || data.opponent_snake.body || []).map(s => ({ x: s.x, y: s.y }));
     cloned.opponent_snake = {
-      body: body,
+      segments: segments,
       direction: { dx: data.opponent_snake.direction.dx, dy: data.opponent_snake.direction.dy },
       alive: data.opponent_snake.alive
     };
@@ -2059,8 +2064,10 @@ function cloneSnakeState(data) {
     }
     
     // ЛОГИРОВАНИЕ НАПРАВЛЕНИЯ ПЕРЕД СМЕРТЬЮ: если координаты невалидны и игра завершена
-    if (isFinished && cloned.opponent_snake.body && cloned.opponent_snake.body[0]) {
-      const head = cloned.opponent_snake.body[0];
+    // ИСПРАВЛЕНИЕ ДОСТУПА К КООРДИНАТАМ: Используем segments вместо body
+    const opponentSegments = cloned.opponent_snake?.segments || cloned.opponent_snake?.body;
+    if (isFinished && opponentSegments && opponentSegments[0]) {
+      const head = opponentSegments[0];
       if (head.x < 0 || head.x >= GRID_SIZE || head.y < 0 || head.y >= GRID_SIZE) {
         console.log(`📊 opponent_snake direction before death: dx=${cloned.opponent_snake.direction.dx}, dy=${cloned.opponent_snake.direction.dy}`);
         console.log(`📊 opponent_snake final position: x=${head.x}, y=${head.y}, alive=${cloned.opponent_snake.alive}`);
@@ -2102,12 +2109,12 @@ function updateGameState(data) {
         tick_number: data.tick_number || 0,
         finished: true,
         my_snake: data.my_snake ? {
-          body: data.my_snake.body.map(s => ({ x: s.x, y: s.y })),
+          segments: (data.my_snake.segments || data.my_snake.body || []).map(s => ({ x: s.x, y: s.y })),
           direction: { dx: data.my_snake.direction.dx, dy: data.my_snake.direction.dy },
           alive: data.my_snake.alive
         } : null,
         opponent_snake: data.opponent_snake ? {
-          body: data.opponent_snake.body.map(s => ({ x: s.x, y: s.y })),
+          segments: (data.opponent_snake.segments || data.opponent_snake.body || []).map(s => ({ x: s.x, y: s.y })),
           direction: { dx: data.opponent_snake.direction.dx, dy: data.opponent_snake.direction.dy },
           alive: data.opponent_snake.alive
         } : null
@@ -2121,8 +2128,10 @@ function updateGameState(data) {
   }
   
   // Логируем координаты для диагностики
-  if (cloned.my_snake && cloned.my_snake.body && cloned.my_snake.body[0]) {
-    const head = cloned.my_snake.body[0];
+  // ИСПРАВЛЕНИЕ ДОСТУПА К КООРДИНАТАМ: Используем segments вместо body
+  const mySnakeSegments = cloned.my_snake?.segments || cloned.my_snake?.body;
+  if (mySnakeSegments && mySnakeSegments[0]) {
+    const head = mySnakeSegments[0];
     if (head.x < 0 || head.x >= GRID_SIZE || head.y < 0 || head.y >= GRID_SIZE) {
       if (isFinished) {
         console.warn(`⚠️ my_snake head out of bounds (game finished): x=${head.x}, y=${head.y}, tick=${cloned.tick_number}`);
@@ -2135,8 +2144,9 @@ function updateGameState(data) {
       }
     }
   }
-  if (cloned.opponent_snake && cloned.opponent_snake.body && cloned.opponent_snake.body[0]) {
-    const head = cloned.opponent_snake.body[0];
+  const opponentSnakeSegments = cloned.opponent_snake?.segments || cloned.opponent_snake?.body;
+  if (opponentSnakeSegments && opponentSnakeSegments[0]) {
+    const head = opponentSnakeSegments[0];
     if (head.x < 0 || head.x >= GRID_SIZE || head.y < 0 || head.y >= GRID_SIZE) {
       if (isFinished) {
         console.warn(`⚠️ opponent_snake head out of bounds (game finished): x=${head.x}, y=${head.y}, tick=${cloned.tick_number}`);
@@ -2255,8 +2265,12 @@ function startRenderLoop() {
       // ИСПРАВЛЕНИЕ: если игра завершена (finished: true), разрешаем невалидные координаты
       const isFinished = nextState.finished === true;
       
-      if (nextState.my_snake && nextState.my_snake.body && nextState.my_snake.body[0]) {
-        const head = nextState.my_snake.body[0];
+      // ИСПРАВЛЕНИЕ ДОСТУПА К КООРДИНАТАМ: Используем segments вместо body
+      const mySnakeSegments = nextState.my_snake?.segments || nextState.my_snake?.body;
+      const opponentSnakeSegments = nextState.opponent_snake?.segments || nextState.opponent_snake?.body;
+      
+      if (mySnakeSegments && mySnakeSegments[0]) {
+        const head = mySnakeSegments[0];
         if (head.x < 0 || head.x >= GRID_SIZE || head.y < 0 || head.y >= GRID_SIZE) {
           if (!isFinished) {
             console.error(`❌ CRITICAL: Invalid my_snake coordinates in packet: x=${head.x}, y=${head.y}, tick=${nextState.tick_number}`);
@@ -2264,8 +2278,8 @@ function startRenderLoop() {
           }
         }
       }
-      if (nextState.opponent_snake && nextState.opponent_snake.body && nextState.opponent_snake.body[0]) {
-        const head = nextState.opponent_snake.body[0];
+      if (opponentSnakeSegments && opponentSnakeSegments[0]) {
+        const head = opponentSnakeSegments[0];
         if (head.x < 0 || head.x >= GRID_SIZE || head.y < 0 || head.y >= GRID_SIZE) {
           if (!isFinished) {
             console.error(`❌ CRITICAL: Invalid opponent_snake coordinates in packet: x=${head.x}, y=${head.y}, tick=${nextState.tick_number}`);
@@ -2279,44 +2293,57 @@ function startRenderLoop() {
         
         // УСТРАНЕНИЕ 'БРОСКОВ ПО СТОРОНАМ': если позиция изменилась и по X, и по Y - это склеенные пакеты
         // Отрисовываем это как два быстрых поворота под 90 градусов
+        // ИСПРАВЛЕНИЕ ДОСТУПА К КООРДИНАТАМ: Используем segments вместо body
         if (currentGameState && currentGameState.my_snake && nextPacket.my_snake) {
-          const prevHead = currentGameState.my_snake.body[0];
-          const nextHead = nextPacket.my_snake.body[0];
-          const dx = nextHead.x - prevHead.x;
-          const dy = nextHead.y - prevHead.y;
-          
-          // Если изменились обе координаты - это склеенные пакеты, делаем два поворота
-          if (dx !== 0 && dy !== 0) {
-            // Определяем направление движения до поворота
-            const prevDir = currentGameState.my_snake.direction;
-            const wasMovingHorizontally = Math.abs(prevDir.dx) > Math.abs(prevDir.dy);
+          const prevSegments = currentGameState.my_snake.segments || currentGameState.my_snake.body;
+          const nextSegments = nextPacket.my_snake.segments || nextPacket.my_snake.body;
+          if (prevSegments && prevSegments[0] && nextSegments && nextSegments[0]) {
+            const prevHead = prevSegments[0];
+            const nextHead = nextSegments[0];
+            const dx = nextHead.x - prevHead.x;
+            const dy = nextHead.y - prevHead.y;
             
-            // Первый поворот: двигаемся только по одной оси
-            if (wasMovingHorizontally) {
-              // Двигались горизонтально - сначала завершаем движение по X
-              nextPacket.my_snake.body[0] = { x: nextHead.x, y: prevHead.y };
-            } else {
-              // Двигались вертикально - сначала завершаем движение по Y
-              nextPacket.my_snake.body[0] = { x: prevHead.x, y: nextHead.y };
+            // Если изменились обе координаты - это склеенные пакеты, делаем два поворота
+            if (dx !== 0 && dy !== 0) {
+              // Определяем направление движения до поворота
+              const prevDir = currentGameState.my_snake.direction;
+              const wasMovingHorizontally = Math.abs(prevDir.dx) > Math.abs(prevDir.dy);
+              
+              // Первый поворот: двигаемся только по одной оси
+              if (wasMovingHorizontally) {
+                // Двигались горизонтально - сначала завершаем движение по X
+                if (!nextPacket.my_snake.segments) nextPacket.my_snake.segments = [...nextSegments];
+                nextPacket.my_snake.segments[0] = { x: nextHead.x, y: prevHead.y };
+              } else {
+                // Двигались вертикально - сначала завершаем движение по Y
+                if (!nextPacket.my_snake.segments) nextPacket.my_snake.segments = [...nextSegments];
+                nextPacket.my_snake.segments[0] = { x: prevHead.x, y: nextHead.y };
+              }
             }
           }
         }
         
         // Аналогично для противника
         if (currentGameState && currentGameState.opponent_snake && nextPacket.opponent_snake) {
-          const prevHead = currentGameState.opponent_snake.body[0];
-          const nextHead = nextPacket.opponent_snake.body[0];
-          const dx = nextHead.x - prevHead.x;
-          const dy = nextHead.y - prevHead.y;
-          
-          if (dx !== 0 && dy !== 0) {
-            const prevDir = currentGameState.opponent_snake.direction;
-            const wasMovingHorizontally = Math.abs(prevDir.dx) > Math.abs(prevDir.dy);
+          const prevSegments = currentGameState.opponent_snake.segments || currentGameState.opponent_snake.body;
+          const nextSegments = nextPacket.opponent_snake.segments || nextPacket.opponent_snake.body;
+          if (prevSegments && prevSegments[0] && nextSegments && nextSegments[0]) {
+            const prevHead = prevSegments[0];
+            const nextHead = nextSegments[0];
+            const dx = nextHead.x - prevHead.x;
+            const dy = nextHead.y - prevHead.y;
             
-            if (wasMovingHorizontally) {
-              nextPacket.opponent_snake.body[0] = { x: nextHead.x, y: prevHead.y };
-            } else {
-              nextPacket.opponent_snake.body[0] = { x: prevHead.x, y: nextHead.y };
+            if (dx !== 0 && dy !== 0) {
+              const prevDir = currentGameState.opponent_snake.direction;
+              const wasMovingHorizontally = Math.abs(prevDir.dx) > Math.abs(prevDir.dy);
+              
+              if (wasMovingHorizontally) {
+                if (!nextPacket.opponent_snake.segments) nextPacket.opponent_snake.segments = [...nextSegments];
+                nextPacket.opponent_snake.segments[0] = { x: nextHead.x, y: prevHead.y };
+              } else {
+                if (!nextPacket.opponent_snake.segments) nextPacket.opponent_snake.segments = [...nextSegments];
+                nextPacket.opponent_snake.segments[0] = { x: prevHead.x, y: nextHead.y };
+              }
             }
           }
         }
@@ -2357,31 +2384,34 @@ function startRenderLoop() {
         lastStateUpdateTime = performance.now();
         
         // ЛОГИРОВАНИЕ: логируем только при обновлении состояния, а не каждый кадр
-        console.log(`📦 State updated: tick=${nextPacket.tick_number}, my_snake at (${nextPacket.my_snake?.body?.[0]?.x}, ${nextPacket.my_snake?.body?.[0]?.y}), opponent at (${nextPacket.opponent_snake?.body?.[0]?.x}, ${nextPacket.opponent_snake?.body?.[0]?.y})`);
+        // ИСПРАВЛЕНИЕ ДОСТУПА К КООРДИНАТАМ: Используем segments вместо body
+        const mySnakeSegments = nextPacket.my_snake?.segments || nextPacket.my_snake?.body;
+        const opponentSnakeSegments = nextPacket.opponent_snake?.segments || nextPacket.opponent_snake?.body;
+        console.log(`📦 State updated: tick=${nextPacket.tick_number}, my_snake at (${mySnakeSegments?.[0]?.x}, ${mySnakeSegments?.[0]?.y}), opponent at (${opponentSnakeSegments?.[0]?.x}, ${opponentSnakeSegments?.[0]?.y})`);
         
         // Обновляем историю головы для хвоста
-        if (nextPacket.my_snake && nextPacket.my_snake.body && nextPacket.my_snake.body[0]) {
-          const head = nextPacket.my_snake.body[0];
+        if (mySnakeSegments && mySnakeSegments[0]) {
+          const head = mySnakeSegments[0];
           headHistory.push({
             x: head.x,
             y: head.y,
             direction: { ...nextPacket.my_snake.direction }
           });
           // Ограничиваем историю до длины змейки
-          if (headHistory.length > (nextPacket.my_snake.body.length || 5)) {
+          if (headHistory.length > (mySnakeSegments.length || 5)) {
             headHistory.shift();
           }
         }
         
-        if (nextPacket.opponent_snake && nextPacket.opponent_snake.body && nextPacket.opponent_snake.body[0]) {
-          const head = nextPacket.opponent_snake.body[0];
+        if (opponentSnakeSegments && opponentSnakeSegments[0]) {
+          const head = opponentSnakeSegments[0];
           opponentHeadHistory.push({
             x: head.x,
             y: head.y,
             direction: { ...nextPacket.opponent_snake.direction }
           });
           // Ограничиваем историю до длины змейки
-          if (opponentHeadHistory.length > (nextPacket.opponent_snake.body.length || 5)) {
+          if (opponentHeadHistory.length > (opponentSnakeSegments.length || 5)) {
             opponentHeadHistory.shift();
           }
         }
@@ -2430,8 +2460,12 @@ function startRenderLoop() {
       const mySnake = window.appState?.game?.my_snake;
       const opponentSnake = window.appState?.game?.opponent_snake;
       
-      if (mySnake && opponentSnake) {
-        console.log('🎨 Rendering MY snake at:', mySnake.body?.[0], 'OPPONENT snake at:', opponentSnake.body?.[0]);
+      // ИСПРАВЛЕНИЕ ДОСТУПА К КООРДИНАТАМ: Используем segments вместо body
+      const mySnakeSegments = mySnake?.segments || mySnake?.body;
+      const opponentSnakeSegments = opponentSnake?.segments || opponentSnake?.body;
+      
+      if (mySnakeSegments && mySnakeSegments.length > 0 && opponentSnakeSegments && opponentSnakeSegments.length > 0) {
+        console.log('🎨 Rendering MY snake at:', mySnakeSegments[0], 'OPPONENT snake at:', opponentSnakeSegments[0]);
         
         // Вычисляем коэффициент интерполяции (0-1) на основе времени с последнего обновления
         const timeSinceUpdate = lastStateUpdateTime > 0 ? performance.now() - lastStateUpdateTime : 0;
@@ -2444,41 +2478,42 @@ function startRenderLoop() {
         }
         
         // Если есть предыдущее состояние, используем интерполяцию для плавного движения
-        let mySnakeToDraw = mySnake;
-        let opponentSnakeToDraw = opponentSnake;
+        let mySnakeToDraw = { ...mySnake, segments: mySnakeSegments };
+        let opponentSnakeToDraw = { ...opponentSnake, segments: opponentSnakeSegments };
         
         if (previousGameState && interpolationFactor < 1.0 && previousGameState.my_snake && previousGameState.opponent_snake) {
           // ОПТИМИЗАЦИЯ: Интерполируем позицию головы между предыдущим и текущим состоянием
-          if (previousGameState.my_snake.body && previousGameState.my_snake.body[0] && 
-              mySnake.body && mySnake.body[0]) {
-            const prevHead = previousGameState.my_snake.body[0];
-            const currHead = mySnake.body[0];
+          const prevMySegments = previousGameState.my_snake.segments || previousGameState.my_snake.body;
+          const prevOpponentSegments = previousGameState.opponent_snake.segments || previousGameState.opponent_snake.body;
+          
+          if (prevMySegments && prevMySegments[0] && mySnakeSegments[0]) {
+            const prevHead = prevMySegments[0];
+            const currHead = mySnakeSegments[0];
             const interpolatedHead = {
               x: prevHead.x + (currHead.x - prevHead.x) * interpolationFactor,
               y: prevHead.y + (currHead.y - prevHead.y) * interpolationFactor
             };
             mySnakeToDraw = {
               ...mySnake,
-              body: [{ ...interpolatedHead }, ...mySnake.body.slice(1)]
+              segments: [{ ...interpolatedHead }, ...mySnakeSegments.slice(1)]
             };
           }
           
-          if (previousGameState.opponent_snake.body && previousGameState.opponent_snake.body[0] && 
-              opponentSnake.body && opponentSnake.body[0]) {
-            const prevHead = previousGameState.opponent_snake.body[0];
-            const currHead = opponentSnake.body[0];
+          if (prevOpponentSegments && prevOpponentSegments[0] && opponentSnakeSegments[0]) {
+            const prevHead = prevOpponentSegments[0];
+            const currHead = opponentSnakeSegments[0];
             const interpolatedHead = {
               x: prevHead.x + (currHead.x - prevHead.x) * interpolationFactor,
               y: prevHead.y + (currHead.y - prevHead.y) * interpolationFactor
             };
             opponentSnakeToDraw = {
               ...opponentSnake,
-              body: [{ ...interpolatedHead }, ...opponentSnake.body.slice(1)]
+              segments: [{ ...interpolatedHead }, ...opponentSnakeSegments.slice(1)]
             };
           }
         }
         
-        // ПРОВЕРКА ИСТОЧНИКА: Отрисовываем змейки из window.appState.game.my_snake и window.appState.game.opponent_snake
+        // ИСПРАВЛЕНИЕ ДОСТУПА К КООРДИНАТАМ: Отрисовываем змейки с segments
         drawSnakeSimple(mySnakeToDraw, headHistory, '#ff4444', '#ff6666');
         drawSnakeSimple(opponentSnakeToDraw, opponentHeadHistory, '#4444ff', '#6666ff');
       } else {
@@ -2513,6 +2548,9 @@ let invalidPositionLogged = false;
  * ЦЕЛЬНАЯ ОТРИСОВКА (SNAKE BODY) - БЕЗ КВАДРАТИКОВ
  * Чтобы змейка не выглядела как "пунктир" и не исчезала, используем метод рисования пути
  */
+/**
+ * ИСПРАВЛЕНИЕ ОТРИСОВКИ: Переписываем drawSnake, чтобы она принимала массив segments и рисовала их как одну сплошную линию
+ */
 function drawSnakeSimple(snake, headHistory, color1, color2) {
   // STATE MANAGEMENT: Используем данные из window.appState.game если snake не передан
   if (!snake && window.appState && window.appState.game) {
@@ -2520,10 +2558,17 @@ function drawSnakeSimple(snake, headHistory, color1, color2) {
     snake = isMySnake ? window.appState.game.my_snake : window.appState.game.opponent_snake;
   }
   
-  if (!snake || !snake.body || snake.body.length === 0) return;
+  // ИСПРАВЛЕНИЕ ДОСТУПА К КООРДИНАТАМ: Используем segments вместо body
+  const segments = snake?.segments || snake?.body;
+  
+  // ИСПРАВЛЕНИЕ ОТРИСОВКИ: Если массив segments пустой или не определен, логируем ошибку
+  if (!segments || segments.length === 0) {
+    console.error('❌ Segments not found for snake!', { snake, hasSegments: !!snake?.segments, hasBody: !!snake?.body });
+    return;
+  }
   
   // ОПТИМИЗАЦИЯ: Проверка координат без бесконечного логирования
-  const head = snake.body[0];
+  const head = segments[0];
   if (head.x < 0 || head.x >= GRID_SIZE || head.y < 0 || head.y >= GRID_SIZE) {
     if (!invalidPositionLogged) {
       console.warn(`⚠️ Invalid snake position - x=${head.x}, y=${head.y} (must be 0-${GRID_SIZE-1}). Drawing last valid frame.`);
@@ -2539,28 +2584,23 @@ function drawSnakeSimple(snake, headHistory, color1, color2) {
   const tileSize = Math.floor(canvasLogicalSize / GRID_SIZE);
   const isMySnake = color1 === '#ff4444' || color1 === '#00FF00';
   const snakeColor = isMySnake ? '#ff4444' : '#4444ff';
-  const direction = snake.direction || { dx: isMySnake ? 1 : -1, dy: 0 };
   
-  // ЦЕЛЬНАЯ ОТРИСОВКА БЕЗ КВАДРАТИКОВ: Используем простой метод рисования пути
-  // Это сделает змейку цельной и плавной, без "пунктирного" эффекта
-  if (!snake.body || snake.body.length === 0) return;
-  
-  // ЦЕЛЬНАЯ ОТРИСОВКА: Начинаем путь с первого сегмента
+  // ИСПРАВЛЕНИЕ ОТРИСОВКИ: Рисуем segments как одну сплошную линию
   gameCtx.beginPath();
   gameCtx.strokeStyle = snakeColor;
   gameCtx.lineWidth = tileSize - 2; // Толстая линия
   gameCtx.lineJoin = 'round';
   gameCtx.lineCap = 'round';
   
-  // ЦЕЛЬНАЯ ОТРИСОВКА: Перемещаемся к первому сегменту
-  gameCtx.moveTo(snake.body[0].x * tileSize + tileSize / 2, snake.body[0].y * tileSize + tileSize / 2);
+  // ИСПРАВЛЕНИЕ ОТРИСОВКИ: Перемещаемся к первому сегменту
+  gameCtx.moveTo(segments[0].x * tileSize + tileSize / 2, segments[0].y * tileSize + tileSize / 2);
   
-  // ЦЕЛЬНАЯ ОТРИСОВКА: Соединяем все сегменты линиями
-  for (let i = 1; i < snake.body.length; i++) {
-    gameCtx.lineTo(snake.body[i].x * tileSize + tileSize / 2, snake.body[i].y * tileSize + tileSize / 2);
+  // ИСПРАВЛЕНИЕ ОТРИСОВКИ: Соединяем все сегменты линиями
+  for (let i = 1; i < segments.length; i++) {
+    gameCtx.lineTo(segments[i].x * tileSize + tileSize / 2, segments[i].y * tileSize + tileSize / 2);
   }
   
-  // ЦЕЛЬНАЯ ОТРИСОВКА: Рисуем путь (БЕЗ КВАДРАТИКОВ)
+  // ИСПРАВЛЕНИЕ ОТРИСОВКИ: Рисуем путь
   gameCtx.stroke();
 }
 
