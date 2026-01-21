@@ -1564,19 +1564,28 @@ function processInputBuffer() {
 function showScreen(screenName) {
   console.log('🖥️ Switching to screen:', screenName);
   
-  // ВИДИМОСТЬ ОТСЧЕТА: Отсчет не виден, потому что его перекрывает lobby-screen
-  // В функции showScreen('game') добавляем: document.getElementById('lobby-screen').style.display = 'none';
-  // Убедись, что #game-screen имеет z-index: 100 и display: flex
+  // УБРАТЬ ПЕРЕКРЫТИЕ ЭКРАНОВ: В функции showScreen('game') добавляем команды для скрытия lobby-screen
   if (screenName === 'game') {
     const gameScreen = document.getElementById('game-screen');
     const lobbyScreen = document.getElementById('lobby-screen');
+    const gameCanvas = document.getElementById('game-canvas');
+    
     if (gameScreen) {
       gameScreen.style.zIndex = '100';
       gameScreen.style.display = 'flex';
     }
+    
+    // УБРАТЬ ПЕРЕКРЫТИЕ ЭКРАНОВ: document.getElementById('lobby-screen').classList.remove('active'); document.getElementById('lobby-screen').style.display = 'none';
     if (lobbyScreen) {
+      lobbyScreen.classList.remove('active');
       lobbyScreen.style.display = 'none';
-      console.log('✅ lobby-screen скрыт при переключении на game, game-screen z-index установлен');
+      console.log('✅ lobby-screen скрыт при переключении на game');
+    }
+    
+    // СДЕЛАТЬ ОТСЧЕТ ВИДИМЫМ: Подними Canvas на передний план: canvas.style.position = 'relative'; canvas.style.zIndex = '1000';
+    if (gameCanvas) {
+      gameCanvas.style.position = 'relative';
+      gameCanvas.style.zIndex = '1000';
     }
   }
   
@@ -2499,6 +2508,20 @@ function startRenderLoop() {
     // CURRENT GAME STATE: Используем currentGameState для отрисовки во время countdown
     // Это гарантирует, что змейки будут видны сразу в правильном положении
     if (gameState === 'countdown') {
+      // СДЕЛАТЬ ОТСЧЕТ ВИДИМЫМ: В renderCountdown принудительно очищаем экран
+      gameCtx.clearRect(0, 0, canvasLogicalSize, canvasLogicalSize);
+      
+      // Заливаем фон заново
+      gameCtx.fillStyle = '#0a0e27';
+      gameCtx.fillRect(0, 0, canvasLogicalSize, canvasLogicalSize);
+      
+      // Рисуем сетку
+      if (gridCanvas) {
+        gameCtx.drawImage(gridCanvas, 0, 0);
+      } else {
+        drawGrid();
+      }
+      
       const stateToRender = currentGameState.status === 'countdown' ? currentGameState : (currentGame?.initialState || gameStateJSON);
       if (stateToRender && (stateToRender.my_snake || stateToRender.opponent_snake || currentGameState.my_snake || currentGameState.opponent_snake)) {
         // Используем currentGameState если он доступен, иначе fallback на stateToRender
@@ -2512,15 +2535,14 @@ function startRenderLoop() {
           drawSnakeSimple(opponentSnake, [], '#4444ff', '#6666ff');
         }
         
-        // ВИДИМОСТЬ ОТСЧЕТА: Отсчет (3, 2, 1) не виден, потому что его перекрывает слой лобби или прозрачный оверлей
-        // В функции renderCountdown принудительно делаем отрисовку отсчета
+        // СДЕЛАТЬ ОТСЧЕТ ВИДИМЫМ: Установи цвет текста: ctx.fillStyle = '#ff0000'; (ярко-красный, чтобы точно заметить)
         const countdownNumber = document.getElementById('countdown-number');
         const countdownValue = countdownNumber?.textContent || '';
         if (countdownValue) {
           // Рисуем текст отсчета поверх canvas
           gameCtx.save();
-          gameCtx.fillStyle = 'white'; // Принудительно белый цвет
-          gameCtx.font = 'bold 80px sans-serif'; // Размер шрифта bold 80px sans-serif
+          gameCtx.fillStyle = '#ff0000'; // Ярко-красный цвет, чтобы точно заметить
+          gameCtx.font = 'bold 80px sans-serif';
           gameCtx.textAlign = 'center';
           gameCtx.textBaseline = 'middle';
           gameCtx.shadowColor = 'rgba(0, 0, 0, 0.9)';
@@ -2529,17 +2551,24 @@ function startRenderLoop() {
           gameCtx.restore();
         }
         
-    animationFrameId = requestAnimationFrame(render);
+        animationFrameId = requestAnimationFrame(render);
         return;
       }
     }
     
-    // НАСТРОЙКА ОТРИСОВКИ ИЗ ПРАВИЛЬНЫХ ДАННЫХ: Когда gameState === 'playing', функция рендеринга ищет координаты в window.appState.game.my_snake.segments и window.appState.game.opponent_snake.segments
-    // Важно: Если данных в playing еще нет, берем их из initial_state, чтобы змейки не пропадали ни на секунду
+    // ИСПРАВЛЕНИЕ ИСЧЕЗНОВЕНИЯ ПОСЛЕ ОТСЧЕТА: В основном цикле render(), когда gameState === 'playing', убедись, что переменные my_snake и opponent_snake берутся из актуального window.appState.game
+    // Добавь проверку: if (!window.appState.game.my_snake) return; чтобы не стирать экран впустую
     if (gameState === 'playing') {
+      // ИСПРАВЛЕНИЕ ИСЧЕЗНОВЕНИЯ: Проверяем наличие данных перед отрисовкой
+      if (!window.appState || !window.appState.game || !window.appState.game.my_snake) {
+        console.warn('⚠️ window.appState.game.my_snake отсутствует, пропускаем отрисовку');
+        animationFrameId = requestAnimationFrame(render);
+        return;
+      }
+      
       // НАСТРОЙКА ОТРИСОВКИ: Используем window.appState.game.my_snake.segments и window.appState.game.opponent_snake.segments напрямую
-      let mySnake = window.appState?.game?.my_snake;
-      let opponentSnake = window.appState?.game?.opponent_snake;
+      let mySnake = window.appState.game.my_snake;
+      let opponentSnake = window.appState.game.opponent_snake;
       
       // ФИКС: Если данных в playing еще нет, берем их из initial_state
       if (!mySnake || !opponentSnake) {
@@ -2656,27 +2685,33 @@ let invalidPositionLogged = false;
 /**
  * ИСПРАВЛЕНИЕ ОТРИСОВКИ ЗМЕЕК: Рисуем каждый сегмент из массива segments с объемом
  */
+/**
+ * ИСПРАВЛЕНИЕ ОТРИСОВКИ ТЕЛА ЗМЕЙКИ: Сейчас видно только голову. В функции drawSnake убедись, что ты проходишь циклом по ВСЕМУ массиву segments.
+ * Логи показывают структуру: window.appState.game.my_snake.segments. Используй именно этот путь.
+ */
 function drawSnakeSimple(snake, headHistory, color1, color2) {
-  // УДАЛЕНИЕ БАГОВ С ПОЛОСКАМИ: Добавляем ctx.beginPath() в начало функции drawSnake
-  gameCtx.beginPath();
-  
   // STATE MANAGEMENT: Используем данные из window.appState.game если snake не передан
   if (!snake && window.appState && window.appState.game) {
     const isMySnake = color1 === '#ff4444' || color1 === '#00FF00';
     snake = isMySnake ? window.appState.game.my_snake : window.appState.game.opponent_snake;
   }
   
-  // ИСПРАВЛЕНИЕ ОТРИСОВКИ: Убедись, что drawSnake берет каждый сегмент из массива window.appState.game.my_snake.segments
-  const segments = snake?.segments || snake?.body;
-  
-  // ИСПРАВЛЕНИЕ ОТРИСОВКИ: Если массив segments пустой или не определен, логируем ошибку
-  if (!segments || segments.length === 0) {
+  // ИСПРАВЛЕНИЕ ОТРИСОВКИ ТЕЛА: Логи показывают структуру: window.appState.game.my_snake.segments. Используй именно этот путь.
+  if (!snake || !snake.segments) {
     console.error('❌ Segments not found for snake!', { snake, hasSegments: !!snake?.segments, hasBody: !!snake?.body });
     return;
   }
   
+  const s = snake.segments; // Используем именно segments из структуры window.appState.game.my_snake.segments
+  
+  // ИСПРАВЛЕНИЕ ОТРИСОВКИ ТЕЛА: Если массив segments пустой, не рисуем
+  if (!s || s.length === 0) {
+    console.error('❌ Segments array is empty!', { snake });
+    return;
+  }
+  
   // ОПТИМИЗАЦИЯ: Проверка координат без бесконечного логирования
-  const head = segments[0];
+  const head = s[0];
   if (head.x < 0 || head.x >= GRID_SIZE || head.y < 0 || head.y >= GRID_SIZE) {
     if (!invalidPositionLogged) {
       console.warn(`⚠️ Invalid snake position - x=${head.x}, y=${head.y} (must be 0-${GRID_SIZE-1}). Drawing last valid frame.`);
@@ -2694,46 +2729,27 @@ function drawSnakeSimple(snake, headHistory, color1, color2) {
   const isMySnake = color1 === '#ff4444' || color1 === '#00FF00';
   const snakeColor = isMySnake ? '#ff4444' : '#4444ff';
   
-  // КООРДИНАТЫ И РАЗМЕР: Если змейка рисуется за пределами экрана, добавляем лог
-  // Логируем только при первом вызове или при изменении координат, чтобы не засорять консоль
-  if (!window.lastHeadLog || window.lastHeadLog.x !== segments[0].x || window.lastHeadLog.y !== segments[0].y) {
-    console.log('🎨 Drawing head at:', segments[0].x, segments[0].y, 'tileSize:', tileSize, 'canvasLogicalSize:', canvasLogicalSize);
-    window.lastHeadLog = { x: segments[0].x, y: segments[0].y };
-  }
-  
-  // "У ЗМЕЙКИ НЕТ ГОЛОВЫ": Перепиши drawSnake так, чтобы голова (нулевой сегмент массива segments) рисовалась как яркий квадрат или круг другого цвета (например, белого), а тело — основным цветом
-  // Рисуем тело змейки
+  // ИСПРАВЛЕНИЕ ОТРИСОВКИ ТЕЛА: Проходим циклом по ВСЕМУ массиву segments
+  gameCtx.beginPath();
   gameCtx.strokeStyle = snakeColor;
-  gameCtx.lineWidth = tileSize * 0.8; // Змейка должна иметь объем
-  gameCtx.lineJoin = 'round';
+  gameCtx.lineWidth = tileSize * 0.8;
   gameCtx.lineCap = 'round';
+  gameCtx.lineJoin = 'round';
   
-  // ИСПРАВЛЕНИЕ ОТРИСОВКИ: Проверяем, не перепутаны ли x и y при умножении на tileSize
-  // Перемещаемся к первому сегменту (x * tileSize для горизонтали, y * tileSize для вертикали)
-  gameCtx.moveTo(segments[0].x * tileSize + tileSize / 2, segments[0].y * tileSize + tileSize / 2);
+  // ИСПРАВЛЕНИЕ ОТРИСОВКИ ТЕЛА: Начинаем с первого сегмента (голова)
+  gameCtx.moveTo(s[0].x * tileSize + tileSize / 2, s[0].y * tileSize + tileSize / 2);
   
-  // ИСПРАВЛЕНИЕ ОТРИСОВКИ: Соединяем все сегменты линиями (начинаем со второго сегмента, так как первый - голова)
-  for (let i = 1; i < segments.length; i++) {
-    gameCtx.lineTo(segments[i].x * tileSize + tileSize / 2, segments[i].y * tileSize + tileSize / 2);
+  // ИСПРАВЛЕНИЕ ОТРИСОВКИ ТЕЛА: Проходим по ВСЕМУ массиву segments, начиная со второго элемента
+  for (let i = 1; i < s.length; i++) {
+    gameCtx.lineTo(s[i].x * tileSize + tileSize / 2, s[i].y * tileSize + tileSize / 2);
   }
   
-  // ИСПРАВЛЕНИЕ ОТРИСОВКИ: Рисуем путь (тело)
+  // ИСПРАВЛЕНИЕ ОТРИСОВКИ ТЕЛА: Рисуем путь (тело)
   gameCtx.stroke();
   
-  // "У ЗМЕЙКИ НЕТ ГОЛОВЫ": Голова (нулевой сегмент массива segments) рисуется как яркий квадрат или круг другого цвета (например, белого)
-  const headX = segments[0].x * tileSize + tileSize / 2;
-  const headY = segments[0].y * tileSize + tileSize / 2;
-  const headRadius = tileSize * 0.4;
-  
-  gameCtx.beginPath(); // Начинаем новый путь для головы
-  gameCtx.fillStyle = '#ffffff'; // Белый цвет для головы
-  gameCtx.arc(headX, headY, headRadius, 0, Math.PI * 2);
-  gameCtx.fill();
-  
-  // Обводка головы основным цветом змейки
-  gameCtx.strokeStyle = snakeColor;
-  gameCtx.lineWidth = 2;
-  gameCtx.stroke();
+  // Голова (чтобы её было видно всегда) - рисуется как яркий квадрат
+  gameCtx.fillStyle = '#FFFFFF';
+  gameCtx.fillRect(s[0].x * tileSize, s[0].y * tileSize, tileSize, tileSize);
 }
 
 /**
