@@ -757,6 +757,13 @@ function initSocket() {
       statusEl.style.color = '';
     }
     
+    // Скрываем статус polling
+    const pollingStatusEl = document.getElementById('polling-status');
+    if (pollingStatusEl) {
+      pollingStatusEl.style.display = 'none';
+      pollingStatusEl.textContent = '';
+    }
+    
     // Показываем уведомление в Telegram
     tg.showAlert(`✅ Payment successful! +${data.games} games added. New balance: ${data.new_balance} games.`);
   });
@@ -1148,6 +1155,13 @@ function initEventListeners() {
           statusEl.style.color = '#667eea';
         }
         
+        // ВИЗУАЛИЗАЦИЯ ПОЛЛИНГА: Показываем статус polling
+        const pollingStatusEl = document.getElementById('polling-status');
+        if (pollingStatusEl) {
+          pollingStatusEl.style.display = 'block';
+          pollingStatusEl.textContent = '⏳ Ждем подтверждения транзакции в блокчейне... (обычно 15-30 сек)';
+        }
+        
         // ЛОГИКА ОПЛАТЫ: Периодический запрос баланса (polling) к серверу
         // чтобы приложение автоматически закрыло модалку, когда баланс изменится
         if (paymentInitiated) {
@@ -1167,6 +1181,12 @@ function initEventListeners() {
               if (currentBalance > initialBalance) {
                 console.log('✅ Баланс обновлен! Закрываем модалку оплаты.');
                 clearInterval(pollBalance);
+                
+                // Скрываем статус polling
+                if (pollingStatusEl) {
+                  pollingStatusEl.style.display = 'none';
+                }
+                
                 toggleModal('payment-modal', false);
                 
                 if (statusEl) {
@@ -1180,11 +1200,17 @@ function initEventListeners() {
                 // Прекращаем polling после максимального количества попыток
                 clearInterval(pollBalance);
                 console.log('⏱️ Polling завершен (достигнут лимит попыток)');
+                if (pollingStatusEl) {
+                  pollingStatusEl.style.display = 'none';
+                }
               }
             } catch (error) {
               console.error('❌ Ошибка при polling баланса:', error);
               if (pollCount >= maxPolls) {
                 clearInterval(pollBalance);
+                if (pollingStatusEl) {
+                  pollingStatusEl.style.display = 'none';
+                }
               }
             }
           }, 10000); // Каждые 10 секунд
@@ -1196,6 +1222,9 @@ function initEventListeners() {
               mutations.forEach((mutation) => {
                 if (!paymentModal.classList.contains('modal-visible')) {
                   clearInterval(pollBalance);
+                  if (pollingStatusEl) {
+                    pollingStatusEl.style.display = 'none';
+                  }
                   observer.disconnect();
                 }
               });
@@ -2377,34 +2406,30 @@ function startRenderLoop() {
     // ИСПРАВЛЕНИЕ: Отрисовка змеек должна идти ВСЕГДА на основе данных из window.appState.game
     // (даже если новых пакетов нет) - это уберет мерцание и исчезновение змеек
     
-    // 3. ФИКС ОТСЧЕТА: Рисуем ОТСЧЕТ ПЕРЕД отрисовкой змеек
-    if (gameState === 'countdown' || window.appState?.game?.status === 'countdown') {
-      const countdownNumber = document.getElementById('countdown-number');
-      const val = window.appState?.game?.countdownValue || countdownNumber?.textContent || countdownValue || "";
-      if (val) {
-        gameCtx.save();
-        gameCtx.fillStyle = "#ffffff";
-        gameCtx.shadowBlur = 20;
-        gameCtx.shadowColor = "rgba(0, 245, 255, 0.8)";
-        gameCtx.font = "bold 100px Arial";
-        gameCtx.textAlign = "center";
-        gameCtx.textBaseline = "middle";
-        gameCtx.fillText(val, canvasLogicalSize / 2, canvasLogicalSize / 2);
-        gameCtx.restore();
-      }
+    // 3. ОТРИСОВКА ОТСЧЕТА (COUNTDOWN): Рисуем ОТСЧЕТ ПЕРЕД отрисовкой змеек
+    if (gameState === 'countdown') {
+      gameCtx.save();
+      gameCtx.font = "bold 100px Inter, Arial";
+      gameCtx.fillStyle = "#ffffff";
+      gameCtx.textAlign = "center";
+      gameCtx.textBaseline = "middle";
+      gameCtx.shadowBlur = 20;
+      gameCtx.shadowColor = "#00f5ff";
+      gameCtx.fillText(window.appState?.game?.countdownValue || "", canvasLogicalSize / 2, canvasLogicalSize / 2);
+      gameCtx.restore();
     }
     
-    // 4. РАЗДЕЛЕНИЕ ЦВЕТОВ: Рисуем Змейку Игрока (Зеленая/Неоновая)
+    // 4. РАЗНЫЕ ЦВЕТА ЗМЕЕК: Рисуем Змейку Игрока (Зеленая/Неоновая)
     const mySnake = window.appState?.game?.my_snake;
     if (mySnake && (mySnake.segments || mySnake.body)) {
-      // Принудительно передаем разные HEX-цвета: '#00FF41' (голова) и '#008F11' (тело)
+      // Для своей змейки (my_snake) передаем цвета: '#00FF41' (голова), '#008F11' (тело)
       drawSnakeSimple(mySnake, headHistory, '#00FF41', '#008F11'); 
     }
 
-    // 5. РАЗДЕЛЕНИЕ ЦВЕТОВ: Рисуем Змейку Оппонента (Красная/Розовая)
+    // 5. РАЗНЫЕ ЦВЕТА ЗМЕЕК: Рисуем Змейку Оппонента (Красная/Розовая)
     const oppSnake = window.appState?.game?.opponent_snake;
     if (oppSnake && (oppSnake.segments || oppSnake.body)) {
-      // Принудительно передаем разные HEX-цвета: '#FF3131' (голова) и '#8B0000' (тело)
+      // Для врага (opponent_snake) передаем цвета: '#FF3131' (голова), '#8B0000' (тело)
       drawSnakeSimple(oppSnake, opponentHeadHistory, '#FF3131', '#8B0000');
     }
 
