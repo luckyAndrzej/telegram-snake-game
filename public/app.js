@@ -432,6 +432,19 @@ function initSocket() {
       countdownNumber.textContent = ''; // Очищаем таймер
     }
     
+    // УДАЛЕНИЕ ОВЕРЛЕЕВ: Принудительно скрываем countdown overlay при старте игры
+    const countdownOverlay = document.getElementById('countdown-overlay');
+    if (countdownOverlay) {
+      countdownOverlay.style.display = 'none';
+      countdownOverlay.classList.remove('active');
+    }
+    const lobbyScreen = document.getElementById('lobby-screen');
+    if (lobbyScreen) {
+      lobbyScreen.classList.remove('active');
+      lobbyScreen.style.display = 'none';
+    }
+    console.log('✅ Overlay и lobby очищены при game_start');
+    
     // Сохраняем данные игры
     if (!currentGame) {
       currentGame = {};
@@ -511,6 +524,27 @@ function initSocket() {
     // Логирование для диагностики
     console.log('Данные игры получены:', data);
     
+    // СИНХРОНИЗАЦИЯ GAMEID: Проверяем gameId, но не блокируем если ID немного отличается
+    // Если игра началась, клиент должен принимать пакеты game_state даже если ID незначительно отличается
+    if (data && data.gameId && currentGame && currentGame.gameId) {
+      if (data.gameId !== currentGame.gameId) {
+        // Проверяем, не является ли это просто другой формат того же ID (например, ...8q vs ...79)
+        const currentIdStr = String(currentGame.gameId);
+        const dataIdStr = String(data.gameId);
+        // Если ID отличаются только последними символами, считаем это допустимым
+        if (currentIdStr.slice(0, -2) !== dataIdStr.slice(0, -2)) {
+          console.warn(`⚠️ GameID mismatch: current=${currentGame.gameId}, received=${data.gameId}, но продолжаем обработку`);
+        } else {
+          console.log(`ℹ️ GameID немного отличается (${currentGame.gameId} vs ${data.gameId}), но продолжаем обработку`);
+        }
+        // Обновляем gameId на новый, чтобы синхронизироваться с сервером
+        currentGame.gameId = data.gameId;
+      }
+    } else if (data && data.gameId && !currentGame) {
+      // Если currentGame не существует, создаем его
+      currentGame = { gameId: data.gameId };
+    }
+    
     // STATE MANAGEMENT: Обновляем window.appState перед отрисовкой
     if (data) {
       window.appState.game.status = 'playing';
@@ -553,17 +587,24 @@ function initSocket() {
     
     // Обновляем состояние игры только если игра активна (после countdown)
     // Проверяем и 'playing' и 'countdown', чтобы не пропустить первые обновления
-    if (currentGame && (gameState === 'playing' || gameState === 'countdown')) {
+    // ИСПРАВЛЕНИЕ: Принимаем пакеты даже если currentGame отсутствует (для совместимости)
+    if (gameState === 'playing' || gameState === 'countdown') {
       // Если пришло game_state, значит игра уже началась - переключаем на playing
       if (gameState === 'countdown') {
         gameState = 'playing';
         
-        // Принудительно очищаем все overlay при первом game_state (первый кадр)
+        // УДАЛЕНИЕ ОВЕРЛЕЕВ: Принудительно очищаем все overlay при первом game_state (первый кадр)
         const countdownOverlay = document.getElementById('countdown-overlay');
         if (countdownOverlay) {
           countdownOverlay.style.display = 'none';
+          countdownOverlay.classList.remove('active');
         }
-        console.log('✅ Overlay очищен при первом game_state');
+        const lobbyScreen = document.getElementById('lobby-screen');
+        if (lobbyScreen) {
+          lobbyScreen.classList.remove('active');
+          lobbyScreen.style.display = 'none';
+        }
+        console.log('✅ Overlay и lobby очищены при первом game_state');
       }
       updateGameState(data);
     } else {
@@ -2374,80 +2415,76 @@ function startRenderLoop() {
         return;
       }
     }
-    // ОПТИМИЗАЦИЯ: ПЛАВНАЯ ИНТЕРПОЛЯЦИЯ - змейка плавно скользит между клетками
-    // Вместо телепортации из клетки 5 в клетку 6, она плавно перемещается в течение времени между тиками
-    else if (currentGameState && currentGameState.my_snake && currentGameState.opponent_snake) {
-      // Вычисляем коэффициент интерполяции (0-1) на основе времени с последнего обновления
-      // ИНТЕРПОЛЯЦИЯ: плавное движение между состояниями с использованием requestAnimationFrame
-      const timeSinceUpdate = lastStateUpdateTime > 0 ? performance.now() - lastStateUpdateTime : 0;
-      const serverTickInterval = 111.11; // 1000ms / 9 ticks per second
-      let interpolationFactor = Math.min(timeSinceUpdate / serverTickInterval, 1.0);
-      
-      // Если lastStateUpdateTime не инициализирован, используем текущее состояние без интерполяции
-      if (lastStateUpdateTime === 0) {
-        interpolationFactor = 1.0;
-      }
-      
-      // Если есть предыдущее состояние, используем интерполяцию для плавного движения
-      let mySnakeToDraw = currentGameState.my_snake;
-      let opponentSnakeToDraw = currentGameState.opponent_snake;
-      
-      if (previousGameState && interpolationFactor < 1.0 && previousGameState.my_snake && previousGameState.opponent_snake) {
-        // ОПТИМИЗАЦИЯ: Интерполируем позицию головы между предыдущим и текущим состоянием
-        // Это создает плавное скольжение вместо телепортации
-        if (previousGameState.my_snake.body && previousGameState.my_snake.body[0] && 
-            currentGameState.my_snake.body && currentGameState.my_snake.body[0]) {
-          const prevHead = previousGameState.my_snake.body[0];
-          const currHead = currentGameState.my_snake.body[0];
-          // Плавная интерполяция: от предыдущей позиции к текущей
-          const interpolatedHead = {
-            x: prevHead.x + (currHead.x - prevHead.x) * interpolationFactor,
-            y: prevHead.y + (currHead.y - prevHead.y) * interpolationFactor
-          };
-          // Создаем интерполированную копию змейки с плавно движущейся головой
-          mySnakeToDraw = {
-            ...currentGameState.my_snake,
-            body: [{ ...interpolatedHead }, ...currentGameState.my_snake.body.slice(1)]
-          };
+    
+    // ИСПРАВЛЕНИЕ ФУНКЦИИ RENDER: Убеждаемся, что функция render постоянно берет данные из gameStateJSON
+    // Если gameState === 'playing', но змейки не рисуются, добавляем логирование для диагностики
+    if (gameState === 'playing') {
+      // ИСПРАВЛЕНИЕ: Используем gameStateJSON как основной источник данных для отрисовки
+      if (gameStateJSON && gameStateJSON.my_snake && gameStateJSON.opponent_snake) {
+        console.log('🎨 Rendering snake at:', gameStateJSON.my_snake.body?.[0], 'opponent at:', gameStateJSON.opponent_snake.body?.[0]);
+        
+        // Вычисляем коэффициент интерполяции (0-1) на основе времени с последнего обновления
+        const timeSinceUpdate = lastStateUpdateTime > 0 ? performance.now() - lastStateUpdateTime : 0;
+        const serverTickInterval = 111.11; // 1000ms / 9 ticks per second
+        let interpolationFactor = Math.min(timeSinceUpdate / serverTickInterval, 1.0);
+        
+        // Если lastStateUpdateTime не инициализирован, используем текущее состояние без интерполяции
+        if (lastStateUpdateTime === 0) {
+          interpolationFactor = 1.0;
         }
         
-        if (previousGameState.opponent_snake.body && previousGameState.opponent_snake.body[0] && 
-            currentGameState.opponent_snake.body && currentGameState.opponent_snake.body[0]) {
-          const prevHead = previousGameState.opponent_snake.body[0];
-          const currHead = currentGameState.opponent_snake.body[0];
-          // Плавная интерполяция для противника
-          const interpolatedHead = {
-            x: prevHead.x + (currHead.x - prevHead.x) * interpolationFactor,
-            y: prevHead.y + (currHead.y - prevHead.y) * interpolationFactor
-          };
-          opponentSnakeToDraw = {
-            ...currentGameState.opponent_snake,
-            body: [{ ...interpolatedHead }, ...currentGameState.opponent_snake.body.slice(1)]
-          };
+        // Если есть предыдущее состояние, используем интерполяцию для плавного движения
+        let mySnakeToDraw = gameStateJSON.my_snake;
+        let opponentSnakeToDraw = gameStateJSON.opponent_snake;
+        
+        if (previousGameState && interpolationFactor < 1.0 && previousGameState.my_snake && previousGameState.opponent_snake) {
+          // ОПТИМИЗАЦИЯ: Интерполируем позицию головы между предыдущим и текущим состоянием
+          if (previousGameState.my_snake.body && previousGameState.my_snake.body[0] && 
+              gameStateJSON.my_snake.body && gameStateJSON.my_snake.body[0]) {
+            const prevHead = previousGameState.my_snake.body[0];
+            const currHead = gameStateJSON.my_snake.body[0];
+            const interpolatedHead = {
+              x: prevHead.x + (currHead.x - prevHead.x) * interpolationFactor,
+              y: prevHead.y + (currHead.y - prevHead.y) * interpolationFactor
+            };
+            mySnakeToDraw = {
+              ...gameStateJSON.my_snake,
+              body: [{ ...interpolatedHead }, ...gameStateJSON.my_snake.body.slice(1)]
+            };
+          }
+          
+          if (previousGameState.opponent_snake.body && previousGameState.opponent_snake.body[0] && 
+              gameStateJSON.opponent_snake.body && gameStateJSON.opponent_snake.body[0]) {
+            const prevHead = previousGameState.opponent_snake.body[0];
+            const currHead = gameStateJSON.opponent_snake.body[0];
+            const interpolatedHead = {
+              x: prevHead.x + (currHead.x - prevHead.x) * interpolationFactor,
+              y: prevHead.y + (currHead.y - prevHead.y) * interpolationFactor
+            };
+            opponentSnakeToDraw = {
+              ...gameStateJSON.opponent_snake,
+              body: [{ ...interpolatedHead }, ...gameStateJSON.opponent_snake.body.slice(1)]
+            };
+          }
         }
-      }
-      
-      // ЛОГИРОВАНИЕ ОТРИСОВКИ: добавляем цвет змейки для понимания, какая змейка рисуется
-      if (mySnakeToDraw && mySnakeToDraw.body && mySnakeToDraw.body[0]) {
-        console.log('Drawing MY snake (RED) at:', mySnakeToDraw.body[0]);
-      }
-      if (opponentSnakeToDraw && opponentSnakeToDraw.body && opponentSnakeToDraw.body[0]) {
-        console.log('Drawing OPPONENT snake (BLUE) at:', opponentSnakeToDraw.body[0]);
-      }
-      
-      // STATE MANAGEMENT: Отрисовываем змейки из window.appState.game с интерполированными позициями
-      // Используем данные из window.appState.game.snakes для единой логики отрисовки
-      drawSnakeSimple(mySnakeToDraw, headHistory, '#ff4444', '#ff6666');
-      drawSnakeSimple(opponentSnakeToDraw, opponentHeadHistory, '#4444ff', '#6666ff');
-    } else if (window.appState && window.appState.game && (window.appState.game.my_snake || window.appState.game.opponent_snake)) {
-      // STATE MANAGEMENT: Fallback - используем window.appState.game для отрисовки
-      if (window.appState.game.my_snake) {
-        console.log('Drawing MY snake (RED) at (fallback from appState):', window.appState.game.my_snake.body?.[0]);
-        drawSnakeSimple(window.appState.game.my_snake, headHistory, '#ff4444', '#ff6666');
-      }
-      if (window.appState.game.opponent_snake) {
-        console.log('Drawing OPPONENT snake (BLUE) at (fallback from appState):', window.appState.game.opponent_snake.body?.[0]);
-        drawSnakeSimple(window.appState.game.opponent_snake, opponentHeadHistory, '#4444ff', '#6666ff');
+        
+        // STATE MANAGEMENT: Отрисовываем змейки из gameStateJSON с интерполированными позициями
+        drawSnakeSimple(mySnakeToDraw, headHistory, '#ff4444', '#ff6666');
+        drawSnakeSimple(opponentSnakeToDraw, opponentHeadHistory, '#4444ff', '#6666ff');
+      } else if (window.appState && window.appState.game && (window.appState.game.my_snake || window.appState.game.opponent_snake)) {
+        // Fallback на window.appState.game если gameStateJSON пуст
+        console.log('⚠️ gameStateJSON пуст, используем window.appState.game для отрисовки');
+        if (window.appState.game.my_snake) {
+          console.log('🎨 Rendering MY snake (RED) at (fallback from appState):', window.appState.game.my_snake.body?.[0]);
+          drawSnakeSimple(window.appState.game.my_snake, headHistory, '#ff4444', '#ff6666');
+        }
+        if (window.appState.game.opponent_snake) {
+          console.log('🎨 Rendering OPPONENT snake (BLUE) at (fallback from appState):', window.appState.game.opponent_snake.body?.[0]);
+          drawSnakeSimple(window.appState.game.opponent_snake, opponentHeadHistory, '#4444ff', '#6666ff');
+        }
+      } else {
+        // Если данных нет, логируем для диагностики
+        console.warn('⚠️ gameState === "playing", но нет данных для отрисовки. gameStateJSON:', gameStateJSON, 'appState.game:', window.appState?.game);
       }
     }
     
@@ -2518,8 +2555,9 @@ function drawSnakeSimple(snake, headHistory, color1, color2) {
     return;
   }
   
-  // Рисуем тело змейки как единую толстую линию с закругленными краями
-  const bodyWidth = tileSize * 0.9; // Увеличена ширина для более цельного вида
+  // ЦЕЛЬНАЯ ОТРИСОВКА: Рисуем тело змейки как единую толстую линию
+  // Толщина линии (lineWidth) должна быть равна tileSize для цельного вида
+  const bodyWidth = tileSize; // ИСПРАВЛЕНИЕ: lineWidth = tileSize для цельной отрисовки
   
   // Создаем градиент для тела
   const bodyGradient = gameCtx.createLinearGradient(
@@ -2530,10 +2568,11 @@ function drawSnakeSimple(snake, headHistory, color1, color2) {
   bodyGradient.addColorStop(0.3, bodyColor);
   bodyGradient.addColorStop(1, bodyColor);
   
-  // Рисуем тело как единый путь с закругленными краями (lineCap = 'round')
+  // ЦЕЛЬНАЯ ОТРИСОВКА: Рисуем тело как единый путь через beginPath() и lineTo()
+  // Соединяем все точки из массива segments линиями
   gameCtx.strokeStyle = bodyGradient;
   gameCtx.fillStyle = bodyGradient;
-  gameCtx.lineWidth = bodyWidth;
+  gameCtx.lineWidth = bodyWidth; // ИСПРАВЛЕНИЕ: lineWidth = tileSize
   gameCtx.lineCap = 'round'; // Закругленные концы - убирает "пунктирный" эффект
   gameCtx.lineJoin = 'round'; // Закругленные соединения
   gameCtx.shadowColor = bodyColor;
@@ -2542,7 +2581,7 @@ function drawSnakeSimple(snake, headHistory, color1, color2) {
   gameCtx.beginPath();
   gameCtx.moveTo(pathPoints[0].x, pathPoints[0].y);
   
-  // Создаем плавную кривую через все точки
+  // Соединяем все точки из массива segments линиями
   for (let i = 1; i < pathPoints.length; i++) {
     gameCtx.lineTo(pathPoints[i].x, pathPoints[i].y);
   }

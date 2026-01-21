@@ -545,7 +545,7 @@ body::before {
 #game-canvas {
     position: relative; /* Изменено с absolute на relative для правильного центрирования */
     display: block !important; /* Принудительно block для видимости */
-    z-index: 10 !important; /* Высокий z-index чтобы не перекрывался фоном */
+    z-index: 100 !important; /* УДАЛЕНИЕ ОВЕРЛЕЕВ: Высокий z-index чтобы Canvas был выше всех оверлеев (countdown-overlay: 1000, но скрывается после старта) */
     width: 98% !important; /* 98% ширины родительского контейнера (с небольшим отступом) */
     height: auto !important; /* Высота подстраивается под ширину */
     max-width: 100% !important; /* ИСПРАВЛЕНИЕ: Canvas занимает max-width: 100% от доступной ширины */
@@ -602,10 +602,19 @@ body::before {
     background: transparent; /* Полностью прозрачный фон - только цифры поверх Canvas */
     backdrop-filter: none; /* Убираем размытие, чтобы Canvas был четко виден */
     z-index: 1000; /* Выше Canvas (z-index: 10), чтобы цифры были поверх */
-    display: none;
+    display: none !important; /* УДАЛЕНИЕ ОВЕРЛЕЕВ: Принудительно скрываем по умолчанию */
     justify-content: center;
     align-items: center;
     pointer-events: none;
+}
+
+/* УДАЛЕНИЕ ОВЕРЛЕЕВ: Убеждаемся, что overlay скрывается после старта игры */
+#countdown-overlay.active {
+    display: flex !important;
+}
+
+#countdown-overlay:not(.active) {
+    display: none !important;
 }
 
 .countdown-overlay-content .countdown-number {
