@@ -313,18 +313,47 @@ function initSocket() {
         
         // STATE MANAGEMENT: Обновляем window.appState из initial_state
         window.appState.game.status = 'countdown';
-        // ПОЗИЦИОНИРОВАНИЕ НА СТАРТЕ: Используем данные из initial_state
-        // ИСПРАВЛЕНИЕ ДОСТУПА К КООРДИНАТАМ: Сервер присылает segments, а не body
-        window.appState.game.my_snake = initialState.my_snake ? {
-          segments: initialState.my_snake.segments ? [...initialState.my_snake.segments] : (initialState.my_snake.body ? [...initialState.my_snake.body] : []),
-          direction: initialState.my_snake.direction ? { ...initialState.my_snake.direction } : { dx: 1, dy: 0 },
-          alive: initialState.my_snake.alive !== undefined ? initialState.my_snake.alive : true
-        } : null;
-        window.appState.game.opponent_snake = initialState.opponent_snake ? {
-          segments: initialState.opponent_snake.segments ? [...initialState.opponent_snake.segments] : (initialState.opponent_snake.body ? [...initialState.opponent_snake.body] : []),
-          direction: initialState.opponent_snake.direction ? { ...initialState.opponent_snake.direction } : { dx: -1, dy: 0 },
-          alive: initialState.opponent_snake.alive !== undefined ? initialState.opponent_snake.alive : true
-        } : null;
+        // ПОЗИЦИОНИРОВАНИЕ НА СТАРТЕ: Принудительно устанавливаем горизонтальное положение змеек
+        // Игрок 1: голова на x=5, y=15, хвост тянется вправо
+        // Игрок 2: голова на x=24, y=15, хвост тянется влево
+        // ИСПРАВЛЕНИЕ: В initial_state принудительно установи змейкам горизонтальное положение
+        const mySnakeSegments = initialState.my_snake?.segments || initialState.my_snake?.body;
+        const opponentSnakeSegments = initialState.opponent_snake?.segments || initialState.opponent_snake?.body;
+        
+        // ПРИНУДИТЕЛЬНОЕ ГОРИЗОНТАЛЬНОЕ ПОЛОЖЕНИЕ: Если сегменты невалидны или змейка уходит за край, устанавливаем правильные координаты
+        let fixedMySnakeSegments = mySnakeSegments;
+        let fixedOpponentSnakeSegments = opponentSnakeSegments;
+        
+        if (!mySnakeSegments || mySnakeSegments.length === 0 || (mySnakeSegments[0] && (mySnakeSegments[0].x < 0 || mySnakeSegments[0].x >= GRID_SIZE))) {
+          // Игрок 1: голова на x=5, y=15, хвост тянется вправо (x=3,4,5)
+          fixedMySnakeSegments = [
+            { x: 5, y: 15 },
+            { x: 4, y: 15 },
+            { x: 3, y: 15 }
+          ];
+          console.log('🔧 Fixed my_snake initial position to horizontal:', fixedMySnakeSegments);
+        }
+        
+        if (!opponentSnakeSegments || opponentSnakeSegments.length === 0 || (opponentSnakeSegments[0] && (opponentSnakeSegments[0].x < 0 || opponentSnakeSegments[0].x >= GRID_SIZE))) {
+          // Игрок 2: голова на x=24, y=15, хвост тянется влево (x=24,25,26)
+          fixedOpponentSnakeSegments = [
+            { x: 24, y: 15 },
+            { x: 25, y: 15 },
+            { x: 26, y: 15 }
+          ];
+          console.log('🔧 Fixed opponent_snake initial position to horizontal:', fixedOpponentSnakeSegments);
+        }
+        
+        window.appState.game.my_snake = {
+          segments: fixedMySnakeSegments || mySnakeSegments || [],
+          direction: { dx: 1, dy: 0 }, // Горизонтально вправо
+          alive: true
+        };
+        window.appState.game.opponent_snake = {
+          segments: fixedOpponentSnakeSegments || opponentSnakeSegments || [],
+          direction: { dx: -1, dy: 0 }, // Горизонтально влево
+          alive: true
+        };
         window.appState.game.snakes = [window.appState.game.my_snake, window.appState.game.opponent_snake].filter(s => s !== null);
         
         // CURRENT GAME STATE: Синхронизируем currentGameState с appState
@@ -1520,6 +1549,16 @@ function processInputBuffer() {
 function showScreen(screenName) {
   console.log('🖥️ Switching to screen:', screenName);
   
+  // ВИДИМОСТЬ ОТСЧЕТА: Отсчет не виден, потому что его перекрывает lobby-screen
+  // В функции showScreen('game') добавляем: document.getElementById('lobby-screen').style.display = 'none';
+  if (screenName === 'game') {
+    const lobbyScreen = document.getElementById('lobby-screen');
+    if (lobbyScreen) {
+      lobbyScreen.style.display = 'none';
+      console.log('✅ lobby-screen скрыт при переключении на game');
+    }
+  }
+  
   // Останавливаем цикл отрисовки если переключаемся с игрового экрана
   if (gameState === 'playing' && screenName !== 'playing') {
     stopRenderLoop();
@@ -2449,6 +2488,23 @@ function startRenderLoop() {
         if (opponentSnake) {
           drawSnakeSimple(opponentSnake, [], '#4444ff', '#6666ff');
         }
+        
+        // ВИДИМОСТЬ ОТСЧЕТА: Убедись, что текст отсчета рисуется ПОВЕРХ канваса
+        // Рисуем текст отсчета в самом конце функции render поверх canvas
+        const countdownNumber = document.getElementById('countdown-number');
+        if (countdownNumber && countdownNumber.textContent) {
+          // Рисуем текст отсчета поверх canvas
+          gameCtx.save();
+          gameCtx.fillStyle = '#ffffff';
+          gameCtx.font = `bold ${canvasLogicalSize * 0.15}px Arial`;
+          gameCtx.textAlign = 'center';
+          gameCtx.textBaseline = 'middle';
+          gameCtx.shadowColor = 'rgba(0, 0, 0, 0.8)';
+          gameCtx.shadowBlur = 20;
+          gameCtx.fillText(countdownNumber.textContent, canvasLogicalSize / 2, canvasLogicalSize / 2);
+          gameCtx.restore();
+        }
+        
         animationFrameId = requestAnimationFrame(render);
         return;
       }
@@ -2539,7 +2595,8 @@ function startRenderLoop() {
       }
     }
     
-    // Продолжаем цикл
+    // УБЕДИТЬСЯ: render() продолжает рисовать, даже если tick_number растет
+    // Продолжаем цикл независимо от состояния игры
     animationFrameId = requestAnimationFrame(render);
   }
   
@@ -2561,14 +2618,20 @@ let invalidPositionLogged = false;
 /**
  * ИСПРАВЛЕНИЕ ОТРИСОВКИ: Переписываем drawSnake, чтобы она принимала массив segments и рисовала их как одну сплошную линию
  */
+/**
+ * ИСПРАВЛЕНИЕ ОТРИСОВКИ ЗМЕЕК: Рисуем каждый сегмент из массива segments с объемом
+ */
 function drawSnakeSimple(snake, headHistory, color1, color2) {
+  // УДАЛЕНИЕ БАГОВ С ПОЛОСКАМИ: Добавляем ctx.beginPath() в начало функции drawSnake
+  gameCtx.beginPath();
+  
   // STATE MANAGEMENT: Используем данные из window.appState.game если snake не передан
   if (!snake && window.appState && window.appState.game) {
     const isMySnake = color1 === '#ff4444' || color1 === '#00FF00';
     snake = isMySnake ? window.appState.game.my_snake : window.appState.game.opponent_snake;
   }
   
-  // ИСПРАВЛЕНИЕ ДОСТУПА К КООРДИНАТАМ: Используем segments вместо body
+  // ИСПРАВЛЕНИЕ ОТРИСОВКИ: Убедись, что drawSnake берет каждый сегмент из массива window.appState.game.my_snake.segments
   const segments = snake?.segments || snake?.body;
   
   // ИСПРАВЛЕНИЕ ОТРИСОВКИ: Если массив segments пустой или не определен, логируем ошибку
@@ -2595,14 +2658,14 @@ function drawSnakeSimple(snake, headHistory, color1, color2) {
   const isMySnake = color1 === '#ff4444' || color1 === '#00FF00';
   const snakeColor = isMySnake ? '#ff4444' : '#4444ff';
   
-  // ИСПРАВЛЕНИЕ ОТРИСОВКИ: Рисуем segments как одну сплошную линию
-  gameCtx.beginPath();
+  // ИСПРАВЛЕНИЕ ОТРИСОВКИ: Змейка должна иметь объем. Используй ctx.lineWidth = tileSize * 0.8
   gameCtx.strokeStyle = snakeColor;
-  gameCtx.lineWidth = tileSize - 2; // Толстая линия
+  gameCtx.lineWidth = tileSize * 0.8; // Змейка должна иметь объем
   gameCtx.lineJoin = 'round';
   gameCtx.lineCap = 'round';
   
-  // ИСПРАВЛЕНИЕ ОТРИСОВКИ: Перемещаемся к первому сегменту
+  // ИСПРАВЛЕНИЕ ОТРИСОВКИ: Проверяем, не перепутаны ли x и y при умножении на tileSize
+  // Перемещаемся к первому сегменту (x * tileSize для горизонтали, y * tileSize для вертикали)
   gameCtx.moveTo(segments[0].x * tileSize + tileSize / 2, segments[0].y * tileSize + tileSize / 2);
   
   // ИСПРАВЛЕНИЕ ОТРИСОВКИ: Соединяем все сегменты линиями
