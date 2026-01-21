@@ -292,9 +292,20 @@ function initSocket() {
         // ИНИЦИАЛИЗАЦИЯ ПОЗИЦИЙ: валидируем initial_state перед использованием
         const initialState = data.initial_state;
         
-        // Валидация координат в initial_state (используем segments)
+        currentGame.initialState = initialState;
+        console.log('✅ Initial game state received and validated');
+        
+        // STATE MANAGEMENT: Обновляем window.appState из initial_state
+        window.appState.game.status = 'countdown';
+        // ПОЗИЦИОНИРОВАНИЕ НА СТАРТЕ: Принудительно устанавливаем горизонтальное положение змеек
+        // Игрок 1: голова на x=5, y=15, хвост тянется вправо
+        // Игрок 2: голова на x=24, y=15, хвост тянется влево
+        // ИСПРАВЛЕНИЕ: В initial_state принудительно установи змейкам горизонтальное положение
+        // УДАЛЕНИЕ ДУБЛИКАТА: Объявляем переменные только один раз
         const mySnakeSegments = initialState.my_snake?.segments || initialState.my_snake?.body;
         const opponentSnakeSegments = initialState.opponent_snake?.segments || initialState.opponent_snake?.body;
+        
+        // Валидация координат в initial_state (используем уже объявленные переменные)
         if (mySnakeSegments && mySnakeSegments[0]) {
           const mySnakeHead = mySnakeSegments[0];
           if (mySnakeHead && (mySnakeHead.x < 0 || mySnakeHead.x >= GRID_SIZE || mySnakeHead.y < 0 || mySnakeHead.y >= GRID_SIZE)) {
@@ -308,24 +319,15 @@ function initSocket() {
           }
         }
         
-        currentGame.initialState = initialState;
-        console.log('✅ Initial game state received and validated');
-        
-        // STATE MANAGEMENT: Обновляем window.appState из initial_state
-        window.appState.game.status = 'countdown';
-        // ПОЗИЦИОНИРОВАНИЕ НА СТАРТЕ: Принудительно устанавливаем горизонтальное положение змеек
-        // Игрок 1: голова на x=5, y=15, хвост тянется вправо
-        // Игрок 2: голова на x=24, y=15, хвост тянется влево
-        // ИСПРАВЛЕНИЕ: В initial_state принудительно установи змейкам горизонтальное положение
-        const mySnakeSegments = initialState.my_snake?.segments || initialState.my_snake?.body;
-        const opponentSnakeSegments = initialState.opponent_snake?.segments || initialState.opponent_snake?.body;
-        
         // ПРИНУДИТЕЛЬНОЕ ГОРИЗОНТАЛЬНОЕ ПОЛОЖЕНИЕ: Если сегменты невалидны или змейка уходит за край, устанавливаем правильные координаты
         let fixedMySnakeSegments = mySnakeSegments;
         let fixedOpponentSnakeSegments = opponentSnakeSegments;
         
+        // ЛОГИКА КООРДИНАТ: Если в логах видишь x = -1, значит змейка движется влево слишком быстро
+        // В initial_state принудительно задаем горизонтальное положение
         if (!mySnakeSegments || mySnakeSegments.length === 0 || (mySnakeSegments[0] && (mySnakeSegments[0].x < 0 || mySnakeSegments[0].x >= GRID_SIZE))) {
-          // Игрок 1: голова на x=5, y=15, хвост тянется вправо (x=3,4,5)
+          // Змейка 1 (Player 1): segments: [{x: 5, y: 15}, {x: 4, y: 15}, {x: 3, y: 15}] (горизонтально)
+          // Горизонтальное положение — это когда у сегментов одинаковый y, а x меняется
           fixedMySnakeSegments = [
             { x: 5, y: 15 },
             { x: 4, y: 15 },
@@ -335,7 +337,8 @@ function initSocket() {
         }
         
         if (!opponentSnakeSegments || opponentSnakeSegments.length === 0 || (opponentSnakeSegments[0] && (opponentSnakeSegments[0].x < 0 || opponentSnakeSegments[0].x >= GRID_SIZE))) {
-          // Игрок 2: голова на x=24, y=15, хвост тянется влево (x=24,25,26)
+          // Змейка 2 (Player 2): segments: [{x: 24, y: 15}, {x: 25, y: 15}, {x: 26, y: 15}] (горизонтально)
+          // Горизонтальное положение — это когда у сегментов одинаковый y, а x меняется
           fixedOpponentSnakeSegments = [
             { x: 24, y: 15 },
             { x: 25, y: 15 },
@@ -432,6 +435,18 @@ function initSocket() {
   // Обновление countdown (сервер отправляет числа: 5, 4, 3, 2, 1) - overlay поверх game-canvas
   socket.on('countdown', (data) => {
     console.log('⏰ Countdown:', data.number);
+    
+    // ВИДИМОСТЬ ОТСЧЕТА: Прямо сейчас отсчет перекрыт другими слоями
+    // В функции countdown добавляем команду для видимости отсчета
+    const gameScreen = document.getElementById('game-screen');
+    const lobbyScreen = document.getElementById('lobby-screen');
+    if (gameScreen) {
+      gameScreen.style.zIndex = '100';
+    }
+    if (lobbyScreen) {
+      lobbyScreen.style.display = 'none';
+    }
+    
     const countdownNumber = document.getElementById('countdown-number');
     if (countdownNumber) {
       // Сбрасываем и устанавливаем новое значение (предотвращает наложение цифр)
@@ -2426,32 +2441,34 @@ function startRenderLoop() {
         lastStateUpdateTime = performance.now();
         
         // ЛОГИРОВАНИЕ: логируем только при обновлении состояния, а не каждый кадр
-        // УДАЛЕНИЕ ДУБЛИКАТА: Используем переменные mySnakeSegments и opponentSnakeSegments, которые уже объявлены выше (строка 2269)
-        console.log(`📦 State updated: tick=${nextPacket.tick_number}, my_snake at (${mySnakeSegments?.[0]?.x}, ${mySnakeSegments?.[0]?.y}), opponent at (${opponentSnakeSegments?.[0]?.x}, ${opponentSnakeSegments?.[0]?.y})`);
+        // ИСПРАВЛЕНИЕ SCOPE: Используем segments из nextPacket напрямую, так как mySnakeSegments и opponentSnakeSegments объявлены в другом scope
+        const mySnakeSegs = nextPacket.my_snake?.segments || nextPacket.my_snake?.body;
+        const opponentSnakeSegs = nextPacket.opponent_snake?.segments || nextPacket.opponent_snake?.body;
+        console.log(`📦 State updated: tick=${nextPacket.tick_number}, my_snake at (${mySnakeSegs?.[0]?.x}, ${mySnakeSegs?.[0]?.y}), opponent at (${opponentSnakeSegs?.[0]?.x}, ${opponentSnakeSegs?.[0]?.y})`);
         
         // Обновляем историю головы для хвоста
-        if (mySnakeSegments && mySnakeSegments[0]) {
-          const head = mySnakeSegments[0];
+        if (mySnakeSegs && mySnakeSegs[0]) {
+          const head = mySnakeSegs[0];
           headHistory.push({
             x: head.x,
             y: head.y,
             direction: { ...nextPacket.my_snake.direction }
           });
           // Ограничиваем историю до длины змейки
-          if (headHistory.length > (mySnakeSegments.length || 5)) {
+          if (headHistory.length > (mySnakeSegs.length || 5)) {
             headHistory.shift();
           }
         }
         
-        if (opponentSnakeSegments && opponentSnakeSegments[0]) {
-          const head = opponentSnakeSegments[0];
+        if (opponentSnakeSegs && opponentSnakeSegs[0]) {
+          const head = opponentSnakeSegs[0];
           opponentHeadHistory.push({
             x: head.x,
             y: head.y,
             direction: { ...nextPacket.opponent_snake.direction }
           });
           // Ограничиваем историю до длины змейки
-          if (opponentHeadHistory.length > (opponentSnakeSegments.length || 5)) {
+          if (opponentHeadHistory.length > (opponentSnakeSegs.length || 5)) {
             opponentHeadHistory.shift();
           }
         }
@@ -2489,14 +2506,13 @@ function startRenderLoop() {
           drawSnakeSimple(opponentSnake, [], '#4444ff', '#6666ff');
         }
         
-        // ВИДИМОСТЬ ОТСЧЕТА: Убедись, что текст отсчета рисуется ПОВЕРХ канваса
-        // Рисуем текст отсчета в самом конце функции render поверх canvas
+        // ВИДИМОСТЬ ОТСЧЕТА: Текст отсчета (3, 2, 1) должен рисоваться прямо на Canvas белым цветом, размер шрифта 48px sans-serif, по центру
         const countdownNumber = document.getElementById('countdown-number');
         if (countdownNumber && countdownNumber.textContent) {
           // Рисуем текст отсчета поверх canvas
           gameCtx.save();
           gameCtx.fillStyle = '#ffffff';
-          gameCtx.font = `bold ${canvasLogicalSize * 0.15}px Arial`;
+          gameCtx.font = '48px sans-serif'; // Размер шрифта 48px sans-serif
           gameCtx.textAlign = 'center';
           gameCtx.textBaseline = 'middle';
           gameCtx.shadowColor = 'rgba(0, 0, 0, 0.8)';
