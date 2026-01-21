@@ -2167,33 +2167,53 @@ function updateGameState(data) {
   // Проверяем, завершена ли игра
   const isFinished = data.finished === true || data.game_finished === true;
   
+  // УПРОЩЕННАЯ НОРМАЛИЗАЦИЯ: При получении пакета сразу создаем объект, где координаты лежат в segments
+  // Нормализуем данные: если сервер прислал body, преобразуем в segments
+  const normalizedData = {
+    ...data,
+    my_snake: data.my_snake ? {
+      ...data.my_snake,
+      segments: data.my_snake.segments || data.my_snake.body || []
+    } : null,
+    opponent_snake: data.opponent_snake ? {
+      ...data.opponent_snake,
+      segments: data.opponent_snake.segments || data.opponent_snake.body || []
+    } : null
+  };
+  
   // Клонируем и валидируем состояние
-  const cloned = cloneSnakeState(data);
+  const cloned = cloneSnakeState(normalizedData);
   if (!cloned) {
     // ИСПРАВЛЕНИЕ: если игра завершена, все равно добавляем состояние для отрисовки последнего кадра
     if (isFinished) {
-      console.warn('⚠️ updateGameState: invalid coordinates but game finished, allowing render for final frame');
       // Создаем минимальное состояние для отрисовки
       const fallbackState = {
-        tick_number: data.tick_number || 0,
+        tick_number: normalizedData.tick_number || 0,
         finished: true,
-        my_snake: data.my_snake ? {
-          segments: (data.my_snake.segments || data.my_snake.body || []).map(s => ({ x: s.x, y: s.y })),
-          direction: { dx: data.my_snake.direction.dx, dy: data.my_snake.direction.dy },
-          alive: data.my_snake.alive
+        my_snake: normalizedData.my_snake ? {
+          segments: (normalizedData.my_snake.segments || normalizedData.my_snake.body || []).map(s => ({ x: s.x, y: s.y })),
+          direction: normalizedData.my_snake.direction ? { dx: normalizedData.my_snake.direction.dx, dy: normalizedData.my_snake.direction.dy } : { dx: 1, dy: 0 },
+          alive: normalizedData.my_snake.alive
         } : null,
-        opponent_snake: data.opponent_snake ? {
-          segments: (data.opponent_snake.segments || data.opponent_snake.body || []).map(s => ({ x: s.x, y: s.y })),
-          direction: { dx: data.opponent_snake.direction.dx, dy: data.opponent_snake.direction.dy },
-          alive: data.opponent_snake.alive
+        opponent_snake: normalizedData.opponent_snake ? {
+          segments: (normalizedData.opponent_snake.segments || normalizedData.opponent_snake.body || []).map(s => ({ x: s.x, y: s.y })),
+          direction: normalizedData.opponent_snake.direction ? { dx: normalizedData.opponent_snake.direction.dx, dy: normalizedData.opponent_snake.direction.dy } : { dx: -1, dy: 0 },
+          alive: normalizedData.opponent_snake.alive
         } : null
       };
       packetQueue.push(fallbackState);
       return;
     } else {
-      console.error('❌ updateGameState: invalid coordinates, rejecting state');
       return; // Не добавляем невалидное состояние в очередь
     }
+  }
+  
+  // ГАРАНТИРУЕМ НАЛИЧИЕ SEGMENTS: Убедись, что cloned.my_snake.segments ВСЕГДА существует перед пушем в packetQueue
+  if (cloned.my_snake && !cloned.my_snake.segments) {
+    cloned.my_snake.segments = cloned.my_snake.body || [];
+  }
+  if (cloned.opponent_snake && !cloned.opponent_snake.segments) {
+    cloned.opponent_snake.segments = cloned.opponent_snake.body || [];
   }
   
   // Логируем координаты для диагностики
@@ -2424,23 +2444,30 @@ function startRenderLoop() {
           opponent_snake: currentGameState.opponent_snake
         })) : null;
         
-        // STATE MANAGEMENT: Обновляем window.appState из nextPacket
+        // СИНХРОНИЗАЦИЯ: Убедись, что window.appState.game.my_snake обновляется только из валидных данных пакета
+        // STATE MANAGEMENT: Обновляем window.appState из nextPacket только если данные валидны
         // ИСПРАВЛЕНИЕ ДОСТУПА К КООРДИНАТАМ: Используем segments вместо body
         if (nextPacket.my_snake) {
           const segments = nextPacket.my_snake.segments || nextPacket.my_snake.body || [];
-          window.appState.game.my_snake = {
-            segments: segments.length > 0 ? [...segments] : [],
-            direction: nextPacket.my_snake.direction ? { ...nextPacket.my_snake.direction } : { dx: 1, dy: 0 },
-            alive: nextPacket.my_snake.alive !== undefined ? nextPacket.my_snake.alive : true
-          };
+          // Обновляем только если segments существует и не пустой
+          if (segments && segments.length > 0) {
+            window.appState.game.my_snake = {
+              segments: [...segments],
+              direction: nextPacket.my_snake.direction ? { ...nextPacket.my_snake.direction } : { dx: 1, dy: 0 },
+              alive: nextPacket.my_snake.alive !== undefined ? nextPacket.my_snake.alive : true
+            };
+          }
         }
         if (nextPacket.opponent_snake) {
           const segments = nextPacket.opponent_snake.segments || nextPacket.opponent_snake.body || [];
-          window.appState.game.opponent_snake = {
-            segments: segments.length > 0 ? [...segments] : [],
-            direction: nextPacket.opponent_snake.direction ? { ...nextPacket.opponent_snake.direction } : { dx: -1, dy: 0 },
-            alive: nextPacket.opponent_snake.alive !== undefined ? nextPacket.opponent_snake.alive : true
-          };
+          // Обновляем только если segments существует и не пустой
+          if (segments && segments.length > 0) {
+            window.appState.game.opponent_snake = {
+              segments: [...segments],
+              direction: nextPacket.opponent_snake.direction ? { ...nextPacket.opponent_snake.direction } : { dx: -1, dy: 0 },
+              alive: nextPacket.opponent_snake.alive !== undefined ? nextPacket.opponent_snake.alive : true
+            };
+          }
         }
         window.appState.game.snakes = [window.appState.game.my_snake, window.appState.game.opponent_snake].filter(s => s !== null);
         window.appState.game.status = 'playing';
@@ -2519,7 +2546,7 @@ function startRenderLoop() {
       if (gridCanvas) {
         gameCtx.drawImage(gridCanvas, 0, 0);
       } else {
-        drawGrid();
+      drawGrid();
       }
       
       const stateToRender = currentGameState.status === 'countdown' ? currentGameState : (currentGame?.initialState || gameStateJSON);
@@ -2551,7 +2578,7 @@ function startRenderLoop() {
           gameCtx.restore();
         }
         
-        animationFrameId = requestAnimationFrame(render);
+    animationFrameId = requestAnimationFrame(render);
         return;
       }
     }
@@ -2561,10 +2588,11 @@ function startRenderLoop() {
     if (gameState === 'playing') {
       // ИСПРАВЛЕНИЕ ИСЧЕЗНОВЕНИЯ: Проверяем наличие данных перед отрисовкой
       if (!window.appState || !window.appState.game || !window.appState.game.my_snake) {
-        console.warn('⚠️ window.appState.game.my_snake отсутствует, пропускаем отрисовку');
         animationFrameId = requestAnimationFrame(render);
         return;
       }
+      
+      // УДАЛЕНО ИЗБЫТОЧНОЕ ЛОГИРОВАНИЕ: DEBUG_STRUCTURE и Rendering MY snake удалены для оптимизации
       
       // НАСТРОЙКА ОТРИСОВКИ: Используем window.appState.game.my_snake.segments и window.appState.game.opponent_snake.segments напрямую
       let mySnake = window.appState.game.my_snake;
@@ -2584,19 +2612,18 @@ function startRenderLoop() {
       const opponentSnakeSegments = opponentSnake?.segments || opponentSnake?.body;
       
       if (mySnakeSegments && mySnakeSegments.length > 0 && opponentSnakeSegments && opponentSnakeSegments.length > 0) {
-        console.log('🎨 Rendering MY snake at:', mySnakeSegments[0], 'OPPONENT snake at:', opponentSnakeSegments[0]);
-        
         // Вычисляем коэффициент интерполяции (0-1) на основе времени с последнего обновления
         const timeSinceUpdate = lastStateUpdateTime > 0 ? performance.now() - lastStateUpdateTime : 0;
         const serverTickInterval = 111.11; // 1000ms / 9 ticks per second
         let interpolationFactor = Math.min(timeSinceUpdate / serverTickInterval, 1.0);
         
-        // Если lastStateUpdateTime не инициализирован, используем текущее состояние без интерполяции
-        if (lastStateUpdateTime === 0) {
+        // ИСПРАВЛЕНИЕ ЛОГИКИ ИНТЕРПОЛЯЦИИ: Если interpolationFactor близок к 1 или данные только что пришли, рисуй текущее состояние без попыток достать previousGameState, если он null
+        // Если lastStateUpdateTime не инициализирован или interpolationFactor >= 0.95, используем текущее состояние без интерполяции
+        if (lastStateUpdateTime === 0 || interpolationFactor >= 0.95 || !previousGameState) {
           interpolationFactor = 1.0;
         }
         
-        // Если есть предыдущее состояние, используем интерполяцию для плавного движения
+        // Если есть предыдущее состояние и interpolationFactor < 1.0, используем интерполяцию для плавного движения
         let mySnakeToDraw = { ...mySnake, segments: mySnakeSegments };
         let opponentSnakeToDraw = { ...opponentSnake, segments: opponentSnakeSegments };
         
@@ -2632,28 +2659,19 @@ function startRenderLoop() {
           }
         }
         
-        // ПОЧЕМУ ЗМЕЙКИ ИСЧЕЗАЮТ ПОСЛЕ СТАРТА: Проверь функцию render(). Когда gameState === 'playing', она должна вызывать drawSnake с аргументом window.appState.game.my_snake.segments
-        // Если код ищет просто snake.segments или snake.body, он ничего не находит. Исправь пути к данным.
-        // НАСТРОЙКА ОТРИСОВКИ: Отрисовываем змейки с segments из window.appState.game
-        // Убеждаемся, что передаем правильные данные с segments
-        if (mySnakeToDraw && mySnakeToDraw.segments) {
+        // ПРОВЕРКА ПЕРЕД ВЫЗОВОМ: Перед вызовом drawSnakeSimple добавь проверку: если в mySnakeToDraw нет ни segments, ни body, не вызывай функцию вообще
+        if (mySnakeToDraw && (mySnakeToDraw.segments || mySnakeToDraw.body)) {
           drawSnakeSimple(mySnakeToDraw, headHistory, '#ff4444', '#ff6666');
-        } else {
-          console.warn('⚠️ mySnakeToDraw.segments отсутствует:', mySnakeToDraw);
         }
-        if (opponentSnakeToDraw && opponentSnakeToDraw.segments) {
+        if (opponentSnakeToDraw && (opponentSnakeToDraw.segments || opponentSnakeToDraw.body)) {
           drawSnakeSimple(opponentSnakeToDraw, opponentHeadHistory, '#4444ff', '#6666ff');
-        } else {
-          console.warn('⚠️ opponentSnakeToDraw.segments отсутствует:', opponentSnakeToDraw);
         }
       } else {
-        // Если данных нет, логируем для диагностики
-        console.warn('⚠️ gameState === "playing", но нет данных для отрисовки. my_snake:', mySnake, 'opponent_snake:', opponentSnake, 'appState.game:', window.appState?.game);
         // ФИКС: Показываем последнее известное положение из window.appState.game или initial_state если оно есть
-        if (mySnake) {
+        if (mySnake && (mySnake.segments || mySnake.body)) {
           drawSnakeSimple(mySnake, headHistory, '#ff4444', '#ff6666');
         }
-        if (opponentSnake) {
+        if (opponentSnake && (opponentSnake.segments || opponentSnake.body)) {
           drawSnakeSimple(opponentSnake, opponentHeadHistory, '#4444ff', '#6666ff');
         }
       }
@@ -2696,18 +2714,23 @@ function drawSnakeSimple(snake, headHistory, color1, color2) {
     snake = isMySnake ? window.appState.game.my_snake : window.appState.game.opponent_snake;
   }
   
-  // ИСПРАВЛЕНИЕ ОТРИСОВКИ ТЕЛА: Логи показывают структуру: window.appState.game.my_snake.segments. Используй именно этот путь.
-  if (!snake || !snake.segments) {
-    console.error('❌ Segments not found for snake!', { snake, hasSegments: !!snake?.segments, hasBody: !!snake?.body });
-    return;
+  // УНИВЕРСАЛЬНАЯ ПРОВЕРКА: Заменяем проверку наличия данных на универсальную
+  // const s = snake.segments || snake.body;
+  let s = snake?.segments || snake?.body;
+  
+  // FALLBACK: Если !s, то вместо console.error попробуй взять данные из window.appState.game (как fallback)
+  if (!s && window.appState && window.appState.game) {
+    const isMySnake = color1 === '#ff4444' || color1 === '#00FF00';
+    const fallbackSnake = isMySnake ? window.appState.game.my_snake : window.appState.game.opponent_snake;
+    if (fallbackSnake) {
+      s = fallbackSnake.segments || fallbackSnake.body;
+      snake = fallbackSnake;
+    }
   }
   
-  const s = snake.segments; // Используем именно segments из структуры window.appState.game.my_snake.segments
-  
-  // ИСПРАВЛЕНИЕ ОТРИСОВКИ ТЕЛА: Если массив segments пустой, не рисуем
+  // Если s все еще не существует, не рисуем
   if (!s || s.length === 0) {
-    console.error('❌ Segments array is empty!', { snake });
-    return;
+    return; // Убрали console.error, чтобы не забивать логи
   }
   
   // ОПТИМИЗАЦИЯ: Проверка координат без бесконечного логирования
