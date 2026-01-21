@@ -40,6 +40,18 @@ let opponentHeadHistory = []; // История позиций головы пр
 let lastStepTime = 0;
 
 let animationFrameId = null;
+let isRendering = false; // Флаг для контроля рендеринга
+
+// IN-MEMORY STATE: JSON-объект для хранения состояния игры в оперативной памяти
+// Этот объект живет только во время матча и используется для плавной отрисовки
+// В БД записываются только финальные результаты после завершения игры
+let gameStateJSON = {
+  tick_number: 0,
+  my_snake: null,
+  opponent_snake: null,
+  finished: false,
+  game_finished: false
+};
 
 // Input Buffer: очередь команд для предотвращения потери быстрых нажатий
 let inputBuffer = [];
@@ -55,6 +67,13 @@ let gridCtx = null;
  * Универсальная функция для открытия/закрытия модальных окон
  */
 function toggleModal(modalId, show) {
+  // ОПТИМИЗАЦИЯ: Обновляем баланс после закрытия модального окна
+  if (!show && (modalId === 'payment-modal' || modalId === 'withdrawal-modal')) {
+    // Небольшая задержка для завершения анимации закрытия
+    setTimeout(() => {
+      refreshUserProfile();
+    }, 300);
+  }
   const modal = document.getElementById(modalId);
   if (!modal) return;
   
@@ -286,7 +305,7 @@ function initSocket() {
           gameCtx = gameCanvas.getContext('2d');
           if (gameCtx) {
             gameCtx.imageSmoothingEnabled = false;
-          }
+        }
         }
       }
       
@@ -309,13 +328,13 @@ function initSocket() {
           currentGame.initialState = data.initial_state;
           
           // Отрисовываем начальное состояние
-          renderGamePreviewOnCanvas(data.initial_state, gameCanvas, gameCtx);
+        renderGamePreviewOnCanvas(data.initial_state, gameCanvas, gameCtx);
           console.log('🎨 Начальное состояние отрисовано во время countdown');
           
           // Запускаем цикл render для плавного обновления во время countdown
           if (!animationFrameId) {
             startRenderLoop();
-          }
+      }
         }
       });
     }
@@ -427,6 +446,27 @@ function initSocket() {
     // Логирование для диагностики
     console.log('Данные игры получены:', data);
     
+    // IN-MEMORY STATE: Обновляем JSON-объект состояния игры в памяти
+    // Это состояние используется только для плавной отрисовки и не записывается в БД
+    if (data) {
+      gameStateJSON = {
+        tick_number: data.tick_number || 0,
+        my_snake: data.my_snake ? {
+          body: data.my_snake.body ? [...data.my_snake.body] : [],
+          direction: data.my_snake.direction ? { ...data.my_snake.direction } : { dx: 1, dy: 0 },
+          alive: data.my_snake.alive !== undefined ? data.my_snake.alive : true
+        } : null,
+        opponent_snake: data.opponent_snake ? {
+          body: data.opponent_snake.body ? [...data.opponent_snake.body] : [],
+          direction: data.opponent_snake.direction ? { ...data.opponent_snake.direction } : { dx: -1, dy: 0 },
+          alive: data.opponent_snake.alive !== undefined ? data.opponent_snake.alive : true
+        } : null,
+        finished: data.finished === true || data.game_finished === true,
+        game_finished: data.game_finished === true || data.finished === true
+      };
+      console.log('✅ gameStateJSON обновлен (in-memory):', gameStateJSON);
+    }
+    
     // Обновляем состояние игры только если игра активна (после countdown)
     // Проверяем и 'playing' и 'countdown', чтобы не пропустить первые обновления
     if (currentGame && (gameState === 'playing' || gameState === 'countdown')) {
@@ -484,6 +524,12 @@ function initSocket() {
     }
     
     updateBalance(data.games_balance, data.winnings_ton);
+  });
+  
+  // ОПТИМИЗАЦИЯ: Обработчик обновления баланса игр
+  socket.on('games_balance_updated', (data) => {
+    console.log('💰 Баланс игр обновлен:', data);
+    refreshUserProfile();
   });
   
   // ОПТИМИЗАЦИЯ: Обработчик подтверждения покупки игр (финальное состояние из БД)
@@ -579,9 +625,22 @@ function initSocket() {
   socket.on('buy_games_success', (data) => {
     console.log('✅ Игры куплены за выигрыши (оптимистичное обновление):', data);
     
-    // ОПТИМИЗАЦИЯ: Мгновенно обновляем баланс в локальном стейте (UI)
-    // Это оптимистичное обновление, финальное подтверждение придет через buy_games_confirmed
-    updateBalance(data.games_balance, data.winnings_ton);
+    // ИСПРАВЛЕНИЕ: Мгновенно обновляем локальную переменную user.games_balance
+    if (data.games_purchased !== undefined) {
+      localUserState.games_balance = data.games_balance || (localUserState.games_balance + data.games_purchased);
+    }
+    if (data.winnings_ton !== undefined) {
+      localUserState.winnings_ton = data.winnings_ton;
+    }
+    
+    // ОПТИМИЗАЦИЯ: Мгновенно обновляем баланс в UI
+    updateBalance(localUserState.games_balance, localUserState.winnings_ton);
+    
+    // ИСПРАВЛЕНИЕ: Принудительно обновляем элемент #balance-value
+    const balanceValueEl = document.getElementById('balance-value');
+    if (balanceValueEl) {
+      balanceValueEl.textContent = localUserState.games_balance || 0;
+    }
     
     // Восстанавливаем кнопку: разблокируем и возвращаем оригинальный текст (текст цены)
     const buyBtn = document.getElementById('buy-games-with-winnings-btn');
@@ -820,6 +879,8 @@ function initEventListeners() {
   
   document.getElementById('close-withdrawal-btn')?.addEventListener('click', () => {
     toggleModal('withdrawal-modal', false);
+    // ОПТИМИЗАЦИЯ: Обновляем баланс после закрытия модального окна вывода
+    // (refreshUserProfile вызывается внутри toggleModal, но можно добавить дополнительный вызов)
   });
   
   // Close withdrawal modal when clicking outside
@@ -943,6 +1004,11 @@ function initEventListeners() {
   
   document.getElementById('close-payment-btn')?.addEventListener('click', () => {
     toggleModal('payment-modal', false);
+    // ИСПРАВЛЕНИЕ: Принудительный вызов updateUI() после закрытия модального окна оплаты
+    setTimeout(() => {
+      updateUI();
+      refreshUserProfile();
+    }, 100);
   });
   
   // Rules toggle (collapsible)
@@ -1562,6 +1628,38 @@ let localUserState = {
   winnings_ton: 0
 };
 
+/**
+ * ОПТИМИЗАЦИЯ: Обновление профиля пользователя с сервера
+ * Запрашивает актуальный баланс и синхронизирует его с UI
+ */
+async function refreshUserProfile() {
+  if (!userId) {
+    console.warn('⚠️ refreshUserProfile: userId не установлен');
+    return;
+  }
+  
+  try {
+    const response = await fetch(`/api/user/${userId}`);
+    if (!response.ok) {
+      console.error(`❌ Ошибка получения профиля: ${response.status}`);
+      return;
+    }
+    
+    const userData = await response.json();
+    
+    // Синхронизируем локальный стейт с данными сервера
+    localUserState.games_balance = userData.games_balance || 0;
+    localUserState.winnings_ton = userData.winnings_ton || 0;
+    
+    // Обновляем UI
+    updateBalance(localUserState.games_balance, localUserState.winnings_ton);
+    
+    console.log(`✅ Профиль обновлен: игры=${localUserState.games_balance}, выигрыши=${localUserState.winnings_ton.toFixed(2)} TON`);
+  } catch (error) {
+    console.error('❌ Ошибка при обновлении профиля:', error);
+  }
+}
+
 function updateBalance(gamesBalance, winningsTon) {
   // ОПТИМИЗАЦИЯ: Мгновенно обновляем локальный объект пользователя
   // Не ждем перезагрузки страницы - баланс обновляется сразу
@@ -1574,6 +1672,12 @@ function updateBalance(gamesBalance, winningsTon) {
   
   const gamesEl = document.getElementById('games-balance');
   const winningsEl = document.getElementById('winnings-balance');
+  const balanceValueEl = document.getElementById('balance-value');
+  
+  // ИСПРАВЛЕНИЕ: Обновляем элемент #balance-value если он существует
+  if (balanceValueEl) {
+    balanceValueEl.textContent = localUserState.games_balance || 0;
+  }
   
   // ОПТИМИЗАЦИЯ: Мгновенно обновляем UI без ожидания перезагрузки страницы
   if (gamesEl) {
@@ -1593,6 +1697,11 @@ function updateBalance(gamesBalance, winningsTon) {
     setTimeout(() => {
       if (winningsEl) winningsEl.style.transform = 'scale(1)';
     }, 200);
+  }
+  
+  // ИСПРАВЛЕНИЕ: Обновляем элемент #balance-value если он существует
+  if (balanceValueEl) {
+    balanceValueEl.textContent = localUserState.games_balance || 0;
   }
   
   // Показываем/скрываем кнопку покупки игр с выигрышного баланса
@@ -1861,7 +1970,8 @@ function updateGameState(data) {
 
 // STABLE PLAYBACK QUEUE: простой цикл отрисовки с фиксированным шагом
 function startRenderLoop() {
-  if (animationFrameId) return; // Уже запущен
+  if (animationFrameId || isRendering) return; // Уже запущен
+  isRendering = true; // Устанавливаем флаг рендеринга
   
   // Инициализация offscreen canvas для сетки (один раз)
   if (!gridCanvas) {
@@ -1878,6 +1988,15 @@ function startRenderLoop() {
   }
   
   function render() {
+    // ИСПРАВЛЕНИЕ: Проверяем флаг isRendering перед рендерингом
+    if (!isRendering) {
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+      animationFrameId = null;
+      }
+      return;
+    }
+    
     // ИНТЕРПОЛЯЦИЯ ИЛИ ПЛАВНЫЙ РЕНДЕРИНГ: отрисовываем только когда gameState действительно обновился
     // Убираем избыточное логирование - логируем только при обновлении состояния
     
@@ -1885,21 +2004,49 @@ function startRenderLoop() {
     // НЕ вызываем initCanvas() из render - Canvas должен быть инициализирован заранее
     if (!gameCtx || !gameCanvas) {
       console.warn('⚠️ ctx или canvas отсутствуют, останавливаем рендер');
+      isRendering = false;
       animationFrameId = null;
       return;
     }
     
-    // Если gameState не 'playing', останавливаем рендер
-    // ИСПРАВЛЕНИЕ: продолжаем рендер даже после завершения игры, чтобы показать последний кадр
+    // ОПТИМИЗАЦИЯ: Останавливаем рендер после завершения игры
+    // Если gameState переходит в 'result' или игра завершена (finished: true), останавливаем цикл
+    if (gameState === 'result' || gameState === 'menu' || gameState === 'finished') {
+      // Игра завершена - останавливаем цикл requestAnimationFrame
+      isRendering = false;
+      if (animationFrameId) {
+        cancelAnimationFrame(animationFrameId);
+        animationFrameId = null;
+      }
+      return;
+    }
+    
+    // Если gameState не 'playing' и не 'countdown', проверяем наличие finished состояния
     if (gameState !== 'playing' && gameState !== 'countdown') {
       // Проверяем, есть ли в очереди состояние с finished: true
       const hasFinishedState = packetQueue.some(p => p.finished === true) || 
                                (currentGameState && currentGameState.finished === true);
       if (!hasFinishedState) {
-        animationFrameId = null;
+        if (animationFrameId) {
+          cancelAnimationFrame(animationFrameId);
+          animationFrameId = null;
+        }
         return;
       }
-      // Если есть finished состояние, продолжаем рендер для показа последнего кадра
+      // Если есть finished состояние, рисуем последний кадр один раз и останавливаемся
+      if (currentGameState && currentGameState.finished === true) {
+        // Рисуем последний кадр один раз
+        if (currentGameState.my_snake && currentGameState.opponent_snake) {
+          drawSnakeSimple(currentGameState.my_snake, headHistory, '#ff4444', '#ff6666');
+          drawSnakeSimple(currentGameState.opponent_snake, opponentHeadHistory, '#4444ff', '#6666ff');
+        }
+        // Останавливаем цикл после отрисовки последнего кадра
+        if (animationFrameId) {
+          cancelAnimationFrame(animationFrameId);
+          animationFrameId = null;
+        }
+        return;
+      }
     }
     
     // УБРАТЬ БЛОКИРОВКУ ПО ВРЕМЕНИ: для теста убираем проверку времени, пусть requestAnimationFrame рисует всё максимально быстро
@@ -2131,99 +2278,165 @@ function startRenderLoop() {
 }
 
 /**
- * STABLE PLAYBACK QUEUE: простая отрисовка змейки
- * Хвост - это просто массив предыдущих позиций головы
- * Устранение 'бросков по сторонам': движение строго по сетке, без диагоналей
+ * IN-MEMORY STATE: Отрисовка змейки как единого пути
+ * Использует ctx.beginPath() и ctx.lineTo() для создания цельного тела без "дыр"
  */
+// Флаг для предотвращения бесконечного логирования невалидных координат
+let invalidPositionLogged = false;
+
 function drawSnakeSimple(snake, headHistory, color1, color2) {
   if (!snake || !snake.body || snake.body.length === 0) return;
   
-  // ЗАЩИТА ОТ ОТРИСОВКИ ВНЕ ПОЛЯ: проверяем координаты перед отрисовкой
-  // ИСПРАВЛЕНИЕ: если координаты невалидны, все равно рисуем (для отображения последнего кадра при завершении игры)
+  // ОПТИМИЗАЦИЯ: Проверка координат без бесконечного логирования
   const head = snake.body[0];
   if (head.x < 0 || head.x >= GRID_SIZE || head.y < 0 || head.y >= GRID_SIZE) {
-    console.warn(`⚠️ Invalid snake position - x=${head.x}, y=${head.y} (must be 0-${GRID_SIZE-1}). Drawing anyway for final frame.`);
-    // Не возвращаемся - продолжаем отрисовку для показа последнего кадра
+    if (!invalidPositionLogged) {
+      console.warn(`⚠️ Invalid snake position - x=${head.x}, y=${head.y} (must be 0-${GRID_SIZE-1}). Drawing last valid frame.`);
+      invalidPositionLogged = true;
+    }
+    if (head.x < -5 || head.x > GRID_SIZE + 5 || head.y < -5 || head.y > GRID_SIZE + 5) {
+      return;
+    }
+  } else {
+    invalidPositionLogged = false;
   }
   
-  // СТАБИЛИЗАЦИЯ КООРДИНАТ: используем константу GRID_SIZE для синхронизации с сервером
   const tileSize = Math.floor(canvasLogicalSize / GRID_SIZE);
-  
-  // КРАСИВЫЕ ЦВЕТА: используем переданные цвета вместо тестовых
   const isMySnake = color1 === '#ff4444' || color1 === '#00FF00';
   const headColor = isMySnake ? '#ff4444' : '#4444ff';
   const bodyColor = isMySnake ? '#ff6666' : '#6666ff';
-  
-  // Градиент для змейки
-  const gradient = gameCtx.createLinearGradient(0, 0, canvasLogicalSize, canvasLogicalSize);
-  gradient.addColorStop(0, headColor);
-  gradient.addColorStop(1, bodyColor);
-  
-  // Направление для глаз
   const direction = snake.direction || { dx: 1, dy: 0 };
   
-  // Настраиваем shadow эффекты для головы
-  gameCtx.shadowColor = headColor;
-  gameCtx.shadowBlur = 18;
-  gameCtx.shadowOffsetX = 0;
-  gameCtx.shadowOffsetY = 0;
+  // IN-MEMORY STATE: Рисуем змейку как единый путь через beginPath() и lineTo()
+  // Это убирает "дыры" в теле змейки, которые видны при отрисовке отдельных квадратов
   
-  // Рисуем голову с красивым оформлением
-  const headX = head.x * tileSize;
-  const headY = head.y * tileSize;
-  const size = tileSize - 2;
-  const offset = 1;
-  const radius = size * 0.2;
+  // Вычисляем центры всех сегментов для создания плавного пути
+  const pathPoints = snake.body.map(segment => ({
+    x: segment.x * tileSize + tileSize / 2,
+    y: segment.y * tileSize + tileSize / 2
+  }));
   
-  // Голова с градиентом и скругленными углами
-  gameCtx.fillStyle = gradient;
+  if (pathPoints.length < 2) {
+    // Если только один сегмент, рисуем его как голову
+    const point = pathPoints[0];
+    const headSize = tileSize * 0.8;
+    gameCtx.fillStyle = headColor;
+    gameCtx.shadowColor = headColor;
+    gameCtx.shadowBlur = 25;
+    gameCtx.beginPath();
+    gameCtx.arc(point.x, point.y, headSize / 2, 0, Math.PI * 2);
+    gameCtx.fill();
+    return;
+  }
+  
+  // Рисуем тело змейки как единый путь
+  const bodyWidth = tileSize * 0.85; // Ширина тела змейки
+  
+  // Создаем градиент для тела
+  const bodyGradient = gameCtx.createLinearGradient(
+    pathPoints[0].x, pathPoints[0].y,
+    pathPoints[pathPoints.length - 1].x, pathPoints[pathPoints.length - 1].y
+  );
+  bodyGradient.addColorStop(0, headColor);
+  bodyGradient.addColorStop(0.3, bodyColor);
+  bodyGradient.addColorStop(1, bodyColor);
+  
+  // Рисуем тело как единый путь с закругленными углами
+  gameCtx.strokeStyle = bodyGradient;
+  gameCtx.fillStyle = bodyGradient;
+  gameCtx.lineWidth = bodyWidth;
+  gameCtx.lineCap = 'round'; // Закругленные концы
+  gameCtx.lineJoin = 'round'; // Закругленные соединения
+  gameCtx.shadowColor = bodyColor;
+  gameCtx.shadowBlur = 12;
+  
   gameCtx.beginPath();
-  gameCtx.roundRect(headX + offset, headY + offset, size, size, radius);
+  gameCtx.moveTo(pathPoints[0].x, pathPoints[0].y);
+  
+  // Создаем плавную кривую через все точки
+  for (let i = 1; i < pathPoints.length; i++) {
+    const point = pathPoints[i];
+    const prevPoint = pathPoints[i - 1];
+    
+    // Используем quadraticCurveTo для плавных поворотов
+    if (i === 1) {
+      gameCtx.lineTo(point.x, point.y);
+    } else {
+      // Вычисляем контрольную точку для плавного поворота
+      const controlX = (prevPoint.x + point.x) / 2;
+      const controlY = (prevPoint.y + point.y) / 2;
+      gameCtx.quadraticCurveTo(prevPoint.x, prevPoint.y, controlX, controlY);
+    }
+  }
+  
+  // Завершаем путь до последней точки
+  if (pathPoints.length > 1) {
+    const lastPoint = pathPoints[pathPoints.length - 1];
+    gameCtx.lineTo(lastPoint.x, lastPoint.y);
+  }
+  
+  gameCtx.stroke();
   gameCtx.fill();
   
-  // Белая обводка головы для лучшей видимости
-  gameCtx.strokeStyle = '#ffffff';
-  gameCtx.lineWidth = 2;
+  // Рисуем голову (более яркая и крупная)
+  const headPoint = pathPoints[0];
+  const headSize = tileSize * 0.9;
+  const headRadius = headSize / 2;
+  
+  // Голова с более ярким градиентом
+  const headGradient = gameCtx.createRadialGradient(
+    headPoint.x, headPoint.y, 0,
+    headPoint.x, headPoint.y, headRadius
+  );
+  headGradient.addColorStop(0, isMySnake ? '#ff2222' : '#2222ff');
+  headGradient.addColorStop(0.7, headColor);
+  headGradient.addColorStop(1, bodyColor);
+  
+  gameCtx.shadowColor = headColor;
+  gameCtx.shadowBlur = 25;
+  gameCtx.fillStyle = headGradient;
   gameCtx.beginPath();
-  gameCtx.roundRect(headX + offset, headY + offset, size, size, radius);
+  gameCtx.arc(headPoint.x, headPoint.y, headRadius, 0, Math.PI * 2);
+  gameCtx.fill();
+  
+  // Белая обводка головы
+  gameCtx.strokeStyle = '#ffffff';
+  gameCtx.lineWidth = 3;
+  gameCtx.shadowBlur = 0;
+  gameCtx.beginPath();
+  gameCtx.arc(headPoint.x, headPoint.y, headRadius, 0, Math.PI * 2);
   gameCtx.stroke();
   
   // Глаза на голове с учетом направления
-  gameCtx.shadowBlur = 0;
-  gameCtx.shadowColor = 'transparent';
-  
-  const centerX = headX + offset + size / 2;
-  const centerY = headY + offset + size / 2;
-  const eyeOffset = size * 0.2;
-  const eyeSize = size * 0.12;
-  
+  const eyeOffset = headRadius * 0.4;
+  const eyeSize = headRadius * 0.2;
   let eyeX1, eyeY1, eyeX2, eyeY2;
   
   if (direction.dx > 0) {
-    eyeX1 = centerX + eyeOffset * 0.5;
-    eyeY1 = centerY - eyeOffset * 0.5;
-    eyeX2 = centerX + eyeOffset * 0.5;
-    eyeY2 = centerY + eyeOffset * 0.5;
+    eyeX1 = headPoint.x + eyeOffset;
+    eyeY1 = headPoint.y - eyeOffset * 0.5;
+    eyeX2 = headPoint.x + eyeOffset;
+    eyeY2 = headPoint.y + eyeOffset * 0.5;
   } else if (direction.dx < 0) {
-    eyeX1 = centerX - eyeOffset * 0.5;
-    eyeY1 = centerY - eyeOffset * 0.5;
-    eyeX2 = centerX - eyeOffset * 0.5;
-    eyeY2 = centerY + eyeOffset * 0.5;
+    eyeX1 = headPoint.x - eyeOffset;
+    eyeY1 = headPoint.y - eyeOffset * 0.5;
+    eyeX2 = headPoint.x - eyeOffset;
+    eyeY2 = headPoint.y + eyeOffset * 0.5;
   } else if (direction.dy > 0) {
-    eyeX1 = centerX - eyeOffset * 0.5;
-    eyeY1 = centerY + eyeOffset * 0.5;
-    eyeX2 = centerX + eyeOffset * 0.5;
-    eyeY2 = centerY + eyeOffset * 0.5;
+    eyeX1 = headPoint.x - eyeOffset * 0.5;
+    eyeY1 = headPoint.y + eyeOffset;
+    eyeX2 = headPoint.x + eyeOffset * 0.5;
+    eyeY2 = headPoint.y + eyeOffset;
   } else {
-    eyeX1 = centerX - eyeOffset * 0.5;
-    eyeY1 = centerY - eyeOffset * 0.5;
-    eyeX2 = centerX + eyeOffset * 0.5;
-    eyeY2 = centerY - eyeOffset * 0.5;
+    eyeX1 = headPoint.x - eyeOffset * 0.5;
+    eyeY1 = headPoint.y - eyeOffset;
+    eyeX2 = headPoint.x + eyeOffset * 0.5;
+    eyeY2 = headPoint.y - eyeOffset;
   }
   
   // Рисуем глаза
-  gameCtx.shadowColor = 'rgba(255, 255, 255, 0.5)';
-  gameCtx.shadowBlur = 3;
+  gameCtx.shadowColor = 'rgba(255, 255, 255, 0.8)';
+  gameCtx.shadowBlur = 5;
   gameCtx.fillStyle = '#ffffff';
   gameCtx.beginPath();
   gameCtx.arc(eyeX1, eyeY1, eyeSize, 0, Math.PI * 2);
@@ -2231,38 +2444,6 @@ function drawSnakeSimple(snake, headHistory, color1, color2) {
   gameCtx.beginPath();
   gameCtx.arc(eyeX2, eyeY2, eyeSize, 0, Math.PI * 2);
   gameCtx.fill();
-  
-  // СИНХРОННЫЙ ХВОСТ: рисуем сегменты из истории позиций головы
-  // Каждый сегмент хвоста - это позиция головы N тиков назад
-  const tailLength = Math.min(headHistory.length, snake.body.length - 1);
-  
-  for (let i = 0; i < tailLength; i++) {
-    const historyIndex = headHistory.length - 1 - i; // Берем из конца истории
-    if (historyIndex < 0 || historyIndex >= headHistory.length) continue;
-    
-    const tailPos = headHistory[historyIndex];
-    
-    // ЗАЩИТА ОТ ОТРИСОВКИ ВНЕ ПОЛЯ: проверяем координаты хвоста
-    // ИСПРАВЛЕНИЕ: если координаты невалидны, все равно рисуем (для отображения последнего кадра)
-    if (tailPos.x < 0 || tailPos.x >= GRID_SIZE || tailPos.y < 0 || tailPos.y >= GRID_SIZE) {
-      console.warn(`⚠️ Invalid tail position at segment ${i}: x=${tailPos.x}, y=${tailPos.y}. Drawing anyway for final frame.`);
-      // Не пропускаем - продолжаем отрисовку для показа последнего кадра
-    }
-    
-    const tailX = tailPos.x * tileSize;
-    const tailY = tailPos.y * tileSize;
-    const tailRadius = size * 0.15;
-    
-    // Тени только для первых сегментов
-    gameCtx.shadowBlur = i < 5 ? 12 : 0;
-    gameCtx.shadowColor = i < 5 ? bodyColor : 'transparent';
-    
-    // Хвост с градиентом и скругленными углами
-    gameCtx.fillStyle = gradient;
-    gameCtx.beginPath();
-    gameCtx.roundRect(tailX + offset + 1, tailY + offset + 1, size - 2, size - 2, tailRadius);
-    gameCtx.fill();
-  }
   
   // Сбрасываем shadow эффекты
   gameCtx.shadowBlur = 0;
@@ -2658,9 +2839,20 @@ function drawSnake(snake, color1, color2) {
 /**
  * Отображение preview игры на указанном canvas
  */
+/**
+ * IN-MEMORY STATE: Отрисовка preview игры используя gameStateJSON
+ * Используется во время countdown для показа начального состояния змеек
+ */
 function renderGamePreviewOnCanvas(gameState, canvas, ctx) {
-  if (!canvas || !ctx || !gameState) {
-    console.error('❌ renderGamePreviewOnCanvas: canvas, ctx или gameState отсутствуют');
+  if (!canvas || !ctx) {
+    console.error('❌ renderGamePreviewOnCanvas: canvas или ctx отсутствуют');
+    return;
+  }
+  
+  // IN-MEMORY STATE: Используем gameStateJSON если gameState не передан
+  const stateToRender = gameState || gameStateJSON;
+  if (!stateToRender) {
+    console.warn('⚠️ renderGamePreviewOnCanvas: нет данных для отрисовки');
     return;
   }
   
@@ -2693,8 +2885,15 @@ function renderGamePreviewOnCanvas(gameState, canvas, ctx) {
     ctx.stroke();
   }
   
-  // Функция для рисования красивой змейки
-  const drawSnakePreview = (snake, color1, color2, label) => {
+  // IN-MEMORY STATE: Используем drawSnakeSimple для отрисовки змеек из gameStateJSON
+  // Это обеспечивает единый стиль отрисовки во время countdown и во время игры
+  if (stateToRender.my_snake) {
+    drawSnakeSimple(stateToRender.my_snake, [], '#ff4444', '#ff6666');
+  }
+  if (stateToRender.opponent_snake) {
+    drawSnakeSimple(stateToRender.opponent_snake, [], '#4444ff', '#6666ff');
+  }
+}
     if (!snake || !snake.body) return;
     
     // Определяем направление змейки для глаз (лицом друг к другу)
@@ -2712,30 +2911,61 @@ function renderGamePreviewOnCanvas(gameState, canvas, ctx) {
     gradient.addColorStop(0, color1);
     gradient.addColorStop(1, color2);
     
-    snake.body.forEach((segment, index) => {
+    // ИСПРАВЛЕНИЕ: Сначала рисуем тело (сегменты 1 и далее), затем голову поверх
+    // Это обеспечивает правильную ориентацию и отсутствие зазоров
+    
+    // Рисуем тело (сегменты начиная с индекса 1)
+    for (let i = 1; i < snake.body.length; i++) {
+      const segment = snake.body[i];
+      if (!segment) continue;
+      
       const x = segment.x * tileSize;
       const y = segment.y * tileSize;
-      const size = tileSize - 2;
+      const bodySize = tileSize; // Полный размер без отступов для прилегания
+      const bodyRadius = bodySize * 0.15;
       
-      // Neon эффект (свечение цвета змейки) - увеличенная интенсивность для видимости
+      // Тени только для первых сегментов
+      ctx.shadowBlur = i < 5 ? 8 : 0;
+      ctx.shadowColor = i < 5 ? color1 : 'transparent';
+      
+      // Тело без отступов - прилегает к соседним сегментам
+      ctx.fillStyle = gradient;
+      ctx.beginPath();
+      ctx.roundRect(x, y, bodySize, bodySize, bodyRadius);
+      ctx.fill();
+    }
+    
+    // ИСПРАВЛЕНИЕ: Рисуем голову БОЛЕЕ ЯРКОЙ и КРУПНОЙ поверх тела
+    if (snake.body[0]) {
+      const headSegment = snake.body[0];
+      const x = headSegment.x * tileSize;
+      const y = headSegment.y * tileSize;
+      const headSize = tileSize; // Голова того же размера, но с более ярким цветом
+      const headRadius = headSize * 0.2;
+      
+      // Neon эффект (свечение цвета змейки) - увеличенная интенсивность для головы
       ctx.shadowColor = color1;
-      ctx.shadowBlur = 18; // Увеличено для лучшей видимости
+      ctx.shadowBlur = 25; // Увеличено свечение для головы
       ctx.shadowOffsetX = 0;
       ctx.shadowOffsetY = 0;
       
-      if (index === 0) {
-        // Голова
-        ctx.fillStyle = gradient;
-        ctx.beginPath();
-        ctx.roundRect(x + 1, y + 1, size, size, size * 0.2);
-        ctx.fill();
-        
-        // Яркая белая обводка головы для лучшей видимости
-        ctx.strokeStyle = '#ffffff';
-        ctx.lineWidth = 2;
-        ctx.beginPath();
-        ctx.roundRect(x + 1, y + 1, size, size, size * 0.2);
-        ctx.stroke();
+      // Голова с более ярким градиентом
+      const headGradient = ctx.createLinearGradient(x, y, x + headSize, y + headSize);
+      headGradient.addColorStop(0, color1);
+      headGradient.addColorStop(0.5, color1 === '#ff4444' ? '#ff2222' : '#2222ff'); // Более яркий цвет для головы
+      headGradient.addColorStop(1, color1);
+      
+      ctx.fillStyle = headGradient;
+      ctx.beginPath();
+      ctx.roundRect(x, y, headSize, headSize, headRadius);
+      ctx.fill();
+      
+      // Яркая белая обводка головы для лучшей видимости (более толстая)
+      ctx.strokeStyle = '#ffffff';
+      ctx.lineWidth = 3; // Увеличена толщина обводки
+      ctx.beginPath();
+      ctx.roundRect(x, y, headSize, headSize, headRadius);
+      ctx.stroke();
         
         // Глаза на голове с учетом направления (лицом друг к другу)
         ctx.shadowBlur = 0;
@@ -2743,10 +2973,10 @@ function renderGamePreviewOnCanvas(gameState, canvas, ctx) {
         ctx.fillStyle = '#ffffff';
         
         let eyeX1, eyeY1, eyeX2, eyeY2;
-        const centerX = x + 1 + size / 2;
-        const centerY = y + 1 + size / 2;
-        const eyeOffset = size * 0.2;
-        const eyeSize = size * 0.1;
+        const centerX = x + headSize / 2;
+        const centerY = y + headSize / 2;
+        const eyeOffset = headSize * 0.25; // Увеличен отступ для глаз
+        const eyeSize = headSize * 0.15; // Увеличен размер глаз
         
         if (direction) {
           // Вычисляем позицию глаз в зависимости от направления
@@ -2822,9 +3052,29 @@ function endGame(data) {
   console.log('🎯 endGame called, data:', data);
   console.log('Attempting to show results screen...');
   
+  // ИСПРАВЛЕНИЕ: Останавливаем рендеринг при завершении игры
+  isRendering = false;
+  if (animationFrameId) {
+    cancelAnimationFrame(animationFrameId);
+    animationFrameId = null;
+    console.log('🛑 Render loop stopped after game end');
+  }
+  
+  // IN-MEMORY STATE: Обновляем gameStateJSON финальным состоянием перед очисткой
+  if (data) {
+    gameStateJSON.finished = true;
+    gameStateJSON.game_finished = true;
+  }
+  
   // Принудительная остановка игрового состояния
   gameState = 'result';
   currentGame = null; // This will stop updates via game_state
+  
+  // Сбрасываем флаг логирования невалидных координат
+  invalidPositionLogged = false;
+  
+  // ВАЖНО: gameStateJSON остается в памяти до следующего матча
+  // В БД записываются только финальные результаты (выигрыш, история)
   
   // Check for data from game_end event, use default values
   // If data is empty, function should still work
@@ -2895,5 +3145,6 @@ function endGame(data) {
     zIndex: resultScreen.style.zIndex
   });
 }
+
 
 

@@ -537,7 +537,8 @@ body::before {
     margin: 0 auto;
     width: 100%;
     display: flex;
-    align-items: center;
+    justify-content: center; /* ИСПРАВЛЕНИЕ: Центрирование по горизонтали */
+    align-items: center; /* ИСПРАВЛЕНИЕ: Центрирование по вертикали */
     min-height: 0;
 }
 
@@ -545,13 +546,13 @@ body::before {
     position: relative; /* Изменено с absolute на relative для правильного центрирования */
     display: block !important; /* Принудительно block для видимости */
     z-index: 10 !important; /* Высокий z-index чтобы не перекрывался фоном */
-    width: 98% !important; /* 100% ширины родительского контейнера (с небольшим отступом) */
+    width: 98% !important; /* 98% ширины родительского контейнера (с небольшим отступом) */
     height: auto !important; /* Высота подстраивается под ширину */
-    max-width: 100%; /* Ограничение по ширине */
+    max-width: 100% !important; /* ИСПРАВЛЕНИЕ: Canvas занимает max-width: 100% от доступной ширины */
     max-height: 95vh; /* Ограничение по высоте экрана */
     aspect-ratio: 1/1; /* Сохраняем квадратную форму */
     object-fit: contain;
-    margin: 0 auto;
+    margin: 0 auto; /* Центрирование через margin */
     border: 2px solid var(--neon-cyan);
     border-radius: 20px;
     background: #050510;
@@ -806,8 +807,9 @@ body::before {
     left: 0;
     width: 100vw;
     height: 100vh;
-    background: rgba(0, 0, 0, 0.85);
-    backdrop-filter: blur(20px);
+    background: rgba(0, 0, 0, 0.7); /* Более прозрачный фон для видимости игрового поля */
+    backdrop-filter: blur(5px); /* Уменьшено размытие для видимости поля на заднем плане */
+    -webkit-backdrop-filter: blur(5px);
     display: none;
     justify-content: center;
     align-items: flex-start; /* Окно будет расти сверху */
