@@ -2356,16 +2356,19 @@ function startRenderLoop() {
         })) : null;
         
         // STATE MANAGEMENT: Обновляем window.appState из nextPacket
+        // ИСПРАВЛЕНИЕ ДОСТУПА К КООРДИНАТАМ: Используем segments вместо body
         if (nextPacket.my_snake) {
+          const segments = nextPacket.my_snake.segments || nextPacket.my_snake.body || [];
           window.appState.game.my_snake = {
-            body: nextPacket.my_snake.body ? [...nextPacket.my_snake.body] : [],
+            segments: segments.length > 0 ? [...segments] : [],
             direction: nextPacket.my_snake.direction ? { ...nextPacket.my_snake.direction } : { dx: 1, dy: 0 },
             alive: nextPacket.my_snake.alive !== undefined ? nextPacket.my_snake.alive : true
           };
         }
         if (nextPacket.opponent_snake) {
+          const segments = nextPacket.opponent_snake.segments || nextPacket.opponent_snake.body || [];
           window.appState.game.opponent_snake = {
-            body: nextPacket.opponent_snake.body ? [...nextPacket.opponent_snake.body] : [],
+            segments: segments.length > 0 ? [...segments] : [],
             direction: nextPacket.opponent_snake.direction ? { ...nextPacket.opponent_snake.direction } : { dx: -1, dy: 0 },
             alive: nextPacket.opponent_snake.alive !== undefined ? nextPacket.opponent_snake.alive : true
           };
@@ -2384,9 +2387,7 @@ function startRenderLoop() {
         lastStateUpdateTime = performance.now();
         
         // ЛОГИРОВАНИЕ: логируем только при обновлении состояния, а не каждый кадр
-        // ИСПРАВЛЕНИЕ ДОСТУПА К КООРДИНАТАМ: Используем segments вместо body
-        const mySnakeSegments = nextPacket.my_snake?.segments || nextPacket.my_snake?.body;
-        const opponentSnakeSegments = nextPacket.opponent_snake?.segments || nextPacket.opponent_snake?.body;
+        // УДАЛЕНИЕ ДУБЛИКАТА: Используем переменные mySnakeSegments и opponentSnakeSegments, которые уже объявлены выше (строка 2269)
         console.log(`📦 State updated: tick=${nextPacket.tick_number}, my_snake at (${mySnakeSegments?.[0]?.x}, ${mySnakeSegments?.[0]?.y}), opponent at (${opponentSnakeSegments?.[0]?.x}, ${opponentSnakeSegments?.[0]?.y})`);
         
         // Обновляем историю головы для хвоста
@@ -2453,12 +2454,21 @@ function startRenderLoop() {
       }
     }
     
-    // ПРОВЕРКА ИСТОЧНИКА В RENDERPLAYING: Когда gameState === 'playing', функция рендеринга ищет координаты в window.appState.game.my_snake и window.appState.game.opponent_snake
-    // Важно: В логах видно, что сервер присылает ключи my_snake и opponent_snake. Используем их напрямую, не старые названия (например, просто snakes)
+    // НАСТРОЙКА ОТРИСОВКИ ИЗ ПРАВИЛЬНЫХ ДАННЫХ: Когда gameState === 'playing', функция рендеринга ищет координаты в window.appState.game.my_snake.segments и window.appState.game.opponent_snake.segments
+    // Важно: Если данных в playing еще нет, берем их из initial_state, чтобы змейки не пропадали ни на секунду
     if (gameState === 'playing') {
-      // ПРОВЕРКА ИСТОЧНИКА: Используем window.appState.game.my_snake и window.appState.game.opponent_snake напрямую
-      const mySnake = window.appState?.game?.my_snake;
-      const opponentSnake = window.appState?.game?.opponent_snake;
+      // НАСТРОЙКА ОТРИСОВКИ: Используем window.appState.game.my_snake.segments и window.appState.game.opponent_snake.segments напрямую
+      let mySnake = window.appState?.game?.my_snake;
+      let opponentSnake = window.appState?.game?.opponent_snake;
+      
+      // ФИКС: Если данных в playing еще нет, берем их из initial_state
+      if (!mySnake || !opponentSnake) {
+        const initialState = currentGame?.initialState || gameStateJSON;
+        if (initialState) {
+          mySnake = mySnake || initialState.my_snake;
+          opponentSnake = opponentSnake || initialState.opponent_snake;
+        }
+      }
       
       // ИСПРАВЛЕНИЕ ДОСТУПА К КООРДИНАТАМ: Используем segments вместо body
       const mySnakeSegments = mySnake?.segments || mySnake?.body;
@@ -2513,13 +2523,13 @@ function startRenderLoop() {
           }
         }
         
-        // ИСПРАВЛЕНИЕ ДОСТУПА К КООРДИНАТАМ: Отрисовываем змейки с segments
+        // НАСТРОЙКА ОТРИСОВКИ: Отрисовываем змейки с segments из window.appState.game
         drawSnakeSimple(mySnakeToDraw, headHistory, '#ff4444', '#ff6666');
         drawSnakeSimple(opponentSnakeToDraw, opponentHeadHistory, '#4444ff', '#6666ff');
       } else {
         // Если данных нет, логируем для диагностики
         console.warn('⚠️ gameState === "playing", но нет данных для отрисовки. my_snake:', mySnake, 'opponent_snake:', opponentSnake, 'appState.game:', window.appState?.game);
-        // Показываем последнее известное положение из window.appState.game если оно есть
+        // ФИКС: Показываем последнее известное положение из window.appState.game или initial_state если оно есть
         if (mySnake) {
           drawSnakeSimple(mySnake, headHistory, '#ff4444', '#ff6666');
         }
