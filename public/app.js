@@ -511,8 +511,14 @@ function initSocket() {
     // ИСПРАВЛЕНИЕ: Сбрасываем состояние интерполяции для новой игры
     // Это предотвращает использование данных из предыдущей игры
     previousGameStateData = null;
-    // Очистка очереди и истории
-    packetQueue = [];
+    // ИСПРАВЛЕНИЕ: Очищаем очередь только если игра действительно новая
+    // Не очищаем если game_state уже приходили (защита от потери данных)
+    if (packetQueue.length === 0 || !window.appState?.game?.my_snake) {
+      packetQueue = [];
+    } else {
+      // Если есть данные в очереди, оставляем их (возможно, они для текущей игры)
+      console.log(`ℹ️ Сохраняем ${packetQueue.length} пакетов в очереди при game_start`);
+    }
     // CURRENT GAME STATE: Сбрасываем currentGameState при сбросе игры
     currentGameState = {
       snakes: [],
@@ -2344,11 +2350,16 @@ function startRenderLoop() {
     // СКОРОСТЬ ИЗВЛЕЧЕНИЯ: если в очереди скопилось слишком много пакетов (больше 5), забираем по 2 пакета за раз
     let packetsToProcess = packetQueue.length > 5 ? 2 : 1;
     
+    // ИСПРАВЛЕНИЕ ПОТЕРИ ПАКЕТОВ: валидируем пакеты ДО удаления из очереди
+    const validPackets = [];
     for (let i = 0; i < packetsToProcess && packetQueue.length > 0; i++) {
-      // Берем самый старый пакет
-      const nextState = packetQueue.shift();
+      // Смотрим на пакет БЕЗ удаления из очереди
+      const nextState = packetQueue[0];
       
-      if (!nextState) continue;
+      if (!nextState) {
+        packetQueue.shift(); // Удаляем пустой элемент
+        continue;
+      }
       
       // ВАЛИДАЦИЯ: проверяем координаты перед использованием
       // ИСПРАВЛЕНИЕ: если игра завершена (finished: true), разрешаем невалидные координаты
@@ -2358,12 +2369,18 @@ function startRenderLoop() {
       const mySnakeSegments = nextState.my_snake?.segments || nextState.my_snake?.body;
       const opponentSnakeSegments = nextState.opponent_snake?.segments || nextState.opponent_snake?.body;
       
+      let isValid = true;
+      
       if (mySnakeSegments && mySnakeSegments[0]) {
         const head = mySnakeSegments[0];
         if (head.x < 0 || head.x >= GRID_SIZE || head.y < 0 || head.y >= GRID_SIZE) {
           if (!isFinished) {
-            console.error(`❌ CRITICAL: Invalid my_snake coordinates in packet: x=${head.x}, y=${head.y}, tick=${nextState.tick_number}`);
-            continue; // Пропускаем невалидный пакет только если игра не завершена
+            // ИСПРАВЛЕНИЕ: пытаемся исправить координаты вместо пропуска
+            if (head.x < 0) head.x = 0;
+            if (head.x >= GRID_SIZE) head.x = GRID_SIZE - 1;
+            if (head.y < 0) head.y = 0;
+            if (head.y >= GRID_SIZE) head.y = GRID_SIZE - 1;
+            console.warn(`⚠️ Исправлены координаты my_snake: tick=${nextState.tick_number}`);
           }
         }
       }
@@ -2371,14 +2388,38 @@ function startRenderLoop() {
         const head = opponentSnakeSegments[0];
         if (head.x < 0 || head.x >= GRID_SIZE || head.y < 0 || head.y >= GRID_SIZE) {
           if (!isFinished) {
-            console.error(`❌ CRITICAL: Invalid opponent_snake coordinates in packet: x=${head.x}, y=${head.y}, tick=${nextState.tick_number}`);
-            continue; // Пропускаем невалидный пакет только если игра не завершена
+            // ИСПРАВЛЕНИЕ: пытаемся исправить координаты вместо пропуска
+            if (head.x < 0) head.x = 0;
+            if (head.x >= GRID_SIZE) head.x = GRID_SIZE - 1;
+            if (head.y < 0) head.y = 0;
+            if (head.y >= GRID_SIZE) head.y = GRID_SIZE - 1;
+            console.warn(`⚠️ Исправлены координаты opponent_snake: tick=${nextState.tick_number}`);
           }
         }
       }
       
+      // Если пакет валиден (или исправлен), добавляем в список для обработки
+      if (isValid) {
+        validPackets.push(packetQueue.shift()); // Только теперь удаляем из очереди
+      } else {
+        // Если пакет критически невалиден и не может быть исправлен, удаляем его
+        packetQueue.shift();
+      }
+    }
+    
+    // Обрабатываем только валидные пакеты
+    for (const nextState of validPackets) {
+      
       // Сохраняем как текущее состояние для отрисовки
       const nextPacket = nextState;
+      
+      // ЗАЩИТА ОТ ПОТЕРИ ДАННЫХ: убеждаемся, что segments всегда существует
+      if (nextPacket.my_snake && !nextPacket.my_snake.segments) {
+        nextPacket.my_snake.segments = nextPacket.my_snake.body || [];
+      }
+      if (nextPacket.opponent_snake && !nextPacket.opponent_snake.segments) {
+        nextPacket.opponent_snake.segments = nextPacket.opponent_snake.body || [];
+      }
         
         // УСТРАНЕНИЕ 'БРОСКОВ ПО СТОРОНАМ': если позиция изменилась и по X, и по Y - это склеенные пакеты
         // Отрисовываем это как два быстрых поворота под 90 градусов
@@ -3324,6 +3365,7 @@ function endGame(data) {
     zIndex: resultScreen.style.zIndex
   });
 }
+
 
 
 
