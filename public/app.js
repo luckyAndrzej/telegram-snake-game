@@ -1141,19 +1141,67 @@ function initEventListeners() {
           document.body.removeChild(link);
         }, 100);
         
-        // Обновляем статус
+        // ЛОГИКА ОПЛАТЫ: Добавляем визуальный индикатор «Ожидание оплаты...»
         const statusEl = document.getElementById('payment-status');
         if (statusEl) {
           statusEl.textContent = '⏳ Waiting for payment...';
           statusEl.style.color = '#667eea';
         }
         
-        // STATE MANAGEMENT: Обновление баланса через 3-5 секунд после инициирования транзакции
+        // ЛОГИКА ОПЛАТЫ: Периодический запрос баланса (polling) к серверу
+        // чтобы приложение автоматически закрыло модалку, когда баланс изменится
         if (paymentInitiated) {
-          setTimeout(() => {
-            console.log('🔄 Обновление баланса после транзакции...');
-            refreshUserProfile();
-          }, 4000); // 4 секунды для обработки транзакции
+          const initialBalance = localUserState.games_balance || 0;
+          let pollCount = 0;
+          const maxPolls = 30; // Максимум 30 попыток (5 минут)
+          
+          const pollBalance = setInterval(async () => {
+            pollCount++;
+            console.log(`🔄 Polling баланса (попытка ${pollCount}/${maxPolls})...`);
+            
+            try {
+              await refreshUserProfile();
+              const currentBalance = localUserState.games_balance || 0;
+              
+              // Если баланс изменился, закрываем модалку
+              if (currentBalance > initialBalance) {
+                console.log('✅ Баланс обновлен! Закрываем модалку оплаты.');
+                clearInterval(pollBalance);
+                toggleModal('payment-modal', false);
+                
+                if (statusEl) {
+                  statusEl.textContent = '✅ Payment received!';
+                  statusEl.style.color = '#00ff41';
+                  setTimeout(() => {
+                    statusEl.textContent = '';
+                  }, 2000);
+                }
+              } else if (pollCount >= maxPolls) {
+                // Прекращаем polling после максимального количества попыток
+                clearInterval(pollBalance);
+                console.log('⏱️ Polling завершен (достигнут лимит попыток)');
+              }
+            } catch (error) {
+              console.error('❌ Ошибка при polling баланса:', error);
+              if (pollCount >= maxPolls) {
+                clearInterval(pollBalance);
+              }
+            }
+          }, 10000); // Каждые 10 секунд
+          
+          // Очищаем polling при закрытии модалки
+          const paymentModal = document.getElementById('payment-modal');
+          if (paymentModal) {
+            const observer = new MutationObserver((mutations) => {
+              mutations.forEach((mutation) => {
+                if (!paymentModal.classList.contains('modal-visible')) {
+                  clearInterval(pollBalance);
+                  observer.disconnect();
+                }
+              });
+            });
+            observer.observe(paymentModal, { attributes: true, attributeFilter: ['class'] });
+          }
         }
       } catch (linkError) {
         // Если клик не сработал, пробуем tg.openLink()
@@ -2329,22 +2377,7 @@ function startRenderLoop() {
     // ИСПРАВЛЕНИЕ: Отрисовка змеек должна идти ВСЕГДА на основе данных из window.appState.game
     // (даже если новых пакетов нет) - это уберет мерцание и исчезновение змеек
     
-    // 3. Рисуем Змейку Игрока (Зеленая/Неоновая)
-    const mySnake = window.appState?.game?.my_snake;
-    if (mySnake && (mySnake.segments || mySnake.body)) {
-      // Используем ярко-зеленый для себя
-      drawSnakeSimple(mySnake, headHistory, '#00FF41', '#008F11'); 
-    }
-
-    // 4. Рисуем Змейку Оппонента (Красная/Розовая)
-    const oppSnake = window.appState?.game?.opponent_snake;
-    if (oppSnake && (oppSnake.segments || oppSnake.body)) {
-      // Используем ярко-красный для врага
-      drawSnakeSimple(oppSnake, opponentHeadHistory, '#FF3131', '#8B0000');
-    }
-
-    // 5. Рисуем ОТСЧЕТ (поверх всего)
-    // Проверяем и глобальную переменную, и состояние в appState
+    // 3. ФИКС ОТСЧЕТА: Рисуем ОТСЧЕТ ПЕРЕД отрисовкой змеек
     if (gameState === 'countdown' || window.appState?.game?.status === 'countdown') {
       const countdownNumber = document.getElementById('countdown-number');
       const val = window.appState?.game?.countdownValue || countdownNumber?.textContent || countdownValue || "";
@@ -2353,12 +2386,26 @@ function startRenderLoop() {
         gameCtx.fillStyle = "#ffffff";
         gameCtx.shadowBlur = 20;
         gameCtx.shadowColor = "rgba(0, 245, 255, 0.8)";
-        gameCtx.font = "bold 120px Arial"; // Крупно
+        gameCtx.font = "bold 100px Arial";
         gameCtx.textAlign = "center";
         gameCtx.textBaseline = "middle";
         gameCtx.fillText(val, canvasLogicalSize / 2, canvasLogicalSize / 2);
         gameCtx.restore();
       }
+    }
+    
+    // 4. РАЗДЕЛЕНИЕ ЦВЕТОВ: Рисуем Змейку Игрока (Зеленая/Неоновая)
+    const mySnake = window.appState?.game?.my_snake;
+    if (mySnake && (mySnake.segments || mySnake.body)) {
+      // Принудительно передаем разные HEX-цвета: '#00FF41' (голова) и '#008F11' (тело)
+      drawSnakeSimple(mySnake, headHistory, '#00FF41', '#008F11'); 
+    }
+
+    // 5. РАЗДЕЛЕНИЕ ЦВЕТОВ: Рисуем Змейку Оппонента (Красная/Розовая)
+    const oppSnake = window.appState?.game?.opponent_snake;
+    if (oppSnake && (oppSnake.segments || oppSnake.body)) {
+      // Принудительно передаем разные HEX-цвета: '#FF3131' (голова) и '#8B0000' (тело)
+      drawSnakeSimple(oppSnake, opponentHeadHistory, '#FF3131', '#8B0000');
     }
 
     animationFrameId = requestAnimationFrame(render);
@@ -2431,12 +2478,13 @@ function drawSnakeSimple(snake, headHistory, color1, color2) {
   
   // КООРДИНАТЫ И РАЗМЕР: Убедись, что tileSize вычисляется правильно относительно ширины Canvas (canvas.width / 30)
   const tileSize = Math.floor(canvasLogicalSize / GRID_SIZE);
-  const isMySnake = color1 === '#ff4444' || color1 === '#00FF00';
-  const snakeColor = isMySnake ? '#ff4444' : '#4444ff';
+  
+  // ИСПРАВЛЕНИЕ: Используем переданные цвета color1 и color2 для отрисовки
+  // color1 - цвет головы, color2 - цвет тела
   
   // ИСПРАВЛЕНИЕ ОТРИСОВКИ ТЕЛА: Проходим циклом по ВСЕМУ массиву segments
   gameCtx.beginPath();
-  gameCtx.strokeStyle = snakeColor;
+  gameCtx.strokeStyle = color2; // Используем color2 для тела
   gameCtx.lineWidth = tileSize * 0.8;
   gameCtx.lineCap = 'round';
   gameCtx.lineJoin = 'round';
@@ -2452,8 +2500,8 @@ function drawSnakeSimple(snake, headHistory, color1, color2) {
   // ИСПРАВЛЕНИЕ ОТРИСОВКИ ТЕЛА: Рисуем путь (тело)
   gameCtx.stroke();
   
-  // Голова (чтобы её было видно всегда) - рисуется как яркий квадрат
-  gameCtx.fillStyle = '#FFFFFF';
+  // ИСПРАВЛЕНИЕ: Голова использует color1 (переданный цвет головы)
+  gameCtx.fillStyle = color1; // Используем color1 для головы
   gameCtx.fillRect(s[0].x * tileSize, s[0].y * tileSize, tileSize, tileSize);
 }
 
