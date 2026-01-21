@@ -256,6 +256,7 @@ body::before {
     border: none;
     border-radius: 15px;
     font-size: 15px;
+    cursor: pointer !important; /* ИСПРАВЛЕНИЕ: Убедись, что при наведении на интерактивные элементы курсор меняется на 'pointer' */
     font-weight: 700;
     cursor: pointer;
     transition: all 0.3s cubic-bezier(0.4, 0, 0.2, 1);
@@ -288,6 +289,7 @@ body::before {
 .btn-primary {
     background: linear-gradient(135deg, var(--neon-cyan) 0%, var(--neon-blue) 100%);
     color: #0a0a1a;
+    cursor: pointer !important; /* ИСПРАВЛЕНИЕ: Убедись, что при наведении на интерактивные элементы курсор меняется на 'pointer' */
 }
 
 /* Индикация обработки для кнопок покупки */
@@ -334,6 +336,7 @@ body::before {
     color: var(--neon-cyan);
     border: 1px solid rgba(0, 245, 255, 0.3);
     box-shadow: 0 0 20px rgba(0, 245, 255, 0.2);
+    cursor: pointer !important; /* ИСПРАВЛЕНИЕ: Убедись, что при наведении на интерактивные элементы курсор меняется на 'pointer' */
 }
 
 .btn-secondary:hover {
@@ -494,6 +497,9 @@ body::before {
     flex-direction: column;
     justify-content: flex-start;
     align-items: center;
+    /* ИСПРАВЛЕНИЕ: Удали backdrop-filter у родительских контейнеров игрового экрана */
+    backdrop-filter: none !important;
+    -webkit-backdrop-filter: none !important;
 }
 
 /* УБРАТЬ ЛИШНИЕ СЛОИ: временно скрываем header для теста */
@@ -545,7 +551,7 @@ body::before {
 #game-canvas {
     position: relative; /* Изменено с absolute на relative для правильного центрирования */
     display: block !important; /* Принудительно block для видимости */
-    z-index: 100 !important; /* УДАЛЕНИЕ ОВЕРЛЕЕВ: Высокий z-index чтобы Canvas был выше всех оверлеев (countdown-overlay: 1000, но скрывается после старта) */
+    z-index: 500 !important; /* ИСПРАВЛЕНИЕ: Установи z-index: 500 */
     width: 98% !important; /* 98% ширины родительского контейнера (с небольшим отступом) */
     height: auto !important; /* Высота подстраивается под ширину */
     max-width: 100% !important; /* ИСПРАВЛЕНИЕ: Canvas занимает max-width: 100% от доступной ширины */
@@ -561,6 +567,7 @@ body::before {
         inset 0 0 40px rgba(0, 245, 255, 0.1);
     image-rendering: auto; /* Сглаживание для плавного движения */
     -webkit-image-rendering: auto;
+    cursor: crosshair; /* ИСПРАВЛЕНИЕ: курсор на canvas — 'crosshair' */
 }
 
 /* Адаптивность для разных размеров экрана */
@@ -665,7 +672,7 @@ body::before {
     border-radius: 12px;
     padding: 0;
     font-size: 26px;
-    cursor: pointer;
+    cursor: pointer !important; /* ИСПРАВЛЕНИЕ: Убедись, что при наведении на кнопки управления курсор меняется на 'pointer' */
     transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
     box-shadow: 
         0 4px 20px rgba(0, 245, 255, 0.4),

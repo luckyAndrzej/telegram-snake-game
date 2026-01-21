@@ -1428,7 +1428,8 @@ function initCanvas() {
     gameCanvas.style.position = 'relative';
   }
   
-  gameCtx = gameCanvas.getContext('2d');
+  // ИСПРАВЛЕНИЕ: Используем { alpha: false } для оптимизации контекста 2D
+  gameCtx = gameCanvas.getContext('2d', { alpha: false });
   
   if (!gameCtx) {
     console.error('❌ Не удалось получить контекст 2D для canvas');
@@ -1448,8 +1449,12 @@ function initCanvas() {
   // Высота подстраивается под ширину для квадрата (1:1), но ограничиваем высотой экрана
   const cssHeight = Math.min(cssWidth, containerHeight * 0.95);
   
-  // Логический размер Canvas (для отрисовки) равен меньшей стороне для квадрата
+  // ИСПРАВЛЕНИЕ: Логический размер Canvas (для отрисовки) - четкий размер
   canvasLogicalSize = Math.floor(cssHeight);
+  
+  // ИСПРАВЛЕНИЕ: tileSize рассчитывается как logicalSize / 30
+  const tileSize = canvasLogicalSize / GRID_SIZE;
+  window.tileSize = tileSize; // Сохраняем для использования в других функциях
   
   // ОПТИМИЗАЦИЯ: Устанавливаем CSS размеры для адаптивности
   gameCanvas.style.width = '98%'; // 98% ширины контейнера
@@ -1458,9 +1463,6 @@ function initCanvas() {
   gameCanvas.style.maxWidth = '100%';
   gameCanvas.style.maxHeight = '95vh'; // Ограничиваем высотой экрана
   
-  // Пересчитываем tileSize динамически на основе нового размера: tileSize = canvasLogicalSize / 30
-  // Это будет использовано в drawGridToOffscreen и drawSnakeSimple
-  
   // УПРАВЛЕНИЕ DPR: вызываем scale только один раз при инициализации
   canvasDPR = window.devicePixelRatio || 1;
   
@@ -1468,9 +1470,8 @@ function initCanvas() {
   gameCanvas.width = canvasLogicalSize * canvasDPR;
   gameCanvas.height = canvasLogicalSize * canvasDPR;
   
-  // Масштабируем контекст для корректного отображения (применяем ОДИН РАЗ при инициализации)
-  gameCtx.setTransform(1, 0, 0, 1, 0, 0); // Сброс трансформации перед scale
-  gameCtx.scale(canvasDPR, canvasDPR);
+  // ИСПРАВЛЕНИЕ: Установи gameCtx.setTransform(canvasDPR, 0, 0, canvasDPR, 0, 0) один раз при инициализации
+  gameCtx.setTransform(canvasDPR, 0, 0, canvasDPR, 0, 0);
   
   // CSS размер (для отображения на экране) - устанавливается через CSS (95vw)
   // Не устанавливаем здесь, чтобы CSS мог управлять размером
@@ -2278,7 +2279,12 @@ function startRenderLoop() {
   }
 
   function render(now) {
-    if (!isRendering || !gameCtx) return;
+    // ИСПРАВЛЕНИЕ: Рендер должен работать ВСЕГДА, пока открыт экран игры
+    // Убрана блокировка цикла по gameState
+    if (!isRendering || !gameCtx) {
+      animationFrameId = requestAnimationFrame(render);
+      return;
+    }
 
     // 1. Очистка и фон
     gameCtx.fillStyle = '#0a0e27';
@@ -2287,8 +2293,37 @@ function startRenderLoop() {
     // 2. Сетка
     if (gridCanvas) gameCtx.drawImage(gridCanvas, 0, 0);
 
+    // ИСПРАВЛЕНИЕ: Раздели логику - пакеты из packetQueue только обновляют window.appState.game
+    // Обрабатываем очередь пакетов (только обновление состояния)
+    while (packetQueue.length > 0) {
+      const nextPacket = packetQueue.shift();
+      if (!nextPacket) continue;
+
+      // Синхронизируем состояние из пакета
+      if (nextPacket.my_snake) {
+        window.appState.game.my_snake = {
+          segments: nextPacket.my_snake.segments || nextPacket.my_snake.body || [],
+          direction: nextPacket.my_snake.direction || { dx: 1, dy: 0 },
+          alive: nextPacket.my_snake.alive !== undefined ? nextPacket.my_snake.alive : true
+        };
+      }
+      if (nextPacket.opponent_snake) {
+        window.appState.game.opponent_snake = {
+          segments: nextPacket.opponent_snake.segments || nextPacket.opponent_snake.body || [],
+          direction: nextPacket.opponent_snake.direction || { dx: -1, dy: 0 },
+          alive: nextPacket.opponent_snake.alive !== undefined ? nextPacket.opponent_snake.alive : true
+        };
+      }
+      window.appState.game.tick_number = nextPacket.tick_number || 0;
+      window.appState.game.finished = nextPacket.finished === true || nextPacket.game_finished === true;
+    }
+
+    // ИСПРАВЛЕНИЕ: Отрисовка змеек должна идти ВСЕГДА на основе данных из window.appState.game
+    // (даже если новых пакетов нет) - это уберет мерцание и исчезновение змеек
+    
     // 3. Логика отсчета
     if (gameState === 'countdown') {
+      // ИСПРАВЛЕНИЕ: Отрисовку отсчета делаем прямо внутри основного Canvas через fillText
       const countdownNumber = document.getElementById('countdown-number');
       const displayCount = countdownNumber?.textContent || window.appState?.game?.countdownValue || "...";
       gameCtx.fillStyle = "white";
@@ -2296,58 +2331,17 @@ function startRenderLoop() {
       gameCtx.textAlign = "center";
       gameCtx.textBaseline = "middle";
       gameCtx.fillText(displayCount, canvasLogicalSize / 2, canvasLogicalSize / 2);
-      
-      // Отрисовка змеек во время отсчета
-      const stateToRender = currentGameState.status === 'countdown' ? currentGameState : (currentGame?.initialState || gameStateJSON);
-      if (stateToRender) {
-        const mySnake = currentGameState.my_snake || stateToRender.my_snake;
-        const opponentSnake = currentGameState.opponent_snake || stateToRender.opponent_snake;
-        
-        if (mySnake && (mySnake.segments || mySnake.body)) {
-          drawSnakeSimple(mySnake, [], '#00FF41', '#008F11');
-        }
-        if (opponentSnake && (opponentSnake.segments || opponentSnake.body)) {
-          drawSnakeSimple(opponentSnake, [], '#FF3131', '#8B0000');
-        }
-      }
-    } 
+    }
     
-    // 4. Логика игры (Playing)
-    else if (gameState === 'playing' || gameState === 'finished') {
-      // Обрабатываем очередь пакетов
-      while (packetQueue.length > 0) {
-        const nextPacket = packetQueue.shift();
-        if (!nextPacket) continue;
+    // 4. Отрисовка змеек (всегда, если есть данные)
+    const mySnake = window.appState?.game?.my_snake;
+    const oppSnake = window.appState?.game?.opponent_snake;
 
-        // Синхронизируем состояние
-        if (nextPacket.my_snake) {
-          window.appState.game.my_snake = {
-            segments: nextPacket.my_snake.segments || nextPacket.my_snake.body || [],
-            direction: nextPacket.my_snake.direction || { dx: 1, dy: 0 },
-            alive: nextPacket.my_snake.alive !== undefined ? nextPacket.my_snake.alive : true
-          };
-        }
-        if (nextPacket.opponent_snake) {
-          window.appState.game.opponent_snake = {
-            segments: nextPacket.opponent_snake.segments || nextPacket.opponent_snake.body || [],
-            direction: nextPacket.opponent_snake.direction || { dx: -1, dy: 0 },
-            alive: nextPacket.opponent_snake.alive !== undefined ? nextPacket.opponent_snake.alive : true
-          };
-        }
-        window.appState.game.tick_number = nextPacket.tick_number || 0;
-        window.appState.game.finished = nextPacket.finished === true || nextPacket.game_finished === true;
-      }
-
-      // Отрисовка змеек из текущего состояния (даже если новых пакетов нет)
-      const mySnake = window.appState.game.my_snake;
-      const oppSnake = window.appState.game.opponent_snake;
-
-      if (mySnake && (mySnake.segments || mySnake.body)) {
-        drawSnakeSimple(mySnake, headHistory, '#00FF41', '#008F11'); // Зеленая - твоя
-      }
-      if (oppSnake && (oppSnake.segments || oppSnake.body)) {
-        drawSnakeSimple(oppSnake, opponentHeadHistory, '#FF3131', '#8B0000'); // Красная - враг
-      }
+    if (mySnake && (mySnake.segments || mySnake.body)) {
+      drawSnakeSimple(mySnake, headHistory, '#00FF41', '#008F11'); // Зеленая - твоя
+    }
+    if (oppSnake && (oppSnake.segments || oppSnake.body)) {
+      drawSnakeSimple(oppSnake, opponentHeadHistory, '#FF3131', '#8B0000'); // Красная - враг
     }
 
     animationFrameId = requestAnimationFrame(render);
