@@ -364,10 +364,10 @@ function initSocket() {
         const player1Status = document.getElementById('player1-status');
         const player2Status = document.getElementById('player2-status');
         if (player1Status) {
-          player1Status.textContent = 'Вы - зеленая змейка';
+          player1Status.textContent = 'You are the green snake';
         }
         if (player2Status) {
-          player2Status.textContent = 'Противник - красная змейка';
+          player2Status.textContent = 'Opponent - red snake';
         }
         
         // CURRENT GAME STATE: Синхронизируем currentGameState с appState
@@ -462,10 +462,10 @@ function initSocket() {
     const player1Status = document.getElementById('player1-status');
     const player2Status = document.getElementById('player2-status');
     if (player1Status) {
-      player1Status.textContent = 'Вы - зеленая змейка';
+      player1Status.textContent = 'You are the green snake';
     }
     if (player2Status) {
-      player2Status.textContent = 'Противник - красная змейка';
+      player2Status.textContent = 'Opponent - red snake';
     }
     
     // ВИДИМОСТЬ ОТСЧЕТА: Прямо сейчас отсчет перекрыт другими слоями
@@ -750,7 +750,7 @@ function initSocket() {
         .then(userData => {
           // Обновляем баланс из БД только после получения финального результата
           updateBalance(userData.games_balance, userData.winnings_ton);
-          console.log('💰 Баланс обновлен из БД после завершения игры:', userData);
+          console.log('💰 Balance updated from DB after game completion:', userData);
         })
         .catch(error => {
           console.error('❌ Ошибка при получении баланса из БД:', error);
@@ -764,7 +764,7 @@ function initSocket() {
   
   // Обновление баланса после начисления выигрыша
   socket.on('balance_updated', (data) => {
-    console.log('💰 Баланс обновлен:', data);
+    console.log('💰 Balance updated:', data);
     
     // ОПТИМИЗАЦИЯ: Если есть флаг rollback, откатываем оптимистичное обновление
     if (data.rollback) {
@@ -782,7 +782,7 @@ function initSocket() {
   
   // ОПТИМИЗАЦИЯ: Обработчик подтверждения покупки игр (финальное состояние из БД)
   socket.on('buy_games_confirmed', (data) => {
-    console.log('✅ Покупка игр подтверждена (БД обновлена):', data);
+    console.log('✅ Game purchase confirmed (DB updated):', data);
     // Обновляем баланс финальными данными из БД
     updateBalance(data.games_balance, data.winnings_ton);
   });
@@ -842,8 +842,8 @@ function initSocket() {
     
     // Показываем уведомление
     const message = data.txHash 
-      ? `✅ Деньги отправлены! ${data.amount} TON отправлено на ваш кошелек. TX: ${data.txHash.substring(0, 10)}...`
-      : `✅ Деньги отправлены! ${data.amount} TON отправлено на ваш кошелек.`;
+      ? `✅ Money sent! ${data.amount} TON sent to your wallet. TX: ${data.txHash.substring(0, 10)}...`
+      : `✅ Money sent! ${data.amount} TON sent to your wallet.`;
       
     if (window.Telegram && window.Telegram.WebApp) {
       window.Telegram.WebApp.showAlert(message);
@@ -866,8 +866,8 @@ function initSocket() {
     }
     
     // Показываем ошибку
-    const errorMessage = error.message || 'Неизвестная ошибка';
-    const message = `❌ Ошибка: ${errorMessage}. Проверьте кошелек или баланс.`;
+    const errorMessage = error.message || 'Unknown error';
+    const message = `❌ Error: ${errorMessage}. Check your wallet or balance.`;
     
     if (window.Telegram && window.Telegram.WebApp) {
       window.Telegram.WebApp.showAlert(message);
@@ -878,7 +878,7 @@ function initSocket() {
   
   // Обработчик успешной покупки игр с выигрышного баланса (оптимистичное обновление)
   socket.on('buy_games_success', (data) => {
-    console.log('✅ Игры куплены за выигрыши (оптимистичное обновление):', data);
+    console.log('✅ Games purchased with winnings (optimistic update):', data);
     
     // ИСПРАВЛЕНИЕ: Мгновенно обновляем локальную переменную user.games_balance
     if (data.games_purchased !== undefined) {
@@ -921,12 +921,12 @@ function initSocket() {
       buyBtn.style.transform = '';
     }
     
-    tg.showAlert(`✅ Куплено ${data.games_purchased} игр за ${data.games_purchased} TON выигрышей!`);
+    tg.showAlert(`✅ Purchased ${data.games_purchased} games for ${data.games_purchased} TON winnings!`);
   });
   
   // Дополнительный обработчик для buy_success (на случай если сервер отправляет это событие)
   socket.on('buy_success', (data) => {
-    console.log('✅ Покупка успешна (buy_success):', data);
+    console.log('✅ Purchase successful (buy_success):', data);
     
     // Обновляем баланс на экране без перезагрузки
     if (data.games_balance !== undefined && data.winnings_ton !== undefined) {
@@ -948,7 +948,7 @@ function initSocket() {
   
   // ОПТИМИЗАЦИЯ: Обработчик подтверждения покупки игр (финальное состояние из БД)
   socket.on('buy_games_confirmed', (data) => {
-    console.log('✅ Покупка игр подтверждена (БД обновлена):', data);
+    console.log('✅ Game purchase confirmed (DB updated):', data);
     // Обновляем баланс финальными данными из БД
     updateBalance(data.games_balance, data.winnings_ton);
   });
@@ -975,12 +975,12 @@ function initSocket() {
       buyBtn.style.transform = '';
     }
     
-    tg.showAlert(data.message || '❌ Ошибка при покупке игр');
+    tg.showAlert(data.message || '❌ Error purchasing games');
   });
   
   // Обработчик ошибки покупки игр с выигрышного баланса
   socket.on('buy_games_error', (data) => {
-    const errorMessage = data.message || 'Ошибка при покупке игр';
+    const errorMessage = data.message || 'Error purchasing games';
     
     // Восстанавливаем кнопку при ошибке: разблокируем и возвращаем оригинальный текст
     const buyBtn = document.getElementById('buy-games-with-winnings-btn');
@@ -1215,7 +1215,7 @@ function initEventListeners() {
         const pollingStatusEl = document.getElementById('polling-status');
         if (pollingStatusEl) {
           pollingStatusEl.style.display = 'block';
-          pollingStatusEl.textContent = '⏳ Ждем подтверждения транзакции в блокчейне... (обычно 15-30 сек)';
+          pollingStatusEl.textContent = '⏳ Waiting for transaction confirmation in blockchain... (usually 15-30 sec)';
         }
         
         // ЛОГИКА ОПЛАТЫ: Периодический запрос баланса (polling) к серверу
@@ -1227,7 +1227,7 @@ function initEventListeners() {
           
           const pollBalance = setInterval(async () => {
             pollCount++;
-            console.log(`🔄 Polling баланса (попытка ${pollCount}/${maxPolls})...`);
+            console.log(`🔄 Polling balance (attempt ${pollCount}/${maxPolls})...`);
             
             try {
               await refreshUserProfile();
@@ -1235,7 +1235,7 @@ function initEventListeners() {
               
               // Если баланс изменился, закрываем модалку
               if (currentBalance > initialBalance) {
-                console.log('✅ Баланс обновлен! Закрываем модалку оплаты.');
+                console.log('✅ Balance updated! Closing payment modal.');
                 clearInterval(pollBalance);
                 
                 // Скрываем статус polling
@@ -1255,13 +1255,13 @@ function initEventListeners() {
               } else if (pollCount >= maxPolls) {
                 // Прекращаем polling после максимального количества попыток
                 clearInterval(pollBalance);
-                console.log('⏱️ Polling завершен (достигнут лимит попыток)');
+                console.log('⏱️ Polling completed (attempt limit reached)');
                 if (pollingStatusEl) {
                   pollingStatusEl.style.display = 'none';
                 }
               }
             } catch (error) {
-              console.error('❌ Ошибка при polling баланса:', error);
+              console.error('❌ Error polling balance:', error);
               if (pollCount >= maxPolls) {
                 clearInterval(pollBalance);
                 if (pollingStatusEl) {
@@ -1308,7 +1308,7 @@ function initEventListeners() {
             // STATE MANAGEMENT: Обновление баланса через 3-5 секунд после инициирования транзакции
             if (paymentInitiated) {
               setTimeout(() => {
-                console.log('🔄 Обновление баланса после транзакции...');
+                console.log('🔄 Updating balance after transaction...');
                 refreshUserProfile();
               }, 4000); // 4 секунды для обработки транзакции
             }
@@ -1327,7 +1327,7 @@ function initEventListeners() {
               // STATE MANAGEMENT: Обновление баланса через 3-5 секунд после инициирования транзакции
               if (paymentInitiated) {
                 setTimeout(() => {
-                  console.log('🔄 Обновление баланса после транзакции...');
+                  console.log('🔄 Updating balance after transaction...');
                   refreshUserProfile();
                 }, 4000); // 4 секунды для обработки транзакции
               }
@@ -1355,7 +1355,7 @@ function initEventListeners() {
             // STATE MANAGEMENT: Обновление баланса через 3-5 секунд после инициирования транзакции
             if (paymentInitiated) {
               setTimeout(() => {
-                console.log('🔄 Обновление баланса после транзакции...');
+                console.log('🔄 Updating balance after transaction...');
                 refreshUserProfile();
               }, 4000); // 4 секунды для обработки транзакции
             }
@@ -1960,9 +1960,9 @@ function confirmWithdrawal() {
     withdrawalStatus.style.color = '#ff4444';
     
     if (window.Telegram && window.Telegram.WebApp) {
-      window.Telegram.WebApp.showAlert('Ошибка: нет подключения к серверу');
+      window.Telegram.WebApp.showAlert('Error: no connection to server');
     } else {
-      alert('Ошибка: нет подключения к серверу');
+      alert('Error: no connection to server');
     }
   }
 }
@@ -1975,7 +1975,7 @@ function handleBuyGamesWithWinnings(amount = 1) {
   const currentWinnings = parseFloat(winningsEl?.textContent?.replace(' TON', '') || '0');
   
   if (currentWinnings < amount) {
-    tg.showAlert(`❌ Недостаточно выигрышей! Доступно: ${currentWinnings.toFixed(2)} TON, требуется: ${amount} TON`);
+    tg.showAlert(`❌ Insufficient winnings! Available: ${currentWinnings.toFixed(2)} TON, required: ${amount} TON`);
     return;
   }
   
@@ -2006,7 +2006,7 @@ function handleBuyGamesWithWinnings(amount = 1) {
   
   // Проверяем подключение сокета
   if (!socket || !socket.connected) {
-    tg.showAlert('❌ Нет подключения к серверу. Пожалуйста, обновите страницу.');
+    tg.showAlert('❌ No connection to server. Please refresh the page.');
     // Восстанавливаем кнопку при ошибке подключения
     if (buyBtn) {
       buyBtn.disabled = false;
@@ -2121,7 +2121,7 @@ function updateBalance(gamesBalance, winningsTon) {
     buyWithWinningsBtn.style.display = hasWinnings ? 'block' : 'none';
   }
   
-  console.log(`💰 Баланс обновлен мгновенно: игры=${localUserState.games_balance}, выигрыши=${localUserState.winnings_ton.toFixed(2)} TON`);
+  console.log(`💰 Balance updated instantly: games=${localUserState.games_balance}, winnings=${localUserState.winnings_ton.toFixed(2)} TON`);
 }
 
 /**
@@ -2134,13 +2134,13 @@ async function addGamesBalance(amount) {
     
     if (data.success) {
       updateBalance(data.games_balance, data.winnings_ton);
-      tg.showAlert(`✅ Баланс пополнен на ${amount} игр`);
+      tg.showAlert(`✅ Balance topped up with ${amount} games`);
     } else {
       tg.showAlert(`❌ Ошибка: ${data.error}`);
     }
   } catch (error) {
     console.error('Ошибка пополнения баланса:', error);
-    tg.showAlert('Ошибка при пополнении баланса');
+    tg.showAlert('Error topping up balance');
   }
 }
 
