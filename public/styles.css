@@ -831,8 +831,6 @@ body::before {
     width: 100vw;
     height: 100vh;
     display: none;
-    justify-content: center;
-    align-items: center;
     z-index: 10000;
     background: rgba(0, 0, 0, 0.8);
     padding: 0;
@@ -840,15 +838,18 @@ body::before {
 }
 
 .payment-modal.modal-visible {
-    display: flex !important;
+    display: block !important;
     opacity: 1 !important;
 }
 
 .payment-modal-content {
-    position: relative;
+    position: absolute;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
     width: 90%;
     max-width: 380px;
-    margin: 0 auto;
+    margin: 0;
     box-sizing: border-box;
     background: #0a0a1a;
     border: 2px solid var(--neon-cyan);
@@ -857,13 +858,11 @@ body::before {
     box-shadow: 0 0 50px rgba(0, 245, 255, 0.3);
     max-height: 80vh;
     overflow-y: auto;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
 }
 
 .payment-modal.modal-visible .payment-modal-content {
     opacity: 1 !important;
+    transform: translate(-50%, -50%) !important;
 }
 
 .payment-modal-content h3 {
@@ -1153,8 +1152,12 @@ body::before {
     
     /* Для мобилок, чтобы точно стояло по центру */
     .payment-modal-content {
+        position: absolute;
+        left: 50%;
+        top: 50%;
+        transform: translate(-50%, -50%);
         width: calc(100% - 40px);
-        margin: 0 auto;
+        margin: 0;
         max-width: calc(100% - 40px);
     }
     
