@@ -825,16 +825,18 @@ body::before {
 
 /* Payment Modal - Neon */
 .payment-modal {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
+    position: fixed !important;
+    top: 0 !important;
+    left: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
     display: none;
-    z-index: 10000;
+    z-index: 10000 !important;
     background: rgba(0, 0, 0, 0.8);
-    padding: 0;
-    margin: 0;
+    padding: 0 !important;
+    margin: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
 }
 
 .payment-modal.modal-visible {
@@ -843,13 +845,13 @@ body::before {
 }
 
 .payment-modal-content {
-    position: absolute;
-    left: 50%;
-    top: 50%;
-    transform: translate(-50%, -50%);
-    width: 90%;
-    max-width: 380px;
-    margin: 0;
+    position: fixed !important;
+    left: 50% !important;
+    top: 50% !important;
+    transform: translate(-50%, -50%) !important;
+    width: 90% !important;
+    max-width: 380px !important;
+    margin: 0 !important;
     box-sizing: border-box;
     background: #0a0a1a;
     border: 2px solid var(--neon-cyan);
@@ -858,11 +860,16 @@ body::before {
     box-shadow: 0 0 50px rgba(0, 245, 255, 0.3);
     max-height: 80vh;
     overflow-y: auto;
+    right: auto !important;
+    z-index: 10001 !important;
 }
 
 .payment-modal.modal-visible .payment-modal-content {
     opacity: 1 !important;
     transform: translate(-50%, -50%) !important;
+    left: 50% !important;
+    top: 50% !important;
+    right: auto !important;
 }
 
 .payment-modal-content h3 {
@@ -1152,13 +1159,15 @@ body::before {
     
     /* Для мобилок, чтобы точно стояло по центру */
     .payment-modal-content {
-        position: absolute;
-        left: 50%;
-        top: 50%;
-        transform: translate(-50%, -50%);
-        width: calc(100% - 40px);
-        margin: 0;
-        max-width: calc(100% - 40px);
+        position: fixed !important;
+        left: 50% !important;
+        top: 50% !important;
+        transform: translate(-50%, -50%) !important;
+        width: calc(100% - 40px) !important;
+        margin: 0 !important;
+        max-width: calc(100% - 40px) !important;
+        right: auto !important;
+        z-index: 10001 !important;
     }
     
     .payment-modal-content h3 {
@@ -1217,6 +1226,13 @@ body::before {
     
     .payment-modal-content {
         padding: 20px 15px;
+        position: fixed !important;
+        left: 50% !important;
+        top: 50% !important;
+        transform: translate(-50%, -50%) !important;
+        right: auto !important;
+        margin: 0 !important;
+        z-index: 10001 !important;
     }
     
     .payment-modal-content h3 {

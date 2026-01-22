@@ -112,6 +112,16 @@ function toggleModal(modalId, show) {
     modal.style.opacity = '';
     modal.style.transform = '';
     
+    // Убеждаемся, что content правильно центрирован
+    const content = modal.querySelector('.payment-modal-content');
+    if (content) {
+      content.style.left = '';
+      content.style.top = '';
+      content.style.right = '';
+      content.style.transform = '';
+      content.style.margin = '';
+    }
+    
     modal.classList.add('modal-visible');
     // Отключаем game-controls при открытом модальном окне
     const gameControls = document.querySelector('.game-controls');
