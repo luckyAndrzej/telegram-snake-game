@@ -2542,22 +2542,7 @@ function startRenderLoop() {
             console.error('❌ render: gameCtx отсутствует при попытке нарисовать opponent_snake');
           } else {
             drawSnakeSimple(oppSnake, opponentHeadHistory, '#FF3131', '#8B0000');
-            
-            // ВИЗУАЛЬНЫЙ ИНДИКАТОР: Рисуем текст "ПРОТИВНИК" рядом с головой красной змейки
-            if (oppSnakeSegments[0] && oppSnakeSegments[0].x !== undefined && oppSnakeSegments[0].y !== undefined) {
-              gameCtx.save();
-              gameCtx.font = "bold 14px Inter, Arial, sans-serif";
-              gameCtx.fillStyle = "#FF3131";
-              gameCtx.textAlign = "center";
-              gameCtx.textBaseline = "bottom";
-              gameCtx.shadowBlur = 5;
-              gameCtx.shadowColor = "#FF3131";
-              const tileSize = canvasLogicalSize / GRID_SIZE;
-              const headX = oppSnakeSegments[0].x * tileSize;
-              const headY = oppSnakeSegments[0].y * tileSize;
-              gameCtx.fillText("ПРОТИВНИК", headX + tileSize / 2, headY - 5);
-              gameCtx.restore();
-            }
+            // УБРАЛИ надпись "ПРОТИВНИК" - показываем только змейку пользователя
           }
         } catch (error) {
           console.error('❌ Ошибка при отрисовке opponent_snake:', error, 'oppSnake:', oppSnake);
@@ -2649,12 +2634,29 @@ function drawSnakeSimple(snake, headHistory, color1, color2) {
     return;
   }
   
+  // ФУТУРИСТИЧНЫЙ ВИД: Создаем градиент для тела змейки
+  const lastSegment = s[s.length - 1];
+  const bodyGradient = gameCtx.createLinearGradient(
+    s[0].x * tileSize, s[0].y * tileSize,
+    lastSegment ? lastSegment.x * tileSize : s[0].x * tileSize,
+    lastSegment ? lastSegment.y * tileSize : s[0].y * tileSize
+  );
+  bodyGradient.addColorStop(0, color1); // Яркий цвет у головы
+  bodyGradient.addColorStop(0.3, color2); // Основной цвет тела
+  bodyGradient.addColorStop(1, color2 + '80'); // Полупрозрачный у хвоста
+  
   // ИСПРАВЛЕНИЕ ОТРИСОВКИ ТЕЛА: Проходим циклом по ВСЕМУ массиву segments
   gameCtx.beginPath();
-  gameCtx.strokeStyle = color2; // Используем color2 для тела
-  gameCtx.lineWidth = tileSize * 0.8;
+  gameCtx.strokeStyle = bodyGradient; // Используем градиент для тела
+  gameCtx.lineWidth = tileSize * 0.85;
   gameCtx.lineCap = 'round';
   gameCtx.lineJoin = 'round';
+  
+  // НЕОНОВОЕ СВЕЧЕНИЕ для тела
+  gameCtx.shadowBlur = 15;
+  gameCtx.shadowColor = color2;
+  gameCtx.shadowOffsetX = 0;
+  gameCtx.shadowOffsetY = 0;
   
   // ИСПРАВЛЕНИЕ ОТРИСОВКИ ТЕЛА: Начинаем с первого сегмента (голова)
   const firstSegment = s[0];
@@ -2678,9 +2680,94 @@ function drawSnakeSimple(snake, headHistory, color1, color2) {
   // ИСПРАВЛЕНИЕ ОТРИСОВКИ ТЕЛА: Рисуем путь (тело)
   gameCtx.stroke();
   
-  // ИСПРАВЛЕНИЕ: Голова использует color1 (переданный цвет головы)
-  gameCtx.fillStyle = color1; // Используем color1 для головы
-  gameCtx.fillRect(firstSegment.x * tileSize, firstSegment.y * tileSize, tileSize, tileSize);
+  // ФУТУРИСТИЧНАЯ ГОЛОВА: Градиент и свечение
+  const headGradient = gameCtx.createRadialGradient(
+    firstSegment.x * tileSize + tileSize / 2,
+    firstSegment.y * tileSize + tileSize / 2,
+    0,
+    firstSegment.x * tileSize + tileSize / 2,
+    firstSegment.y * tileSize + tileSize / 2,
+    tileSize / 2
+  );
+  headGradient.addColorStop(0, color1); // Яркий центр
+  headGradient.addColorStop(0.7, color1 + 'CC'); // Полупрозрачный
+  headGradient.addColorStop(1, color1 + '66'); // Более прозрачный край
+  
+  gameCtx.save();
+  gameCtx.shadowBlur = 25;
+  gameCtx.shadowColor = color1;
+  gameCtx.fillStyle = headGradient;
+  gameCtx.beginPath();
+  gameCtx.arc(
+    firstSegment.x * tileSize + tileSize / 2,
+    firstSegment.y * tileSize + tileSize / 2,
+    tileSize / 2.2,
+    0,
+    Math.PI * 2
+  );
+  gameCtx.fill();
+  
+  // ВНУТРЕННЕЕ СВЕЧЕНИЕ головы
+  gameCtx.fillStyle = color1 + 'AA';
+  gameCtx.beginPath();
+  gameCtx.arc(
+    firstSegment.x * tileSize + tileSize / 2,
+    firstSegment.y * tileSize + tileSize / 2,
+    tileSize / 3.5,
+    0,
+    Math.PI * 2
+  );
+  gameCtx.fill();
+  
+  // ГЛАЗА для футуристичного вида
+  const eyeSize = tileSize / 6;
+  const eyeOffsetX = tileSize / 4;
+  const eyeOffsetY = tileSize / 5;
+  const direction = snake.direction || { dx: 1, dy: 0 };
+  const headCenterX = firstSegment.x * tileSize + tileSize / 2;
+  const headCenterY = firstSegment.y * tileSize + tileSize / 2;
+  
+  // Вычисляем позицию глаз в зависимости от направления
+  let leftEyeX, leftEyeY, rightEyeX, rightEyeY;
+  
+  if (direction.dx !== 0) {
+    // Движение по горизонтали
+    leftEyeX = headCenterX - eyeOffsetX;
+    leftEyeY = headCenterY - eyeOffsetY;
+    rightEyeX = headCenterX - eyeOffsetX;
+    rightEyeY = headCenterY + eyeOffsetY;
+  } else {
+    // Движение по вертикали
+    leftEyeX = headCenterX - eyeOffsetY;
+    leftEyeY = headCenterY - eyeOffsetX;
+    rightEyeX = headCenterX + eyeOffsetY;
+    rightEyeY = headCenterY - eyeOffsetX;
+  }
+  
+  // Левый глаз
+  gameCtx.fillStyle = '#FFFFFF';
+  gameCtx.shadowBlur = 8;
+  gameCtx.shadowColor = '#FFFFFF';
+  gameCtx.beginPath();
+  gameCtx.arc(leftEyeX, leftEyeY, eyeSize, 0, Math.PI * 2);
+  gameCtx.fill();
+  
+  // Правый глаз
+  gameCtx.beginPath();
+  gameCtx.arc(rightEyeX, rightEyeY, eyeSize, 0, Math.PI * 2);
+  gameCtx.fill();
+  
+  // Зрачки (черные точки)
+  gameCtx.fillStyle = '#000000';
+  gameCtx.shadowBlur = 0;
+  gameCtx.beginPath();
+  gameCtx.arc(leftEyeX, leftEyeY, eyeSize / 2.5, 0, Math.PI * 2);
+  gameCtx.fill();
+  gameCtx.beginPath();
+  gameCtx.arc(rightEyeX, rightEyeY, eyeSize / 2.5, 0, Math.PI * 2);
+  gameCtx.fill();
+  
+  gameCtx.restore();
 }
 
 /**
