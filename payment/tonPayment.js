@@ -254,6 +254,18 @@ async function scanTransactions(io) {
       if (!inMsg) {
         continue; // Убраны лишние логи для производительности
       }
+      
+      // ДИАГНОСТИКА: Логируем структуру in_msg для отладки (только для первых транзакций)
+      if (Object.keys(pendingPayments).length > 0) {
+        console.log(`🔍 [Сканер] Структура in_msg:`, {
+          hasMessage: !!inMsg.message,
+          hasMsgData: !!inMsg.msg_data,
+          msgDataKeys: inMsg.msg_data ? Object.keys(inMsg.msg_data) : [],
+          messagePreview: inMsg.message ? inMsg.message.substring(0, 50) : null,
+          msgDataTextPreview: inMsg.msg_data?.text ? inMsg.msg_data.text.substring(0, 50) : null,
+          msgDataBodyPreview: inMsg.msg_data?.body ? (typeof inMsg.msg_data.body === 'string' ? inMsg.msg_data.body.substring(0, 50) : 'not string') : null
+        });
+      }
 
       // Извлекаем комментарий из транзакции
       let extractedComment = '';
@@ -329,21 +341,41 @@ async function scanTransactions(io) {
               console.log(`✅ [Декодер] Найден TON префикс 0x00000000, декодировано: "${decoded}"`);
               return decoded;
             } else {
-              // Нет префикса - пробуем декодировать весь буфер как UTF-8
+              // Нет префикса 0x00000000 - пробуем разные варианты
+              // ВАРИАНТ 1: Пробуем отрезать первые 4 байта вручную (может быть другой префикс)
+              if (buffer.length > 4) {
+                const textBuffer = buffer.slice(4);
+                const decodedWithSlice = textBuffer.toString('utf-8');
+                // Проверяем, что это валидный текст (не битые байты) и содержит только печатаемые символы
+                if (decodedWithSlice && !decodedWithSlice.includes('\ufffd') && /^[A-Za-z0-9]+$/.test(decodedWithSlice)) {
+                  console.log(`✅ [Декодер] Декодировано после отрезания первых 4 байт: "${decodedWithSlice}"`);
+                  return decodedWithSlice;
+                }
+              }
+              
+              // ВАРИАНТ 2: Пробуем декодировать весь буфер как UTF-8
               const decoded = buffer.toString('utf-8');
-              // Проверяем, что это валидный текст (не битые байты)
-              if (decoded && !decoded.includes('\ufffd')) { // \ufffd = replacement character
+              // Проверяем, что это валидный текст (не битые байты) и содержит только печатаемые символы
+              if (decoded && !decoded.includes('\ufffd') && /^[A-Za-z0-9]+$/.test(decoded)) {
                 console.log(`✅ [Декодер] Декодировано без префикса: "${decoded}"`);
                 return decoded;
               } else {
-                console.log(`⚠️ [Декодер] Обнаружены битые байты (replacement characters) в декодированном тексте`);
-                // Пробуем отрезать первые 4 байта вручную, даже если префикс не 0x00000000
-                if (buffer.length > 4) {
-                  const textBuffer = buffer.slice(4);
-                  const decodedWithSlice = textBuffer.toString('utf-8');
-                  if (decodedWithSlice && !decodedWithSlice.includes('\ufffd')) {
-                    console.log(`✅ [Декодер] Декодировано после отрезания первых 4 байт: "${decodedWithSlice}"`);
-                    return decodedWithSlice;
+                console.log(`⚠️ [Декодер] Обнаружены битые байты или невалидные символы в декодированном тексте: "${decoded}"`);
+                
+                // ВАРИАНТ 3: Если буфер ровно 8 байт (комментарий 8 символов + 4 байта префикса), пробуем разные варианты
+                if (buffer.length === 8) {
+                  // Пробуем отрезать первые 4 байта
+                  const slice4 = buffer.slice(4).toString('utf-8');
+                  if (slice4 && !slice4.includes('\ufffd') && /^[A-Za-z0-9]+$/.test(slice4)) {
+                    console.log(`✅ [Декодер] Декодировано из 8-байтного буфера (отрезано 4 байта): "${slice4}"`);
+                    return slice4;
+                  }
+                  
+                  // Пробуем отрезать последние 4 байта (может быть суффикс)
+                  const sliceLast4 = buffer.slice(0, 4).toString('utf-8');
+                  if (sliceLast4 && !sliceLast4.includes('\ufffd') && /^[A-Za-z0-9]+$/.test(sliceLast4)) {
+                    console.log(`✅ [Декодер] Декодировано из 8-байтного буфера (первые 4 байта): "${sliceLast4}"`);
+                    return sliceLast4;
                   }
                 }
               }
@@ -368,8 +400,17 @@ async function scanTransactions(io) {
           hasText: !!inMsg.msg_data.text,
           hasBody: !!inMsg.msg_data.body,
           textType: typeof inMsg.msg_data.text,
-          bodyType: typeof inMsg.msg_data.body
+          bodyType: typeof inMsg.msg_data.body,
+          msgDataKeys: Object.keys(inMsg.msg_data)
         });
+        
+        // ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: Может быть комментарий в других полях msg_data
+        if (inMsg.msg_data.op) {
+          console.log(`🔍 [Сканер] msg_data.op найден: ${inMsg.msg_data.op}`);
+        }
+        if (inMsg.msg_data.init) {
+          console.log(`🔍 [Сканер] msg_data.init найден`);
+        }
         
         // Если msg_data.text существует и это текст
         if (inMsg.msg_data.text && typeof inMsg.msg_data.text === 'string') {
@@ -377,7 +418,7 @@ async function scanTransactions(io) {
           console.log(`📄 [Сканер] msg_data.text: "${text.substring(0, 50)}..." (длина: ${text.length})`);
           
           // Если это не Base64 и не Hex, используем как текст
-          if (!isBase64(text) && !text.startsWith('0x') && !/^[0-9a-fA-F]+$/.test(text)) {
+          if (!isBase64(text) && !text.startsWith('0x') && !/^[0-9a-fA-F]+$/i.test(text)) {
             extractedComment = text;
             console.log(`✅ [Сканер] Используем msg_data.text как обычный текст: "${extractedComment}"`);
           } else {
@@ -388,7 +429,12 @@ async function scanTransactions(io) {
               extractedComment = decoded;
               console.log(`✅ [Сканер] Декодировано из msg_data.text: "${extractedComment}"`);
             } else {
-              console.log(`⚠️ [Сканер] Не удалось декодировать msg_data.text`);
+              console.log(`⚠️ [Сканер] Не удалось декодировать msg_data.text, пробуем как обычный текст...`);
+              // Fallback: пробуем использовать как есть, если это похоже на валидный комментарий
+              if (/^[A-Za-z0-9]+$/.test(text) && text.length >= 4 && text.length <= 20) {
+                extractedComment = text;
+                console.log(`✅ [Сканер] Используем msg_data.text как комментарий напрямую: "${extractedComment}"`);
+              }
             }
           }
         }
@@ -399,12 +445,39 @@ async function scanTransactions(io) {
             ? inMsg.msg_data.body.trim() 
             : inMsg.msg_data.body;
           console.log(`📦 [Сканер] msg_data.body найден, тип: ${typeof body}, длина: ${typeof body === 'string' ? body.length : 'N/A'}`);
+          
+          // Пробуем декодировать body
           const decoded = decodeTonComment(body);
           if (decoded) {
             extractedComment = decoded;
             console.log(`✅ [Сканер] Декодировано из msg_data.body: "${extractedComment}"`);
           } else {
             console.log(`⚠️ [Сканер] Не удалось декодировать msg_data.body`);
+            
+            // ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: Может быть комментарий в начале body после префикса
+            // Пробуем найти комментарий в разных частях body
+            if (typeof body === 'string' && isBase64(body)) {
+              try {
+                const bodyBuffer = Buffer.from(body, 'base64');
+                // Пробуем разные смещения для поиска комментария
+                for (let offset = 0; offset < Math.min(32, bodyBuffer.length - 8); offset += 4) {
+                  const slice = bodyBuffer.slice(offset, offset + 8);
+                  const decodedSlice = slice.toString('utf-8');
+                  if (decodedSlice && !decodedSlice.includes('\ufffd') && /^[A-Za-z0-9]{4,8}$/.test(decodedSlice)) {
+                    console.log(`🔍 [Сканер] Найден возможный комментарий в body (offset ${offset}): "${decodedSlice}"`);
+                    // Проверяем, совпадает ли с ожидаемым
+                    const pendingComments = Object.values(pendingPayments).map(p => (p.comment || '').toUpperCase().trim());
+                    if (pendingComments.includes(decodedSlice.toUpperCase())) {
+                      extractedComment = decodedSlice;
+                      console.log(`✅ [Сканер] Найден комментарий в body (offset ${offset}): "${extractedComment}"`);
+                      break;
+                    }
+                  }
+                }
+              } catch (e) {
+                console.log(`⚠️ [Сканер] Ошибка при поиске комментария в body: ${e.message}`);
+              }
+            }
           }
         }
       } else {
@@ -460,6 +533,34 @@ async function scanTransactions(io) {
           foundPayment = payment;
           console.log(`✅ [Сканер] Найдено совпадение комментариев: "${comment}" === "${expectedComment}"`);
           break;
+        }
+      }
+      
+      // ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: Если не нашли совпадение, пробуем найти комментарий в других местах
+      if (!foundPayment && comment && Object.keys(pendingPayments).length > 0) {
+        console.log(`⚠️ [Сканер] Комментарий "${comment}" не совпал с ожидаемыми. Пробуем альтернативные варианты...`);
+        
+        // Пробуем искать комментарий в разных частях структуры
+        const pendingComments = Object.values(pendingPayments).map(p => (p.comment || '').toUpperCase().trim());
+        
+        // Проверяем, может быть комментарий закодирован по-другому
+        // Пробуем декодировать msg_data.text как есть (без Base64 декодирования)
+        if (inMsg.msg_data?.text) {
+          const directText = inMsg.msg_data.text.trim();
+          if (directText && !isBase64(directText) && !directText.startsWith('0x') && !/^[0-9a-fA-F]+$/i.test(directText)) {
+            const directComment = directText.toUpperCase().trim();
+            if (pendingComments.includes(directComment)) {
+              console.log(`✅ [Сканер] Найден комментарий напрямую в msg_data.text: "${directComment}"`);
+              for (const [paymentId, payment] of Object.entries(pendingPayments)) {
+                const expectedComment = (payment.comment || '').toUpperCase().trim();
+                if (directComment === expectedComment && payment.status === 'pending') {
+                  foundPaymentId = paymentId;
+                  foundPayment = payment;
+                  break;
+                }
+              }
+            }
+          }
         }
       }
       
