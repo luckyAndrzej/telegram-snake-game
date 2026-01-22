@@ -50,6 +50,7 @@ const TICK_DURATION = 120; // мс (длительность одного тик
 
 // Текущее состояние игры для отрисовки
 let previousGameState = null; // Предыдущее состояние для интерполяции
+let interpolatedGameState = null; // Текущее состояние для интерполяции (не путать с currentGameState)
 let lastStateUpdateTime = 0; // Время последнего обновления состояния
 let headHistory = []; // История позиций головы для хвоста (массив {x, y, direction})
 let opponentHeadHistory = []; // История позиций головы противника
@@ -2440,23 +2441,36 @@ function startRenderLoop() {
       const nextPacket = packetQueue.shift();
       if (!nextPacket) continue;
 
+      // Сохраняем предыдущее состояние для интерполяции
+      if (interpolatedGameState) {
+        previousGameState = JSON.parse(JSON.stringify(interpolatedGameState));
+      }
+
       // Синхронизируем состояние из пакета
-      if (nextPacket.my_snake) {
-        window.appState.game.my_snake = {
+      const newState = {
+        my_snake: nextPacket.my_snake ? {
           segments: nextPacket.my_snake.segments || nextPacket.my_snake.body || [],
           direction: nextPacket.my_snake.direction || { dx: 1, dy: 0 },
           alive: nextPacket.my_snake.alive !== undefined ? nextPacket.my_snake.alive : true
-        };
-      }
-      if (nextPacket.opponent_snake) {
-        window.appState.game.opponent_snake = {
+        } : null,
+        opponent_snake: nextPacket.opponent_snake ? {
           segments: nextPacket.opponent_snake.segments || nextPacket.opponent_snake.body || [],
           direction: nextPacket.opponent_snake.direction || { dx: -1, dy: 0 },
           alive: nextPacket.opponent_snake.alive !== undefined ? nextPacket.opponent_snake.alive : true
-        };
-      }
-      window.appState.game.tick_number = nextPacket.tick_number || 0;
-      window.appState.game.finished = nextPacket.finished === true || nextPacket.game_finished === true;
+        } : null,
+        tick_number: nextPacket.tick_number || 0,
+        finished: nextPacket.finished === true || nextPacket.game_finished === true
+      };
+
+      // Обновляем window.appState.game
+      window.appState.game.my_snake = newState.my_snake;
+      window.appState.game.opponent_snake = newState.opponent_snake;
+      window.appState.game.tick_number = newState.tick_number;
+      window.appState.game.finished = newState.finished;
+
+      // Сохраняем текущее состояние для интерполяции
+      interpolatedGameState = newState;
+      lastStateUpdateTime = now;
     }
 
     // ИСПРАВЛЕНИЕ: Отрисовка змеек должна идти ВСЕГДА на основе данных из window.appState.game
@@ -2491,20 +2505,52 @@ function startRenderLoop() {
       }
     }
     
-    // 4. РАЗНЫЕ ЦВЕТА ЗМЕЕК: Рисуем Змейку Игрока (Зеленая/Неоновая)
-    // ИСПРАВЛЕНИЕ: Улучшаем проверку наличия данных для отрисовки
-    const mySnake = window.appState?.game?.my_snake || currentGameState?.my_snake || currentGame?.initialState?.my_snake;
+    // 4. ИНТЕРПОЛЯЦИЯ: Вычисляем интерполированное состояние для плавного движения
+    let interpolatedMySnake = null;
+    let interpolatedOppSnake = null;
+    
+    if (interpolatedGameState && previousGameState && lastStateUpdateTime > 0) {
+      const timeSinceUpdate = now - lastStateUpdateTime;
+      const interpolationFactor = Math.min(timeSinceUpdate / TICK_DURATION, 1.0); // Ограничиваем до 1.0
+      
+      // Интерполируем позиции змеек
+      if (interpolatedGameState.my_snake && previousGameState.my_snake) {
+        const currentSegments = interpolatedGameState.my_snake.segments || [];
+        const previousSegments = previousGameState.my_snake.segments || [];
+        if (currentSegments.length > 0 && previousSegments.length > 0) {
+          interpolatedMySnake = {
+            ...interpolatedGameState.my_snake,
+            segments: interpolateSegments(previousSegments, currentSegments, interpolationFactor)
+          };
+        }
+      }
+      
+      if (interpolatedGameState.opponent_snake && previousGameState.opponent_snake) {
+        const currentSegments = interpolatedGameState.opponent_snake.segments || [];
+        const previousSegments = previousGameState.opponent_snake.segments || [];
+        if (currentSegments.length > 0 && previousSegments.length > 0) {
+          interpolatedOppSnake = {
+            ...interpolatedGameState.opponent_snake,
+            segments: interpolateSegments(previousSegments, currentSegments, interpolationFactor)
+          };
+        }
+      }
+    }
+    
+    // Используем интерполированное состояние или текущее
+    const mySnake = interpolatedMySnake || window.appState?.game?.my_snake || interpolatedGameState?.my_snake || currentGameState?.my_snake || currentGame?.initialState?.my_snake;
+    const oppSnake = interpolatedOppSnake || window.appState?.game?.opponent_snake || interpolatedGameState?.opponent_snake || currentGameState?.opponent_snake || currentGame?.initialState?.opponent_snake;
+
+    // 5. РАЗНЫЕ ЦВЕТА ЗМЕЕК: Рисуем Змейку Игрока (Зеленая/Неоновая)
     if (mySnake) {
       const mySnakeSegments = mySnake.segments || mySnake.body;
       if (mySnakeSegments && mySnakeSegments.length > 0) {
-        // Для своей змейки (my_snake) передаем цвета: '#00FF41' (голова), '#008F11' (тело)
         try {
           if (!gameCtx) {
             console.error('❌ render: gameCtx отсутствует при попытке нарисовать my_snake');
           } else {
             drawSnakeSimple(mySnake, headHistory, '#00FF41', '#008F11');
-          }
-        
+            
             // ВИЗУАЛЬНЫЙ ИНДИКАТОР: Рисуем текст "ВЫ" рядом с головой зеленой змейки
             if (mySnakeSegments[0] && mySnakeSegments[0].x !== undefined && mySnakeSegments[0].y !== undefined) {
               gameCtx.save();
@@ -2520,44 +2566,63 @@ function startRenderLoop() {
               gameCtx.fillText("ВЫ", headX + tileSize / 2, headY - 5);
               gameCtx.restore();
             }
-          } catch (error) {
-            console.error('❌ Ошибка при отрисовке my_snake:', error, 'mySnake:', mySnake);
           }
-        } else {
-          console.warn('⚠️ my_snake segments пустые или отсутствуют, mySnake:', mySnake);
+        } catch (error) {
+          console.error('❌ Ошибка при отрисовке my_snake:', error, 'mySnake:', mySnake);
         }
-      } else {
-        console.warn('⚠️ my_snake не найдена. window.appState.game.my_snake:', window.appState?.game?.my_snake, 'currentGameState.my_snake:', currentGameState?.my_snake);
       }
+    }
 
-    // 5. РАЗНЫЕ ЦВЕТА ЗМЕЕК: Рисуем Змейку Оппонента (Красная/Розовая)
-    // ИСПРАВЛЕНИЕ: Улучшаем проверку наличия данных для отрисовки
-    const oppSnake = window.appState?.game?.opponent_snake || currentGameState?.opponent_snake || currentGame?.initialState?.opponent_snake;
+    // 6. РАЗНЫЕ ЦВЕТА ЗМЕЕК: Рисуем Змейку Оппонента (Красная/Розовая)
     if (oppSnake) {
       const oppSnakeSegments = oppSnake.segments || oppSnake.body;
       if (oppSnakeSegments && oppSnakeSegments.length > 0) {
-        // Для врага (opponent_snake) передаем цвета: '#FF3131' (голова), '#8B0000' (тело)
         try {
           if (!gameCtx) {
             console.error('❌ render: gameCtx отсутствует при попытке нарисовать opponent_snake');
           } else {
             drawSnakeSimple(oppSnake, opponentHeadHistory, '#FF3131', '#8B0000');
-            // УБРАЛИ надпись "ПРОТИВНИК" - показываем только змейку пользователя
           }
         } catch (error) {
           console.error('❌ Ошибка при отрисовке opponent_snake:', error, 'oppSnake:', oppSnake);
         }
-      } else {
-        console.warn('⚠️ opponent_snake segments пустые или отсутствуют, oppSnake:', oppSnake);
       }
-    } else {
-      console.warn('⚠️ opponent_snake не найдена. window.appState.game.opponent_snake:', window.appState?.game?.opponent_snake, 'currentGameState.opponent_snake:', currentGameState?.opponent_snake);
     }
 
     animationFrameId = requestAnimationFrame(render);
   }
   
   animationFrameId = requestAnimationFrame(render);
+}
+
+/**
+ * ИНТЕРПОЛЯЦИЯ СЕГМЕНТОВ: Плавное движение между состояниями
+ */
+function interpolateSegments(prevSegments, currentSegments, factor) {
+  if (!prevSegments || !currentSegments || prevSegments.length === 0 || currentSegments.length === 0) {
+    return currentSegments || prevSegments || [];
+  }
+  
+  const maxLength = Math.max(prevSegments.length, currentSegments.length);
+  const interpolated = [];
+  
+  for (let i = 0; i < maxLength; i++) {
+    const prev = prevSegments[i] || prevSegments[prevSegments.length - 1];
+    const curr = currentSegments[i] || currentSegments[currentSegments.length - 1];
+    
+    if (prev && curr) {
+      interpolated.push({
+        x: prev.x + (curr.x - prev.x) * factor,
+        y: prev.y + (curr.y - prev.y) * factor
+      });
+    } else if (curr) {
+      interpolated.push(curr);
+    } else if (prev) {
+      interpolated.push(prev);
+    }
+  }
+  
+  return interpolated;
 }
 
 /**

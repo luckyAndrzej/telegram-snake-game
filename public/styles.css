@@ -857,9 +857,9 @@ body::before {
     box-shadow: 0 0 50px rgba(0, 245, 255, 0.3);
     max-height: 80vh;
     overflow-y: auto;
-    left: 0;
-    right: 0;
-    transform: none;
+    left: 50%;
+    top: 50%;
+    transform: translate(-50%, -50%);
 }
 
 .payment-modal.modal-visible .payment-modal-content {
