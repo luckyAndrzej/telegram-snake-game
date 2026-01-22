@@ -457,6 +457,16 @@ function initSocket() {
     // Устанавливаем gameState в 'countdown' для отрисовки
     gameState = 'countdown';
     
+    // ОБНОВЛЕНИЕ ИНФОРМАЦИИ О ЗМЕЙКАХ: Показываем, кто за какую змейку играет
+    const player1Status = document.getElementById('player1-status');
+    const player2Status = document.getElementById('player2-status');
+    if (player1Status) {
+      player1Status.textContent = 'Вы - зеленая змейка';
+    }
+    if (player2Status) {
+      player2Status.textContent = 'Противник - красная змейка';
+    }
+    
     // ВИДИМОСТЬ ОТСЧЕТА: Прямо сейчас отсчет перекрыт другими слоями
     // В функции countdown добавляем команду для видимости отсчета
     const gameScreen = document.getElementById('game-screen');
@@ -467,6 +477,12 @@ function initSocket() {
     }
     if (lobbyScreen) {
       lobbyScreen.style.display = 'none';
+    }
+    
+    // Показываем header с информацией о змейках
+    const gameHeader = document.querySelector('.game-header');
+    if (gameHeader) {
+      gameHeader.style.display = 'block';
     }
     
     const countdownNumber = document.getElementById('countdown-number');
@@ -629,19 +645,39 @@ function initSocket() {
       window.appState.game.status = 'playing';
       window.appState.game.tick_number = data.tick_number || 0;
       // ИСПРАВЛЕНИЕ ДОСТУПА К КООРДИНАТАМ: Сервер присылает segments, а не body
-      window.appState.game.my_snake = data.my_snake ? {
-        segments: data.my_snake.segments ? [...data.my_snake.segments] : (data.my_snake.body ? [...data.my_snake.body] : []),
-        direction: data.my_snake.direction ? { ...data.my_snake.direction } : { dx: 1, dy: 0 },
-        alive: data.my_snake.alive !== undefined ? data.my_snake.alive : true
-      } : null;
-      window.appState.game.opponent_snake = data.opponent_snake ? {
-        segments: data.opponent_snake.segments ? [...data.opponent_snake.segments] : (data.opponent_snake.body ? [...data.opponent_snake.body] : []),
-        direction: data.opponent_snake.direction ? { ...data.opponent_snake.direction } : { dx: -1, dy: 0 },
-        alive: data.opponent_snake.alive !== undefined ? data.opponent_snake.alive : true
-      } : null;
+      // ИСПРАВЛЕНИЕ: Гарантируем, что my_snake и opponent_snake всегда обновляются, даже если один из них null
+      if (data.my_snake) {
+        window.appState.game.my_snake = {
+          segments: data.my_snake.segments ? [...data.my_snake.segments] : (data.my_snake.body ? [...data.my_snake.body] : []),
+          direction: data.my_snake.direction ? { ...data.my_snake.direction } : { dx: 1, dy: 0 },
+          alive: data.my_snake.alive !== undefined ? data.my_snake.alive : true
+        };
+      } else {
+        // Если my_snake не пришла, сохраняем предыдущее состояние
+        if (!window.appState.game.my_snake) {
+          window.appState.game.my_snake = currentGameState?.my_snake || currentGame?.initialState?.my_snake || null;
+        }
+      }
+      
+      if (data.opponent_snake) {
+        window.appState.game.opponent_snake = {
+          segments: data.opponent_snake.segments ? [...data.opponent_snake.segments] : (data.opponent_snake.body ? [...data.opponent_snake.body] : []),
+          direction: data.opponent_snake.direction ? { ...data.opponent_snake.direction } : { dx: -1, dy: 0 },
+          alive: data.opponent_snake.alive !== undefined ? data.opponent_snake.alive : true
+        };
+      } else {
+        // Если opponent_snake не пришла, сохраняем предыдущее состояние
+        if (!window.appState.game.opponent_snake) {
+          window.appState.game.opponent_snake = currentGameState?.opponent_snake || currentGame?.initialState?.opponent_snake || null;
+        }
+      }
+      
       window.appState.game.snakes = [window.appState.game.my_snake, window.appState.game.opponent_snake].filter(s => s !== null);
       window.appState.game.finished = data.finished === true || data.game_finished === true;
-      console.log('✅ window.appState обновлен (игнорируя gameId):', window.appState);
+      console.log('✅ window.appState обновлен (игнорируя gameId):', {
+        my_snake: window.appState.game.my_snake ? `segments: ${window.appState.game.my_snake.segments?.length || 0}` : 'null',
+        opponent_snake: window.appState.game.opponent_snake ? `segments: ${window.appState.game.opponent_snake.segments?.length || 0}` : 'null'
+      });
       
       // ПРИНУДИТЕЛЬНЫЙ РЕНДЕР: Добавляем принудительный вызов функции отрисовки, если основной цикл requestAnimationFrame почему-то замер
       if (gameState === 'playing' && !animationFrameId) {
@@ -2455,17 +2491,63 @@ function startRenderLoop() {
     }
     
     // 4. РАЗНЫЕ ЦВЕТА ЗМЕЕК: Рисуем Змейку Игрока (Зеленая/Неоновая)
-    const mySnake = window.appState?.game?.my_snake;
-    if (mySnake && (mySnake.segments || mySnake.body)) {
-      // Для своей змейки (my_snake) передаем цвета: '#00FF41' (голова), '#008F11' (тело)
-      drawSnakeSimple(mySnake, headHistory, '#00FF41', '#008F11'); 
+    // ИСПРАВЛЕНИЕ: Улучшаем проверку наличия данных для отрисовки
+    const mySnake = window.appState?.game?.my_snake || currentGameState?.my_snake || currentGame?.initialState?.my_snake;
+    if (mySnake) {
+      const mySnakeSegments = mySnake.segments || mySnake.body;
+      if (mySnakeSegments && mySnakeSegments.length > 0) {
+        // Для своей змейки (my_snake) передаем цвета: '#00FF41' (голова), '#008F11' (тело)
+        drawSnakeSimple(mySnake, headHistory, '#00FF41', '#008F11');
+        
+        // ВИЗУАЛЬНЫЙ ИНДИКАТОР: Рисуем текст "ВЫ" рядом с головой зеленой змейки
+        if (mySnakeSegments[0]) {
+          gameCtx.save();
+          gameCtx.font = "bold 14px Inter, Arial, sans-serif";
+          gameCtx.fillStyle = "#00FF41";
+          gameCtx.textAlign = "center";
+          gameCtx.textBaseline = "bottom";
+          gameCtx.shadowBlur = 5;
+          gameCtx.shadowColor = "#00FF41";
+          const headX = mySnakeSegments[0].x * (canvasLogicalSize / GRID_SIZE);
+          const headY = mySnakeSegments[0].y * (canvasLogicalSize / GRID_SIZE);
+          gameCtx.fillText("ВЫ", headX + (canvasLogicalSize / GRID_SIZE) / 2, headY - 5);
+          gameCtx.restore();
+        }
+      } else {
+        console.warn('⚠️ my_snake segments пустые или отсутствуют');
+      }
+    } else {
+      console.warn('⚠️ my_snake не найдена в window.appState.game, currentGameState или currentGame.initialState');
     }
 
     // 5. РАЗНЫЕ ЦВЕТА ЗМЕЕК: Рисуем Змейку Оппонента (Красная/Розовая)
-    const oppSnake = window.appState?.game?.opponent_snake;
-    if (oppSnake && (oppSnake.segments || oppSnake.body)) {
-      // Для врага (opponent_snake) передаем цвета: '#FF3131' (голова), '#8B0000' (тело)
-      drawSnakeSimple(oppSnake, opponentHeadHistory, '#FF3131', '#8B0000');
+    // ИСПРАВЛЕНИЕ: Улучшаем проверку наличия данных для отрисовки
+    const oppSnake = window.appState?.game?.opponent_snake || currentGameState?.opponent_snake || currentGame?.initialState?.opponent_snake;
+    if (oppSnake) {
+      const oppSnakeSegments = oppSnake.segments || oppSnake.body;
+      if (oppSnakeSegments && oppSnakeSegments.length > 0) {
+        // Для врага (opponent_snake) передаем цвета: '#FF3131' (голова), '#8B0000' (тело)
+        drawSnakeSimple(oppSnake, opponentHeadHistory, '#FF3131', '#8B0000');
+        
+        // ВИЗУАЛЬНЫЙ ИНДИКАТОР: Рисуем текст "ПРОТИВНИК" рядом с головой красной змейки
+        if (oppSnakeSegments[0]) {
+          gameCtx.save();
+          gameCtx.font = "bold 14px Inter, Arial, sans-serif";
+          gameCtx.fillStyle = "#FF3131";
+          gameCtx.textAlign = "center";
+          gameCtx.textBaseline = "bottom";
+          gameCtx.shadowBlur = 5;
+          gameCtx.shadowColor = "#FF3131";
+          const headX = oppSnakeSegments[0].x * (canvasLogicalSize / GRID_SIZE);
+          const headY = oppSnakeSegments[0].y * (canvasLogicalSize / GRID_SIZE);
+          gameCtx.fillText("ПРОТИВНИК", headX + (canvasLogicalSize / GRID_SIZE) / 2, headY - 5);
+          gameCtx.restore();
+        }
+      } else {
+        console.warn('⚠️ opponent_snake segments пустые или отсутствуют');
+      }
+    } else {
+      console.warn('⚠️ opponent_snake не найдена в window.appState.game, currentGameState или currentGame.initialState');
     }
 
     animationFrameId = requestAnimationFrame(render);

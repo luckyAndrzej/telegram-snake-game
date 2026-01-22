@@ -509,11 +509,13 @@ body::before {
 
 /* УБРАТЬ ЛИШНИЕ СЛОИ: временно скрываем header для теста */
 .game-header {
-    display: none !important; /* Временно скрываем header */
+    display: block !important; /* Показываем header с информацией о змейках */
     width: 100%;
     margin-bottom: 15px;
     flex-shrink: 0;
     padding: 0 10px;
+    position: relative;
+    z-index: 200;
 }
 
 .player-info {
@@ -846,6 +848,7 @@ body::before {
     position: relative;
     width: 90%;
     max-width: 380px;
+    margin: 0 auto;
     box-sizing: border-box;
     background: #0a0a1a;
     border: 2px solid var(--neon-cyan);
@@ -854,6 +857,9 @@ body::before {
     box-shadow: 0 0 50px rgba(0, 245, 255, 0.3);
     max-height: 80vh;
     overflow-y: auto;
+    left: 0;
+    right: 0;
+    transform: none;
 }
 
 .payment-modal.modal-visible .payment-modal-content {
@@ -1148,7 +1154,7 @@ body::before {
     /* Для мобилок, чтобы точно стояло по центру */
     .payment-modal-content {
         width: calc(100% - 40px);
-        margin: 20px;
+        margin: 0 auto;
         max-width: calc(100% - 40px);
     }
     
