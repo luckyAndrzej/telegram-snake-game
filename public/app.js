@@ -59,6 +59,7 @@ let lastStepTime = 0;
 
 let animationFrameId = null;
 let isRendering = false; // Флаг для контроля рендеринга
+let countdownValue = ""; // Глобальная переменная для значения отсчета
 
 // IN-MEMORY STATE: JSON-объект для хранения состояния игры в оперативной памяти
 // Этот объект живет только во время матча и используется для плавной отрисовки
@@ -2497,28 +2498,37 @@ function startRenderLoop() {
       const mySnakeSegments = mySnake.segments || mySnake.body;
       if (mySnakeSegments && mySnakeSegments.length > 0) {
         // Для своей змейки (my_snake) передаем цвета: '#00FF41' (голова), '#008F11' (тело)
-        drawSnakeSimple(mySnake, headHistory, '#00FF41', '#008F11');
+        try {
+          if (!gameCtx) {
+            console.error('❌ render: gameCtx отсутствует при попытке нарисовать my_snake');
+          } else {
+            drawSnakeSimple(mySnake, headHistory, '#00FF41', '#008F11');
+          }
         
-        // ВИЗУАЛЬНЫЙ ИНДИКАТОР: Рисуем текст "ВЫ" рядом с головой зеленой змейки
-        if (mySnakeSegments[0]) {
-          gameCtx.save();
-          gameCtx.font = "bold 14px Inter, Arial, sans-serif";
-          gameCtx.fillStyle = "#00FF41";
-          gameCtx.textAlign = "center";
-          gameCtx.textBaseline = "bottom";
-          gameCtx.shadowBlur = 5;
-          gameCtx.shadowColor = "#00FF41";
-          const headX = mySnakeSegments[0].x * (canvasLogicalSize / GRID_SIZE);
-          const headY = mySnakeSegments[0].y * (canvasLogicalSize / GRID_SIZE);
-          gameCtx.fillText("ВЫ", headX + (canvasLogicalSize / GRID_SIZE) / 2, headY - 5);
-          gameCtx.restore();
+            // ВИЗУАЛЬНЫЙ ИНДИКАТОР: Рисуем текст "ВЫ" рядом с головой зеленой змейки
+            if (mySnakeSegments[0] && mySnakeSegments[0].x !== undefined && mySnakeSegments[0].y !== undefined) {
+              gameCtx.save();
+              gameCtx.font = "bold 14px Inter, Arial, sans-serif";
+              gameCtx.fillStyle = "#00FF41";
+              gameCtx.textAlign = "center";
+              gameCtx.textBaseline = "bottom";
+              gameCtx.shadowBlur = 5;
+              gameCtx.shadowColor = "#00FF41";
+              const tileSize = canvasLogicalSize / GRID_SIZE;
+              const headX = mySnakeSegments[0].x * tileSize;
+              const headY = mySnakeSegments[0].y * tileSize;
+              gameCtx.fillText("ВЫ", headX + tileSize / 2, headY - 5);
+              gameCtx.restore();
+            }
+          } catch (error) {
+            console.error('❌ Ошибка при отрисовке my_snake:', error, 'mySnake:', mySnake);
+          }
+        } else {
+          console.warn('⚠️ my_snake segments пустые или отсутствуют, mySnake:', mySnake);
         }
       } else {
-        console.warn('⚠️ my_snake segments пустые или отсутствуют');
+        console.warn('⚠️ my_snake не найдена. window.appState.game.my_snake:', window.appState?.game?.my_snake, 'currentGameState.my_snake:', currentGameState?.my_snake);
       }
-    } else {
-      console.warn('⚠️ my_snake не найдена в window.appState.game, currentGameState или currentGame.initialState');
-    }
 
     // 5. РАЗНЫЕ ЦВЕТА ЗМЕЕК: Рисуем Змейку Оппонента (Красная/Розовая)
     // ИСПРАВЛЕНИЕ: Улучшаем проверку наличия данных для отрисовки
@@ -2527,27 +2537,36 @@ function startRenderLoop() {
       const oppSnakeSegments = oppSnake.segments || oppSnake.body;
       if (oppSnakeSegments && oppSnakeSegments.length > 0) {
         // Для врага (opponent_snake) передаем цвета: '#FF3131' (голова), '#8B0000' (тело)
-        drawSnakeSimple(oppSnake, opponentHeadHistory, '#FF3131', '#8B0000');
-        
-        // ВИЗУАЛЬНЫЙ ИНДИКАТОР: Рисуем текст "ПРОТИВНИК" рядом с головой красной змейки
-        if (oppSnakeSegments[0]) {
-          gameCtx.save();
-          gameCtx.font = "bold 14px Inter, Arial, sans-serif";
-          gameCtx.fillStyle = "#FF3131";
-          gameCtx.textAlign = "center";
-          gameCtx.textBaseline = "bottom";
-          gameCtx.shadowBlur = 5;
-          gameCtx.shadowColor = "#FF3131";
-          const headX = oppSnakeSegments[0].x * (canvasLogicalSize / GRID_SIZE);
-          const headY = oppSnakeSegments[0].y * (canvasLogicalSize / GRID_SIZE);
-          gameCtx.fillText("ПРОТИВНИК", headX + (canvasLogicalSize / GRID_SIZE) / 2, headY - 5);
-          gameCtx.restore();
+        try {
+          if (!gameCtx) {
+            console.error('❌ render: gameCtx отсутствует при попытке нарисовать opponent_snake');
+          } else {
+            drawSnakeSimple(oppSnake, opponentHeadHistory, '#FF3131', '#8B0000');
+            
+            // ВИЗУАЛЬНЫЙ ИНДИКАТОР: Рисуем текст "ПРОТИВНИК" рядом с головой красной змейки
+            if (oppSnakeSegments[0] && oppSnakeSegments[0].x !== undefined && oppSnakeSegments[0].y !== undefined) {
+              gameCtx.save();
+              gameCtx.font = "bold 14px Inter, Arial, sans-serif";
+              gameCtx.fillStyle = "#FF3131";
+              gameCtx.textAlign = "center";
+              gameCtx.textBaseline = "bottom";
+              gameCtx.shadowBlur = 5;
+              gameCtx.shadowColor = "#FF3131";
+              const tileSize = canvasLogicalSize / GRID_SIZE;
+              const headX = oppSnakeSegments[0].x * tileSize;
+              const headY = oppSnakeSegments[0].y * tileSize;
+              gameCtx.fillText("ПРОТИВНИК", headX + tileSize / 2, headY - 5);
+              gameCtx.restore();
+            }
+          }
+        } catch (error) {
+          console.error('❌ Ошибка при отрисовке opponent_snake:', error, 'oppSnake:', oppSnake);
         }
       } else {
-        console.warn('⚠️ opponent_snake segments пустые или отсутствуют');
+        console.warn('⚠️ opponent_snake segments пустые или отсутствуют, oppSnake:', oppSnake);
       }
     } else {
-      console.warn('⚠️ opponent_snake не найдена в window.appState.game, currentGameState или currentGame.initialState');
+      console.warn('⚠️ opponent_snake не найдена. window.appState.game.opponent_snake:', window.appState?.game?.opponent_snake, 'currentGameState.opponent_snake:', currentGameState?.opponent_snake);
     }
 
     animationFrameId = requestAnimationFrame(render);
@@ -2624,6 +2643,12 @@ function drawSnakeSimple(snake, headHistory, color1, color2) {
   // ИСПРАВЛЕНИЕ: Используем переданные цвета color1 и color2 для отрисовки
   // color1 - цвет головы, color2 - цвет тела
   
+  // ДИАГНОСТИКА: Логируем данные для отладки
+  if (!gameCtx) {
+    console.error('❌ drawSnakeSimple: gameCtx отсутствует!');
+    return;
+  }
+  
   // ИСПРАВЛЕНИЕ ОТРИСОВКИ ТЕЛА: Проходим циклом по ВСЕМУ массиву segments
   gameCtx.beginPath();
   gameCtx.strokeStyle = color2; // Используем color2 для тела
@@ -2632,11 +2657,22 @@ function drawSnakeSimple(snake, headHistory, color1, color2) {
   gameCtx.lineJoin = 'round';
   
   // ИСПРАВЛЕНИЕ ОТРИСОВКИ ТЕЛА: Начинаем с первого сегмента (голова)
-  gameCtx.moveTo(s[0].x * tileSize + tileSize / 2, s[0].y * tileSize + tileSize / 2);
+  const firstSegment = s[0];
+  if (!firstSegment) {
+    console.warn('⚠️ drawSnakeSimple: первый сегмент отсутствует');
+    return;
+  }
+  
+  const startX = firstSegment.x * tileSize + tileSize / 2;
+  const startY = firstSegment.y * tileSize + tileSize / 2;
+  gameCtx.moveTo(startX, startY);
   
   // ИСПРАВЛЕНИЕ ОТРИСОВКИ ТЕЛА: Проходим по ВСЕМУ массиву segments, начиная со второго элемента
   for (let i = 1; i < s.length; i++) {
-    gameCtx.lineTo(s[i].x * tileSize + tileSize / 2, s[i].y * tileSize + tileSize / 2);
+    const segment = s[i];
+    if (segment && segment.x !== undefined && segment.y !== undefined) {
+      gameCtx.lineTo(segment.x * tileSize + tileSize / 2, segment.y * tileSize + tileSize / 2);
+    }
   }
   
   // ИСПРАВЛЕНИЕ ОТРИСОВКИ ТЕЛА: Рисуем путь (тело)
@@ -2644,7 +2680,7 @@ function drawSnakeSimple(snake, headHistory, color1, color2) {
   
   // ИСПРАВЛЕНИЕ: Голова использует color1 (переданный цвет головы)
   gameCtx.fillStyle = color1; // Используем color1 для головы
-  gameCtx.fillRect(s[0].x * tileSize, s[0].y * tileSize, tileSize, tileSize);
+  gameCtx.fillRect(firstSegment.x * tileSize, firstSegment.y * tileSize, tileSize, tileSize);
 }
 
 /**
