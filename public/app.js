@@ -359,6 +359,16 @@ function initSocket() {
         };
         window.appState.game.snakes = [window.appState.game.my_snake, window.appState.game.opponent_snake].filter(s => s !== null);
         
+        // ОБНОВЛЕНИЕ ИНФОРМАЦИИ О ЗМЕЙКАХ: Показываем, кто за какую змейку играет
+        const player1Status = document.getElementById('player1-status');
+        const player2Status = document.getElementById('player2-status');
+        if (player1Status) {
+          player1Status.textContent = 'Вы - зеленая змейка';
+        }
+        if (player2Status) {
+          player2Status.textContent = 'Противник - красная змейка';
+        }
+        
         // CURRENT GAME STATE: Синхронизируем currentGameState с appState
         currentGameState.status = 'countdown';
         currentGameState.my_snake = window.appState.game.my_snake;
@@ -444,12 +454,16 @@ function initSocket() {
     // Также обновляем глобальную переменную для совместимости
     countdownValue = String(data.number);
     
+    // Устанавливаем gameState в 'countdown' для отрисовки
+    gameState = 'countdown';
+    
     // ВИДИМОСТЬ ОТСЧЕТА: Прямо сейчас отсчет перекрыт другими слоями
     // В функции countdown добавляем команду для видимости отсчета
     const gameScreen = document.getElementById('game-screen');
     const lobbyScreen = document.getElementById('lobby-screen');
     if (gameScreen) {
       gameScreen.style.zIndex = '100';
+      gameScreen.style.display = 'flex';
     }
     if (lobbyScreen) {
       lobbyScreen.style.display = 'none';
@@ -463,6 +477,11 @@ function initSocket() {
       requestAnimationFrame(() => {
         countdownNumber.textContent = data.number;
       });
+    }
+    
+    // Запускаем рендер-луп, если он еще не запущен
+    if (!animationFrameId && gameCanvas && gameCtx) {
+      startRenderLoop();
     }
     
     // ОБНОВЛЕНИЕ ИГРОВОГО ПОЛЯ ВО ВРЕМЯ COUNTDOWN: рисуем начальное состояние, чтобы не было черного экрана
@@ -2407,16 +2426,32 @@ function startRenderLoop() {
     // (даже если новых пакетов нет) - это уберет мерцание и исчезновение змеек
     
     // 3. ОТРИСОВКА ОТСЧЕТА (COUNTDOWN): Рисуем ОТСЧЕТ ПЕРЕД отрисовкой змеек
-    if (gameState === 'countdown') {
-      gameCtx.save();
-      gameCtx.font = "bold 100px Inter, Arial";
-      gameCtx.fillStyle = "#ffffff";
-      gameCtx.textAlign = "center";
-      gameCtx.textBaseline = "middle";
-      gameCtx.shadowBlur = 20;
-      gameCtx.shadowColor = "#00f5ff";
-      gameCtx.fillText(window.appState?.game?.countdownValue || "", canvasLogicalSize / 2, canvasLogicalSize / 2);
-      gameCtx.restore();
+    // Проверяем несколько источников для получения значения отсчета
+    if (gameState === 'countdown' || window.appState?.game?.status === 'countdown') {
+      const countdownNumber = document.getElementById('countdown-number');
+      const countdownVal = window.appState?.game?.countdownValue || 
+                          countdownNumber?.textContent || 
+                          countdownValue || 
+                          "";
+      
+      if (countdownVal) {
+        gameCtx.save();
+        // Делаем отсчет очень заметным
+        gameCtx.font = "bold 120px Inter, Arial, sans-serif";
+        gameCtx.fillStyle = "#ffffff";
+        gameCtx.textAlign = "center";
+        gameCtx.textBaseline = "middle";
+        gameCtx.shadowBlur = 30;
+        gameCtx.shadowColor = "#00f5ff";
+        gameCtx.shadowOffsetX = 0;
+        gameCtx.shadowOffsetY = 0;
+        // Рисуем текст с обводкой для лучшей видимости
+        gameCtx.strokeStyle = "#00f5ff";
+        gameCtx.lineWidth = 4;
+        gameCtx.strokeText(countdownVal, canvasLogicalSize / 2, canvasLogicalSize / 2);
+        gameCtx.fillText(countdownVal, canvasLogicalSize / 2, canvasLogicalSize / 2);
+        gameCtx.restore();
+      }
     }
     
     // 4. РАЗНЫЕ ЦВЕТА ЗМЕЕК: Рисуем Змейку Игрока (Зеленая/Неоновая)
