@@ -254,12 +254,8 @@ async function scanTransactions(io) {
       if (!inMsg) {
         continue; // Убраны лишние логи для производительности
       }
-      
-      // Логируем только потенциально релевантные транзакции (с комментариями)
-      const txComment = tx.in_msg?.message || tx.in_msg?.msg_data?.text || '';
 
       // Извлекаем комментарий из транзакции
-      // Упрощенная логика без сложных замен
       let extractedComment = '';
       
       // Функция проверки валидного Base64
@@ -270,56 +266,180 @@ async function scanTransactions(io) {
         return base64Pattern.test(str) && str.length >= 4;
       }
       
-      // Функция безопасного логирования (для бинарных данных)
-      function safeLogString(str, maxLen = 50) {
-        if (!str) return '';
-        // Если строка содержит непечатаемые символы, показываем как hex
-        if (/[\x00-\x08\x0B\x0C\x0E-\x1F\x7F-\x9F]/.test(str)) {
-          return Buffer.from(str, 'utf-8').toString('hex').substring(0, maxLen) + '...';
+      // Функция декодирования TON комментария из body (Base64/Hex)
+      function decodeTonComment(bodyData) {
+        if (!bodyData) {
+          console.log(`⚠️ [Декодер] bodyData пустой или null`);
+          return null;
         }
-        return str.substring(0, maxLen);
-      }
-      
-      // ПРИОРИТЕТ 1: Если msg_data.text существует, сначала пробуем декодировать из Base64
-      if (inMsg.msg_data && inMsg.msg_data.text && typeof inMsg.msg_data.text === 'string') {
-        const trimmed = inMsg.msg_data.text.trim();
+        
         try {
-          // Пробуем декодировать из Base64
-          if (isBase64(trimmed)) {
-            const decoded = Buffer.from(trimmed, 'base64').toString('utf-8');
-            // Используем декодированный результат
-            extractedComment = decoded;
-          } else if (!trimmed.startsWith('0x')) {
-            // Если не Base64 и не Hex, используем как обычный текст
-            extractedComment = trimmed;
+          let buffer;
+          
+          // Определяем формат: Base64 или Hex
+          if (typeof bodyData === 'string') {
+            const trimmed = bodyData.trim();
+            
+            if (trimmed.startsWith('0x') || /^[0-9a-fA-F]+$/i.test(trimmed)) {
+              // Hex формат
+              const hexStr = trimmed.startsWith('0x') ? trimmed.slice(2) : trimmed;
+              console.log(`🔍 [Декодер] Определен Hex формат, длина: ${hexStr.length} символов`);
+              buffer = Buffer.from(hexStr, 'hex');
+            } else if (isBase64(trimmed)) {
+              // Base64 формат
+              console.log(`🔍 [Декодер] Определен Base64 формат, длина: ${trimmed.length} символов`);
+              buffer = Buffer.from(trimmed, 'base64');
+            } else {
+              // Уже текст - проверяем, не содержит ли битых байт
+              if (trimmed.includes('\ufffd')) {
+                console.log(`⚠️ [Декодер] Текст содержит битые байты, пробуем декодировать как Base64...`);
+                // Может быть, это Base64, но проверка не сработала
+                try {
+                  buffer = Buffer.from(trimmed, 'base64');
+                } catch {
+                  return null;
+                }
+              } else {
+                console.log(`✅ [Декодер] Используем как обычный текст: "${trimmed}"`);
+                return trimmed;
+              }
+            }
+          } else if (Buffer.isBuffer(bodyData)) {
+            // Уже буфер
+            buffer = bodyData;
+            console.log(`🔍 [Декодер] Получен Buffer, размер: ${buffer.length} байт`);
+          } else {
+            console.log(`⚠️ [Декодер] Неизвестный тип bodyData: ${typeof bodyData}`);
+            return null;
           }
-        } catch (decodeError) {
-          // Если декодирование не удалось, пробуем как обычный текст
-          if (!trimmed.startsWith('0x')) {
-            extractedComment = trimmed;
+          
+          // Проверяем префикс TON для текстовых комментариев (4 нулевых байта: 00000000)
+          // В TON текстовые комментарии начинаются с 32-битного префикса 0x00000000
+          console.log(`🔍 [Декодер] Размер буфера: ${buffer.length} байт`);
+          
+          if (buffer.length >= 4) {
+            const prefix = buffer.readUInt32BE(0);
+            const prefixHex = buffer.slice(0, 4).toString('hex');
+            console.log(`🔍 [Декодер] Префикс (первые 4 байта): 0x${prefixHex} (uint32: ${prefix})`);
+            
+            if (prefix === 0x00000000) {
+              // Это текстовый комментарий TON - отрезаем префикс и декодируем UTF-8
+              const textBuffer = buffer.slice(4);
+              const decoded = textBuffer.toString('utf-8');
+              console.log(`✅ [Декодер] Найден TON префикс 0x00000000, декодировано: "${decoded}"`);
+              return decoded;
+            } else {
+              // Нет префикса - пробуем декодировать весь буфер как UTF-8
+              const decoded = buffer.toString('utf-8');
+              // Проверяем, что это валидный текст (не битые байты)
+              if (decoded && !decoded.includes('\ufffd')) { // \ufffd = replacement character
+                console.log(`✅ [Декодер] Декодировано без префикса: "${decoded}"`);
+                return decoded;
+              } else {
+                console.log(`⚠️ [Декодер] Обнаружены битые байты (replacement characters) в декодированном тексте`);
+                // Пробуем отрезать первые 4 байта вручную, даже если префикс не 0x00000000
+                if (buffer.length > 4) {
+                  const textBuffer = buffer.slice(4);
+                  const decodedWithSlice = textBuffer.toString('utf-8');
+                  if (decodedWithSlice && !decodedWithSlice.includes('\ufffd')) {
+                    console.log(`✅ [Декодер] Декодировано после отрезания первых 4 байт: "${decodedWithSlice}"`);
+                    return decodedWithSlice;
+                  }
+                }
+              }
+            }
+          } else {
+            // Буфер слишком короткий - пробуем декодировать как есть
+            const decoded = buffer.toString('utf-8');
+            console.log(`⚠️ [Декодер] Буфер слишком короткий (${buffer.length} байт), декодировано как есть: "${decoded}"`);
+            return decoded;
           }
+        } catch (error) {
+          console.error('❌ Ошибка декодирования TON комментария:', error);
+          return null;
         }
+        
+        return null;
       }
       
-      // ПРИОРИТЕТ 2: Если не нашли в msg_data.text, проверяем in_msg.message
+      // ПРИОРИТЕТ 1: Проверяем msg_data
+      if (inMsg.msg_data) {
+        console.log(`🔍 [Сканер] msg_data найден:`, {
+          hasText: !!inMsg.msg_data.text,
+          hasBody: !!inMsg.msg_data.body,
+          textType: typeof inMsg.msg_data.text,
+          bodyType: typeof inMsg.msg_data.body
+        });
+        
+        // Если msg_data.text существует и это текст
+        if (inMsg.msg_data.text && typeof inMsg.msg_data.text === 'string') {
+          const text = inMsg.msg_data.text.trim();
+          console.log(`📄 [Сканер] msg_data.text: "${text.substring(0, 50)}..." (длина: ${text.length})`);
+          
+          // Если это не Base64 и не Hex, используем как текст
+          if (!isBase64(text) && !text.startsWith('0x') && !/^[0-9a-fA-F]+$/.test(text)) {
+            extractedComment = text;
+            console.log(`✅ [Сканер] Используем msg_data.text как обычный текст: "${extractedComment}"`);
+          } else {
+            // Пробуем декодировать из Base64/Hex
+            console.log(`🔄 [Сканер] Декодируем msg_data.text из Base64/Hex...`);
+            const decoded = decodeTonComment(text);
+            if (decoded) {
+              extractedComment = decoded;
+              console.log(`✅ [Сканер] Декодировано из msg_data.text: "${extractedComment}"`);
+            } else {
+              console.log(`⚠️ [Сканер] Не удалось декодировать msg_data.text`);
+            }
+          }
+        }
+        
+        // Если msg_data.body существует (бинарные данные)
+        if (!extractedComment && inMsg.msg_data.body) {
+          const body = typeof inMsg.msg_data.body === 'string' 
+            ? inMsg.msg_data.body.trim() 
+            : inMsg.msg_data.body;
+          console.log(`📦 [Сканер] msg_data.body найден, тип: ${typeof body}, длина: ${typeof body === 'string' ? body.length : 'N/A'}`);
+          const decoded = decodeTonComment(body);
+          if (decoded) {
+            extractedComment = decoded;
+            console.log(`✅ [Сканер] Декодировано из msg_data.body: "${extractedComment}"`);
+          } else {
+            console.log(`⚠️ [Сканер] Не удалось декодировать msg_data.body`);
+          }
+        }
+      } else {
+        console.log(`⚠️ [Сканер] msg_data отсутствует в in_msg`);
+      }
+      
+      // ПРИОРИТЕТ 2: Если не нашли в msg_data, проверяем in_msg.message
       if (!extractedComment && inMsg.message && typeof inMsg.message === 'string') {
-        const trimmed = inMsg.message.trim();
-        try {
-          if (isBase64(trimmed)) {
-            const decoded = Buffer.from(trimmed, 'base64').toString('utf-8');
+        const message = inMsg.message.trim();
+        console.log(`📨 [Сканер] in_msg.message: "${message.substring(0, 50)}..." (длина: ${message.length})`);
+        
+        // Если это не Base64 и не Hex, используем как текст
+        if (!isBase64(message) && !message.startsWith('0x') && !/^[0-9a-fA-F]+$/.test(message)) {
+          extractedComment = message;
+          console.log(`✅ [Сканер] Используем in_msg.message как обычный текст: "${extractedComment}"`);
+        } else {
+          // Пробуем декодировать из Base64/Hex
+          console.log(`🔄 [Сканер] Декодируем in_msg.message из Base64/Hex...`);
+          const decoded = decodeTonComment(message);
+          if (decoded) {
             extractedComment = decoded;
-          } else if (!trimmed.startsWith('0x')) {
-            extractedComment = trimmed;
-          }
-        } catch (decodeError) {
-          if (!trimmed.startsWith('0x')) {
-            extractedComment = trimmed;
+            console.log(`✅ [Сканер] Декодировано из in_msg.message: "${extractedComment}"`);
+          } else {
+            console.log(`⚠️ [Сканер] Не удалось декодировать in_msg.message`);
           }
         }
       }
       
       // Нормализация: ТОЛЬКО trim() и toUpperCase(), без других замен
       const comment = extractedComment ? extractedComment.trim().toUpperCase() : '';
+      
+      // ЛОГИРОВАНИЕ: Выводим финальный декодированный текст для отладки
+      if (comment) {
+        console.log(`📝 [Сканер] Декодированный комментарий: "${comment}" (длина: ${comment.length})`);
+      }
 
       // Если комментарий пустой, пропускаем транзакцию
       if (!comment || comment.length === 0) {
@@ -329,21 +449,24 @@ async function scanTransactions(io) {
       // Ищем платеж с таким комментарием в pending_payments
       let foundPaymentId = null;
       let foundPayment = null;
-      const pendingComments = Object.values(pendingPayments).map(p => (p.comment || '').toUpperCase().trim());
-
-      // Безопасное логирование комментариев (без бинарных данных)
-      const safeComment = safeLogString(comment);
-      const safePending = pendingComments.map(c => safeLogString(c)).join(', ');
-      console.log(`[Сканер] Сверяю: полученный [${safeComment}] и ожидаемый [${safePending}]`);
 
       // Точное совпадение: сравниваем комментарий с базой
       for (const [paymentId, payment] of Object.entries(pendingPayments)) {
-        const paymentComment = (payment.comment || '').toUpperCase().trim();
-        if (paymentComment === comment && payment.status === 'pending') {
+        const expectedComment = (payment.comment || '').toUpperCase().trim();
+        
+        // Проверка: если decoded_comment.trim().toUpperCase() === expected_comment.toUpperCase()
+        if (comment === expectedComment && payment.status === 'pending') {
           foundPaymentId = paymentId;
           foundPayment = payment;
+          console.log(`✅ [Сканер] Найдено совпадение комментариев: "${comment}" === "${expectedComment}"`);
           break;
         }
+      }
+      
+      // Логируем все ожидаемые комментарии для отладки
+      const pendingComments = Object.values(pendingPayments).map(p => (p.comment || '').toUpperCase().trim());
+      if (pendingComments.length > 0) {
+        console.log(`🔍 [Сканер] Ожидаемые комментарии: [${pendingComments.join(', ')}]`);
       }
 
       if (!foundPayment) {
