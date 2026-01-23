@@ -249,15 +249,13 @@ function initSocket() {
     debugMode = data.debug_mode;
     
     // STATE MANAGEMENT: Обновляем window.appState перед обновлением UI
+    // games_balance больше не используется, но оставляем для совместимости
     window.appState.user.games_balance = data.games_balance || 0;
     window.appState.user.winnings_ton = data.winnings_ton || 0;
     window.appState.user.id = data.id || userId;
     window.appState.user.username = data.username || username;
     
-    updateBalance(data.games_balance, data.winnings_ton);
-    
-    // Update convert button visibility
-    updateConvertButtonVisibility();
+    updateBalance(0, data.winnings_ton);
     
     // Показываем TEST MODE badge если DEBUG_MODE активен
     const badge = document.getElementById('test-mode-badge');
@@ -793,14 +791,14 @@ function initSocket() {
         .then(response => response.json())
         .then(userData => {
           // Обновляем баланс из БД только после получения финального результата
-          updateBalance(userData.games_balance, userData.winnings_ton);
+          updateBalance(0, userData.winnings_ton);
           console.log('💰 Balance updated from DB after game completion:', userData);
         })
         .catch(error => {
           console.error('❌ Ошибка при получении баланса из БД:', error);
           // Fallback: используем данные из game_end события
           if (data.winnings_ton !== undefined) {
-            updateBalance(data.games_balance || 0, data.winnings_ton);
+            updateBalance(0, data.winnings_ton);
           }
         });
     }
@@ -815,7 +813,7 @@ function initSocket() {
       console.warn('⚠️ Откат оптимистичного обновления баланса');
     }
     
-    updateBalance(data.games_balance, data.winnings_ton);
+    updateBalance(0, data.winnings_ton);
   });
   
   // ОПТИМИЗАЦИЯ: Обработчик обновления баланса игр
@@ -828,10 +826,7 @@ function initSocket() {
   socket.on('buy_games_confirmed', (data) => {
     console.log('✅ Game purchase confirmed (DB updated):', data);
     // Обновляем баланс финальными данными из БД
-    updateBalance(data.games_balance, data.winnings_ton);
-    
-    // Update convert button visibility after conversion
-    updateConvertButtonVisibility();
+    updateBalance(0, data.winnings_ton);
   });
   
   socket.on('error', (error) => {
@@ -886,7 +881,7 @@ function initSocket() {
     console.log('✅ Deposit successful:', data);
     
     // Обновляем баланс
-    updateBalance(data.games_balance, data.new_winnings);
+    updateBalance(0, data.new_winnings);
     
     // Закрываем модальное окно депозита
     toggleModal('deposit-modal', false);
@@ -906,8 +901,6 @@ function initSocket() {
     // Показываем уведомление
     tg.showAlert(`✅ Deposit successful! +${data.amount} TON added to winnings.`);
     
-    // Обновляем видимость кнопки конвертации
-    updateConvertButtonVisibility();
   });
   
   // Payment success notification
@@ -952,7 +945,7 @@ function initSocket() {
     }
     
     // Обновляем баланс
-    updateBalance(data.games_balance, data.winnings_ton);
+    updateBalance(0, data.winnings_ton);
     
     // Показываем уведомление
     const message = data.txHash 
@@ -994,39 +987,23 @@ function initSocket() {
   socket.on('buy_games_success', (data) => {
     console.log('✅ Games purchased with winnings (optimistic update):', data);
     
-    // Update convert button visibility after conversion
-    updateConvertButtonVisibility();
     
-    // ИСПРАВЛЕНИЕ: Мгновенно обновляем локальную переменную user.games_balance
-    if (data.games_purchased !== undefined) {
-      localUserState.games_balance = data.games_balance || (localUserState.games_balance + data.games_purchased);
-    }
+    // Обновляем только winnings_ton (games_balance больше не используется)
     if (data.winnings_ton !== undefined) {
       localUserState.winnings_ton = data.winnings_ton;
     }
     
     // ОПТИМИЗАЦИЯ: Мгновенно обновляем баланс в UI
-    updateBalance(localUserState.games_balance, localUserState.winnings_ton);
-    
-    // Update convert button visibility after conversion
-    updateConvertButtonVisibility();
-    
-    // ИСПРАВЛЕНИЕ: Принудительно обновляем элемент #balance-value
-    const balanceValueEl = document.getElementById('balance-value');
-    if (balanceValueEl) {
-      balanceValueEl.textContent = localUserState.games_balance || 0;
-    }
+    updateBalance(0, localUserState.winnings_ton);
     
     // STATE MANAGEMENT: Обновляем appState перед обновлением UI
-    if (data.games_balance !== undefined) {
-      window.appState.user.games_balance = data.games_balance;
-    }
     if (data.winnings_ton !== undefined) {
       window.appState.user.winnings_ton = data.winnings_ton;
+      localUserState.winnings_ton = data.winnings_ton;
     }
     
     // ЛОГИКА ПОКУПКИ: Вызываем updateBalance для мгновенного обновления всех элементов интерфейса
-    updateBalance(localUserState.games_balance, localUserState.winnings_ton);
+    updateBalance(0, localUserState.winnings_ton);
     
     // Восстанавливаем кнопку: разблокируем и возвращаем оригинальный текст (текст цены)
     const buyBtn = document.getElementById('buy-games-with-winnings-btn');
@@ -1050,7 +1027,7 @@ function initSocket() {
     
     // Обновляем баланс на экране без перезагрузки
     if (data.games_balance !== undefined && data.winnings_ton !== undefined) {
-      updateBalance(data.games_balance, data.winnings_ton);
+      updateBalance(0, data.winnings_ton);
     }
     
     // Восстанавливаем кнопку: разблокируем и возвращаем оригинальный текст
@@ -1070,10 +1047,7 @@ function initSocket() {
   socket.on('buy_games_confirmed', (data) => {
     console.log('✅ Game purchase confirmed (DB updated):', data);
     // Обновляем баланс финальными данными из БД
-    updateBalance(data.games_balance, data.winnings_ton);
-    
-    // Update convert button visibility after conversion
-    updateConvertButtonVisibility();
+    updateBalance(0, data.winnings_ton);
   });
   
   // ОПТИМИЗАЦИЯ: Обработчик ошибки покупки с откатом оптимистичного обновления
@@ -1083,7 +1057,7 @@ function initSocket() {
     // Если есть флаг rollback, откатываем оптимистичное обновление
     if (data.rollback && data.games_balance !== undefined && data.winnings_ton !== undefined) {
       console.warn('⚠️ Откат оптимистичного обновления баланса');
-      updateBalance(data.games_balance, data.winnings_ton);
+      updateBalance(0, data.winnings_ton);
     }
     
     // Восстанавливаем кнопку
@@ -1213,17 +1187,17 @@ function initEventListeners() {
   
   // "Find Match" button - switch to lobby screen
   document.getElementById('start-game-btn')?.addEventListener('click', () => {
-    // Check if user has games balance
-    const gamesBalance = window.appState?.user?.games_balance || 0;
-    if (gamesBalance < 1) {
-      tg.showAlert('You don\'t have enough games. Please deposit first.');
+    // Check if user has winnings balance (1 TON required)
+    const winnings = window.appState?.user?.winnings_ton || 0;
+    if (winnings < 1) {
+      tg.showAlert('You don\'t have enough balance. Available: ' + winnings.toFixed(2) + ' TON. Please deposit first.');
       return;
     }
     
     if (socket && socket.connected) {
       // Switch to lobby screen (waiting)
       showScreen('lobby');
-      // Отправляем запрос на поиск соперника
+      // Отправляем запрос на поиск соперника (1 TON будет списан на сервере)
       socket.emit('find_match');
     }
   });
@@ -1297,23 +1271,6 @@ function initEventListeners() {
   // Close deposit modal
   document.getElementById('close-deposit-btn')?.addEventListener('click', () => {
     toggleModal('deposit-modal', false);
-  });
-  
-  // Convert winnings to games button
-  document.getElementById('convert-winnings-btn')?.addEventListener('click', () => {
-    const winnings = window.appState?.user?.winnings_ton || 0;
-    if (winnings < 1) {
-      tg.showAlert('You don\'t have enough winnings. Minimum: 1 TON');
-      return;
-    }
-    
-    // Convert all available winnings to games (1 TON = 1 game)
-    const gamesToBuy = Math.floor(winnings);
-    if (socket && socket.connected) {
-      socket.emit('buyGamesWithWinnings', { amount: gamesToBuy });
-    } else {
-      tg.showAlert('Connection error. Please reload the page.');
-    }
   });
   
   // Old buy buttons (removed, but keeping for compatibility)
@@ -1751,10 +1708,10 @@ function initEventListeners() {
       resultScreen.classList.remove('active');
     }
     
-    // Check if user has games balance
-    const gamesBalance = window.appState?.user?.games_balance || 0;
-    if (gamesBalance < 1) {
-      tg.showAlert('You don\'t have enough games. Please deposit first.');
+    // Check if user has winnings balance (1 TON required)
+    const winnings = window.appState?.user?.winnings_ton || 0;
+    if (winnings < 1) {
+      tg.showAlert('You don\'t have enough balance. Available: ' + winnings.toFixed(2) + ' TON. Please deposit first.');
       return;
     }
     
@@ -2347,7 +2304,7 @@ async function refreshUserProfile() {
     localUserState.winnings_ton = userData.winnings_ton || 0;
     
     // Обновляем UI
-    updateBalance(localUserState.games_balance, localUserState.winnings_ton);
+    updateBalance(0, localUserState.winnings_ton);
     
     console.log(`✅ Профиль обновлен: игры=${localUserState.games_balance}, выигрыши=${localUserState.winnings_ton.toFixed(2)} TON`);
   } catch (error) {
@@ -2355,52 +2312,18 @@ async function refreshUserProfile() {
   }
 }
 
-function updateConvertButtonVisibility() {
-  const convertBtn = document.getElementById('convert-winnings-btn');
-  const winnings = window.appState?.user?.winnings_ton || 0;
-  
-  if (convertBtn) {
-    if (winnings >= 1) {
-      convertBtn.style.display = 'block';
-    } else {
-      convertBtn.style.display = 'none';
-    }
-  }
-}
 
 function updateBalance(gamesBalance, winningsTon) {
   // STATE MANAGEMENT: Обновляем window.appState перед обновлением UI
-  if (gamesBalance !== undefined) {
-    window.appState.user.games_balance = gamesBalance;
-    localUserState.games_balance = gamesBalance;
-  }
+  // gamesBalance больше не используется, но оставляем для совместимости с сервером
   if (winningsTon !== undefined) {
     window.appState.user.winnings_ton = winningsTon;
     localUserState.winnings_ton = winningsTon;
   }
   
-  // Обновляем видимость кнопки конвертации
-  updateConvertButtonVisibility();
-  
-  const gamesEl = document.getElementById('games-balance');
   const winningsEl = document.getElementById('winnings-balance');
-  const balanceValueEl = document.getElementById('balance-value');
-  
-  // ИСПРАВЛЕНИЕ: Обновляем элемент #balance-value если он существует
-  if (balanceValueEl) {
-    balanceValueEl.textContent = window.appState.user.games_balance || 0;
-  }
   
   // ОПТИМИЗАЦИЯ: Мгновенно обновляем UI без ожидания перезагрузки страницы
-  if (gamesEl) {
-    gamesEl.textContent = localUserState.games_balance || 0;
-    // Добавляем визуальную анимацию обновления для обратной связи
-    gamesEl.style.transition = 'transform 0.2s ease';
-    gamesEl.style.transform = 'scale(1.1)';
-    setTimeout(() => {
-      if (gamesEl) gamesEl.style.transform = 'scale(1)';
-    }, 200);
-  }
   if (winningsEl) {
     winningsEl.textContent = `${(localUserState.winnings_ton || 0).toFixed(2)} TON`;
     // Добавляем визуальную анимацию обновления для обратной связи
@@ -2411,19 +2334,7 @@ function updateBalance(gamesBalance, winningsTon) {
     }, 200);
   }
   
-  // ИСПРАВЛЕНИЕ: Обновляем элемент #balance-value если он существует
-  if (balanceValueEl) {
-    balanceValueEl.textContent = localUserState.games_balance || 0;
-  }
-  
-  // Показываем/скрываем кнопку покупки игр с выигрышного баланса
-  const buyWithWinningsBtn = document.getElementById('buy-games-with-winnings-btn');
-  if (buyWithWinningsBtn) {
-    const hasWinnings = localUserState.winnings_ton && localUserState.winnings_ton >= 1;
-    buyWithWinningsBtn.style.display = hasWinnings ? 'block' : 'none';
-  }
-  
-  console.log(`💰 Balance updated instantly: games=${localUserState.games_balance}, winnings=${localUserState.winnings_ton.toFixed(2)} TON`);
+  console.log(`💰 Balance updated instantly: winnings=${localUserState.winnings_ton.toFixed(2)} TON`);
 }
 
 /**
@@ -2435,7 +2346,7 @@ async function addGamesBalance(amount) {
     const data = await response.json();
     
     if (data.success) {
-      updateBalance(data.games_balance, data.winnings_ton);
+      updateBalance(0, data.winnings_ton);
       tg.showAlert(`✅ Balance topped up with ${amount} games`);
     } else {
       tg.showAlert(`❌ Ошибка: ${data.error}`);
@@ -2769,9 +2680,9 @@ function startRenderLoop() {
       window.appState.game.tick_number = newState.tick_number;
       window.appState.game.finished = newState.finished;
 
-      // Сохраняем текущее состояние для интерполяции
-      interpolatedGameState = newState;
-      lastStateUpdateTime = now;
+      // Сохраняем текущее состояние для интерполяции (глубокая копия)
+      interpolatedGameState = JSON.parse(JSON.stringify(newState));
+      lastStateUpdateTime = performance.now(); // Используем performance.now() для точности
     }
 
     // ИСПРАВЛЕНИЕ: Отрисовка змеек должна идти ВСЕГДА на основе данных из window.appState.game
@@ -2815,14 +2726,16 @@ function startRenderLoop() {
       // ИСПРАВЛЕНИЕ: Улучшенная интерполяция для устранения рывков
       // Используем более плавное сглаживание с ограничением
       const rawFactor = timeSinceUpdate / TICK_DURATION;
-      // Ограничиваем интерполяцию и применяем сглаживание для плавности
-      const interpolationFactor = Math.min(Math.max(rawFactor, 0), 0.5); // Уменьшено до 0.5 для более плавного движения
+      // ИСПРАВЛЕНИЕ: Используем более консервативную интерполяцию для устранения рывков
+      // Ограничиваем интерполяцию для предотвращения экстраполяции
+      // Используем более низкое значение для плавности без рывков
+      const interpolationFactor = Math.min(Math.max(rawFactor, 0), 0.6); // Ограничиваем до 0.6 для плавности
       
-      // Интерполируем позиции змеек
+      // Интерполируем позиции змеек только если сегменты совпадают по длине
       if (interpolatedGameState.my_snake && previousGameState.my_snake) {
         const currentSegments = interpolatedGameState.my_snake.segments || [];
         const previousSegments = previousGameState.my_snake.segments || [];
-        if (currentSegments.length > 0 && previousSegments.length > 0) {
+        if (currentSegments.length > 0 && previousSegments.length > 0 && currentSegments.length === previousSegments.length) {
           interpolatedMySnake = {
             ...interpolatedGameState.my_snake,
             segments: interpolateSegments(previousSegments, currentSegments, interpolationFactor)
@@ -2833,7 +2746,7 @@ function startRenderLoop() {
       if (interpolatedGameState.opponent_snake && previousGameState.opponent_snake) {
         const currentSegments = interpolatedGameState.opponent_snake.segments || [];
         const previousSegments = previousGameState.opponent_snake.segments || [];
-        if (currentSegments.length > 0 && previousSegments.length > 0) {
+        if (currentSegments.length > 0 && previousSegments.length > 0 && currentSegments.length === previousSegments.length) {
           interpolatedOppSnake = {
             ...interpolatedGameState.opponent_snake,
             segments: interpolateSegments(previousSegments, currentSegments, interpolationFactor)
@@ -2908,6 +2821,9 @@ function interpolateSegments(prevSegments, currentSegments, factor) {
     return currentSegments || prevSegments || [];
   }
   
+  // Ограничиваем factor для предотвращения экстраполяции
+  const clampedFactor = Math.min(Math.max(factor, 0), 1.0);
+  
   const maxLength = Math.max(prevSegments.length, currentSegments.length);
   const interpolated = [];
   
@@ -2916,9 +2832,10 @@ function interpolateSegments(prevSegments, currentSegments, factor) {
     const curr = currentSegments[i] || currentSegments[currentSegments.length - 1];
     
     if (prev && curr) {
+      // Используем clamped factor для плавной интерполяции
       interpolated.push({
-        x: prev.x + (curr.x - prev.x) * factor,
-        y: prev.y + (curr.y - prev.y) * factor
+        x: prev.x + (curr.x - prev.x) * clampedFactor,
+        y: prev.y + (curr.y - prev.y) * clampedFactor
       });
     } else if (curr) {
       interpolated.push(curr);

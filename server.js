@@ -84,7 +84,7 @@ const GAME_CONFIG = {
   FIELD_WIDTH: 30, // Увеличено с 20 до 30 (больше клеток для передвижения)
   FIELD_HEIGHT: 30, // Увеличено с 20 до 30
   TICK_RATE: 9, // тиков в секунду (замедлено в 2 раза: было 18, стало 9)
-  ENTRY_PRICE: 1, // стоимость входа (в играх)
+  ENTRY_PRICE: 1, // стоимость входа (в TON, списывается из winnings_ton)
   WINNER_PERCENTAGE: 0.75 // процент выигрыша победителя (75%)
 };
 
@@ -743,18 +743,31 @@ io.on('connection', async (socket) => {
  * Поиск соперника
  */
 async function handleFindMatch(socket, userId) {
-  // Проверяем баланс
+  // Проверяем баланс выигрышей (1 TON требуется для игры)
   const user = await getUser(userId);
-  if (user.games_balance < GAME_CONFIG.ENTRY_PRICE) {
+  if (!user.winnings_ton || user.winnings_ton < 1) {
     socket.emit('error', {
-      message: `Недостаточно игр! Баланс: ${user.games_balance}, нужно: ${GAME_CONFIG.ENTRY_PRICE}`
+      message: `Insufficient balance! Available: ${(user.winnings_ton || 0).toFixed(2)} TON, required: 1 TON`
     });
     return;
   }
   
+  // Списываем 1 TON из выигрышей сразу при поиске
+  const newWinnings = Math.max(0, (user.winnings_ton || 0) - 1);
+  await updateUser(userId, {
+    winnings_ton: newWinnings
+  });
+  
+  // Отправляем обновленный баланс
+  const updatedUser = await getUser(userId);
+  socket.emit('balance_updated', {
+    games_balance: updatedUser.games_balance,
+    winnings_ton: updatedUser.winnings_ton
+  });
+  
   // Проверяем, не находится ли игрок уже в игре
   if (playerToGame.has(userId)) {
-    socket.emit('error', { message: 'Вы уже в игре!' });
+    socket.emit('error', { message: 'You are already in a game!' });
     return;
   }
   
@@ -784,7 +797,7 @@ async function handleReady(socket, userId) {
   if (!gameId || !activeGames.has(gameId)) {
     // Если не в игре, возможно он еще в очереди ожидания
     if (!waitingPlayers.has(userId)) {
-      socket.emit('error', { message: 'Вы не в игре и не в очереди!' });
+      socket.emit('error', { message: 'You are not in a game or in queue!' });
       return;
     }
     
@@ -827,64 +840,18 @@ async function createGame(player1Id, player2Id, socket1Id, socket2Id) {
     getUser(player2Id)
   ]);
   
-  // Проверка баланса
-  if (player1.games_balance < GAME_CONFIG.ENTRY_PRICE || 
-      player2.games_balance < GAME_CONFIG.ENTRY_PRICE) {
-    // У кого-то недостаточно баланса
-    const player1Socket = io.sockets.sockets.get(socket1Id);
-    const player2Socket = io.sockets.sockets.get(socket2Id);
-    
-    if (player1.games_balance < GAME_CONFIG.ENTRY_PRICE) {
-      player1Socket?.emit('error', { message: 'Недостаточно игр для начала матча!' });
-    }
-    if (player2.games_balance < GAME_CONFIG.ENTRY_PRICE) {
-      player2Socket?.emit('error', { message: 'Недостаточно игр для начала матча!' });
-    }
-    return;
-  }
-  
-  // ОПТИМИЗАЦИЯ: Мгновенно отправляем обновленный баланс клиентам (локальный стейт)
-  // Игра создается сразу, списание баланса выполняется фоном
+  // Баланс уже списан при поиске матча, просто создаем игру
   const player1Socket = io.sockets.sockets.get(socket1Id);
   const player2Socket = io.sockets.sockets.get(socket2Id);
   
-  const optimisticBalance1 = player1.games_balance - GAME_CONFIG.ENTRY_PRICE;
-  const optimisticBalance2 = player2.games_balance - GAME_CONFIG.ENTRY_PRICE;
-  
-  // Отправляем оптимистичное обновление баланса клиентам
+  // Отправляем актуальный баланс клиентам
   player1Socket?.emit('balance_updated', {
-    games_balance: optimisticBalance1,
+    games_balance: player1.games_balance,
     winnings_ton: player1.winnings_ton
   });
   player2Socket?.emit('balance_updated', {
-    games_balance: optimisticBalance2,
+    games_balance: player2.games_balance,
     winnings_ton: player2.winnings_ton
-  });
-  
-  console.log(`✅ Мгновенное обновление баланса отправлено игрокам (оптимистичное обновление)`);
-  
-  // ОПТИМИЗАЦИЯ: Списание баланса выполняется фоном (не блокирует создание игры)
-  setImmediate(async () => {
-    try {
-      await Promise.all([
-        updateUser(player1Id, { games_balance: optimisticBalance1 }),
-        updateUser(player2Id, { games_balance: optimisticBalance2 })
-      ]);
-      console.log(`✅ Баланс списан в БД для игроков ${player1Id} и ${player2Id}`);
-    } catch (error) {
-      console.error(`❌ Ошибка при списании баланса в БД:`, error);
-      // В случае ошибки отправляем откат оптимистичного обновления
-      player1Socket?.emit('balance_updated', {
-        games_balance: player1.games_balance,
-        winnings_ton: player1.winnings_ton,
-        rollback: true
-      });
-      player2Socket?.emit('balance_updated', {
-        games_balance: player2.games_balance,
-        winnings_ton: player2.winnings_ton,
-        rollback: true
-      });
-    }
   });
   
   // Создаем игру
