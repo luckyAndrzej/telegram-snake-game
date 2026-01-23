@@ -15,7 +15,7 @@
 async function endGame(gameId, winnerId, loserId) {
   // ... проверки ...
   
-  const winAmount = 1.5;
+  const winAmount = 1.75;
   let prize = 0;
   
   if (winnerId) {
@@ -76,7 +76,7 @@ async function endGame(gameId, winnerId, loserId) {
   if (!game.end_event_sent) {
     const eventData = {
       winnerId,
-      prize: prize, // 1.5 если есть победитель
+      prize: prize, // 1.75 если есть победитель
       game_stats: { ... }
     };
     io.to(roomName).emit('game_end', eventData);
@@ -87,7 +87,7 @@ async function endGame(gameId, winnerId, loserId) {
 ### ✅ Проверки:
 - [x] `fs.writeFileSync()` вызывается после обновления баланса
 - [x] `winnerId` приводится к строке: `String(winnerId)`
-- [x] `prize` устанавливается в `1.5` и отправляется в `game_end`
+- [x] `prize` устанавливается в `1.75` и отправляется в `game_end`
 - [x] События `balance_updated` и `updateBalance` отправляются клиенту
 
 ---

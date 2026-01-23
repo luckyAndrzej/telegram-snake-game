@@ -435,10 +435,10 @@ io.on('connection', async (socket) => {
         return;
       }
       
-      // Минимальная сумма вывода 1.5 TON
-      if (amount < 1.5) {
+      // Минимальная сумма вывода 1.75 TON
+      if (amount < 1.75) {
         socket.emit('withdrawal_error', {
-          message: 'Минимальная сумма вывода: 1.5 TON'
+          message: 'Минимальная сумма вывода: 1.75 TON'
         });
         return;
       }
@@ -464,8 +464,8 @@ io.on('connection', async (socket) => {
         return;
       }
       
-      // 3. Проверка количества побед: максимальная сумма = количество побед * 1.5
-      const expectedWinningsPerWin = 1.5;
+      // 3. Проверка количества побед: максимальная сумма = количество побед * 1.75
+      const expectedWinningsPerWin = 1.75;
       const maxWinningsByWins = (user.totalEarned || 0) / expectedWinningsPerWin * expectedWinningsPerWin;
       if (amount > maxWinningsByWins + 0.01) {
         console.error(`⚠️ ПОДОЗРЕНИЕ НА ВЗЛОМ БАЛАНСА: Игрок ${userId}. Сумма вывода (${amount}) превышает возможную по количеству побед (${maxWinningsByWins})`);
@@ -1084,7 +1084,7 @@ async function endGame(gameId, winnerId, loserId) {
   }
   
   // Фиксированная сумма выигрыша
-  const winAmount = 1.5;
+  const winAmount = 1.75;
   let prize = 0; // По умолчанию приз = 0
   
   // Начисляем приз победителю
