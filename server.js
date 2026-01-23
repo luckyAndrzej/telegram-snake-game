@@ -271,6 +271,42 @@ io.on('connection', async (socket) => {
     socket.emit('pong', timestamp);
   });
   
+  // Инициация депозита
+  socket.on('initiateDeposit', async (data) => {
+    try {
+      if (DEBUG_MODE) {
+        socket.emit('error', {
+          message: 'TON deposits are only available in production mode (DEBUG_MODE=false)'
+        });
+        return;
+      }
+
+      const { amount } = data;
+      
+      if (!amount || amount <= 0) {
+        socket.emit('error', {
+          message: 'Invalid deposit amount. Amount must be greater than 0'
+        });
+        return;
+      }
+
+      const result = await tonPayment.createDeposit(userId, amount);
+      
+      if (result.success) {
+        // Отправляем данные депозита клиенту
+        socket.emit('deposit_initiated', result);
+      } else {
+        socket.emit('error', {
+          message: result.error || 'Failed to create deposit'
+        });
+      }
+    } catch (error) {
+      socket.emit('error', {
+        message: error.message || 'Error initiating deposit'
+      });
+    }
+  });
+  
   // Инициация покупки игр (Socket.io альтернатива для /api/create-payment)
   socket.on('initiatePurchase', async (data) => {
     try {
@@ -923,12 +959,9 @@ function startCountdown(gameId) {
         number: count,
         gameId
       });
-    }
-    
-    count--;
-    
-    // Когда count становится 0, завершаем countdown и начинаем игру
-    if (count < 0) {
+      count--;
+    } else {
+      // Когда count становится 0, завершаем countdown и начинаем игру
       clearInterval(countdownInterval);
       game.countdownInterval = null; // Очищаем ссылку
       // Countdown завершен - начинаем игру

@@ -64,31 +64,41 @@
                         💰 Add Balance (TEST)
                     </button>
                     
-                    <!-- Buy Games Buttons (non-DEBUG_MODE) -->
-                    <div id="buy-games-section" style="display: none; margin-bottom: 15px;">
-                        <div style="text-align: center; margin-bottom: 10px;">
-                            <strong>Buy Games:</strong>
-                        </div>
-                        <div style="display: flex; gap: 10px; justify-content: center; flex-wrap: wrap;">
-                            <button id="buy-1-btn" class="btn btn-buy" data-package="pkg_1">
-                                1 Game (1 TON)
-                            </button>
-                            <button id="buy-5-btn" class="btn btn-buy" data-package="pkg_5">
-                                5 Games (5 TON)
-                            </button>
-                            <button id="buy-10-btn" class="btn btn-buy" data-package="pkg_10">
-                                10 Games (10 TON)
-                            </button>
+                    <!-- Deposit Button -->
+                    <button id="deposit-btn" class="btn btn-primary" style="margin-top: 20px;">
+                        <span>💰 Deposit</span>
+                    </button>
+                    
+                    <!-- Convert Winnings to Games Button -->
+                    <button id="convert-winnings-btn" class="btn btn-primary" style="display: none; margin-top: 10px;">
+                        🔄 Convert Winnings to Games (1 TON = 1 Game)
+                    </button>
+                    
+                    <!-- Deposit Modal -->
+                    <div id="deposit-modal" class="payment-modal">
+                        <div class="payment-modal-content">
+                            <h3>Deposit</h3>
+                            <div id="deposit-info">
+                                <p style="margin-bottom: 15px;"><strong>Enter amount to deposit (TON):</strong></p>
+                                <input type="number" id="deposit-amount-input" min="0.1" step="0.1" placeholder="1.0" style="width: 100%; padding: 12px; border-radius: 8px; border: 2px solid rgba(102, 126, 234, 0.3); background: rgba(10, 10, 26, 0.8); color: #e0e0ff; font-size: 16px; margin-bottom: 15px; -webkit-appearance: none; appearance: none;" />
+                                <p><strong>Wallet Address:</strong></p>
+                                <p id="deposit-address"></p>
+                                <p><strong>Amount:</strong> <span id="deposit-amount-ton"></span> TON</p>
+                                <p><strong>Comment:</strong> <span id="deposit-comment" style="font-family: monospace; font-weight: bold; color: #667eea;"></span></p>
+                                <p style="color: #666; font-size: 14px; margin-top: 15px;">⚠️ <strong>Important:</strong> You must include the exact comment when sending the payment!</p>
+                            </div>
+                            <div style="margin-top: 20px; display: flex; gap: 10px; justify-content: center;">
+                                <button id="confirm-deposit-btn" class="btn btn-primary">Confirm Amount</button>
+                                <button id="pay-deposit-tonkeeper-btn" class="btn btn-primary" style="display: none;">Pay with Tonkeeper</button>
+                                <button id="close-deposit-btn" class="btn btn-secondary">Close</button>
+                            </div>
+                            <p id="deposit-status" style="margin-top: 15px; text-align: center; color: #667eea; font-weight: bold;"></p>
+                            <div id="deposit-polling-status" style="margin-top: 10px; text-align: center; color: #00f5ff; font-weight: bold; font-size: 14px; display: none;"></div>
                         </div>
                     </div>
                     
-                    <!-- Buy Games with Winnings Button -->
-                    <button id="buy-games-with-winnings-btn" class="btn btn-primary" style="display: none; margin-top: 10px;">
-                        🔄 Buy Games with Winnings (1 TON = 1 Game)
-                    </button>
-                    
-                    <!-- Payment Modal -->
-                    <div id="payment-modal" class="payment-modal">
+                    <!-- Payment Modal (for backward compatibility) -->
+                    <div id="payment-modal" class="payment-modal" style="display: none;">
                         <div class="payment-modal-content">
                             <h3>Payment Instructions</h3>
                             <div id="payment-info">
@@ -131,7 +141,7 @@
                     </div>
                     
                     <button id="start-game-btn" class="btn btn-primary">
-                        <span>🎮 Find Match</span>
+                        <span>🎮 Find Match (1 TON = 1 Game)</span>
                     </button>
 
                     <div class="rules">

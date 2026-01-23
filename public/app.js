@@ -256,6 +256,9 @@ function initSocket() {
     
     updateBalance(data.games_balance, data.winnings_ton);
     
+    // Update convert button visibility
+    updateConvertButtonVisibility();
+    
     // Показываем TEST MODE badge если DEBUG_MODE активен
     const badge = document.getElementById('test-mode-badge');
     if (badge) {
@@ -826,6 +829,9 @@ function initSocket() {
     console.log('✅ Game purchase confirmed (DB updated):', data);
     // Обновляем баланс финальными данными из БД
     updateBalance(data.games_balance, data.winnings_ton);
+    
+    // Update convert button visibility after conversion
+    updateConvertButtonVisibility();
   });
   
   socket.on('error', (error) => {
@@ -835,6 +841,73 @@ function initSocket() {
   
   socket.on('ready_confirmed', () => {
     console.log('Готовность подтверждена');
+  });
+  
+  // Deposit initiated notification
+  socket.on('deposit_initiated', (data) => {
+    console.log('✅ Deposit initiated:', data);
+    
+    if (!data.walletAddress || !data.amountTon || !data.comment) {
+      console.error('Missing deposit data in response:', data);
+      tg.showAlert('Deposit data is incomplete. Please contact support.');
+      return;
+    }
+    
+    // Показываем модальное окно депозита с данными
+    const depositModal = document.getElementById('deposit-modal');
+    const addressEl = document.getElementById('deposit-address');
+    const amountTonEl = document.getElementById('deposit-amount-ton');
+    const commentEl = document.getElementById('deposit-comment');
+    const statusEl = document.getElementById('deposit-status');
+    const confirmBtn = document.getElementById('confirm-deposit-btn');
+    const payBtn = document.getElementById('pay-deposit-tonkeeper-btn');
+    
+    if (depositModal && addressEl && amountTonEl && commentEl) {
+      addressEl.textContent = data.walletAddress;
+      amountTonEl.textContent = data.amountTon;
+      commentEl.textContent = data.comment;
+      
+      // Скрываем кнопку подтверждения, показываем кнопку оплаты
+      if (confirmBtn) confirmBtn.style.display = 'none';
+      if (payBtn) payBtn.style.display = 'block';
+      
+      if (statusEl) {
+        statusEl.textContent = 'Waiting for payment...';
+        statusEl.style.color = '#00f5ff';
+      }
+      
+      // Сохраняем данные для оплаты
+      window.currentDeposit = data;
+    }
+  });
+  
+  // Deposit success notification
+  socket.on('deposit_success', (data) => {
+    console.log('✅ Deposit successful:', data);
+    
+    // Обновляем баланс
+    updateBalance(data.games_balance, data.new_winnings);
+    
+    // Закрываем модальное окно депозита
+    toggleModal('deposit-modal', false);
+    
+    // Очищаем статус
+    const statusEl = document.getElementById('deposit-status');
+    if (statusEl) {
+      statusEl.textContent = '';
+    }
+    
+    const pollingStatusEl = document.getElementById('deposit-polling-status');
+    if (pollingStatusEl) {
+      pollingStatusEl.style.display = 'none';
+      pollingStatusEl.textContent = '';
+    }
+    
+    // Показываем уведомление
+    tg.showAlert(`✅ Deposit successful! +${data.amount} TON added to winnings.`);
+    
+    // Обновляем видимость кнопки конвертации
+    updateConvertButtonVisibility();
   });
   
   // Payment success notification
@@ -921,6 +994,9 @@ function initSocket() {
   socket.on('buy_games_success', (data) => {
     console.log('✅ Games purchased with winnings (optimistic update):', data);
     
+    // Update convert button visibility after conversion
+    updateConvertButtonVisibility();
+    
     // ИСПРАВЛЕНИЕ: Мгновенно обновляем локальную переменную user.games_balance
     if (data.games_purchased !== undefined) {
       localUserState.games_balance = data.games_balance || (localUserState.games_balance + data.games_purchased);
@@ -931,6 +1007,9 @@ function initSocket() {
     
     // ОПТИМИЗАЦИЯ: Мгновенно обновляем баланс в UI
     updateBalance(localUserState.games_balance, localUserState.winnings_ton);
+    
+    // Update convert button visibility after conversion
+    updateConvertButtonVisibility();
     
     // ИСПРАВЛЕНИЕ: Принудительно обновляем элемент #balance-value
     const balanceValueEl = document.getElementById('balance-value');
@@ -992,6 +1071,9 @@ function initSocket() {
     console.log('✅ Game purchase confirmed (DB updated):', data);
     // Обновляем баланс финальными данными из БД
     updateBalance(data.games_balance, data.winnings_ton);
+    
+    // Update convert button visibility after conversion
+    updateConvertButtonVisibility();
   });
   
   // ОПТИМИЗАЦИЯ: Обработчик ошибки покупки с откатом оптимистичного обновления
@@ -1131,6 +1213,13 @@ function initEventListeners() {
   
   // "Find Match" button - switch to lobby screen
   document.getElementById('start-game-btn')?.addEventListener('click', () => {
+    // Check if user has games balance
+    const gamesBalance = window.appState?.user?.games_balance || 0;
+    if (gamesBalance < 1) {
+      tg.showAlert('You don\'t have enough games. Please deposit first.');
+      return;
+    }
+    
     if (socket && socket.connected) {
       // Switch to lobby screen (waiting)
       showScreen('lobby');
@@ -1150,7 +1239,7 @@ function initEventListeners() {
     }
   });
   
-  // Кнопка "Пополнить баланс" (DEBUG_MODE)
+  // Add Games button (DEBUG_MODE)
   document.getElementById('add-games-btn')?.addEventListener('click', () => {
     if (debugMode) {
       // В DEBUG_MODE просто вызываем API для пополнения баланса
@@ -1164,6 +1253,70 @@ function initEventListeners() {
   });
   
   // Buy Games buttons (non-DEBUG_MODE)
+  // Deposit button
+  document.getElementById('deposit-btn')?.addEventListener('click', () => {
+    toggleModal('deposit-modal', true);
+    // Reset deposit form
+    const amountInput = document.getElementById('deposit-amount-input');
+    if (amountInput) {
+      amountInput.value = '';
+    }
+    const statusEl = document.getElementById('deposit-status');
+    if (statusEl) {
+      statusEl.textContent = '';
+    }
+  });
+  
+  // Confirm deposit amount button
+  document.getElementById('confirm-deposit-btn')?.addEventListener('click', async () => {
+    const amountInput = document.getElementById('deposit-amount-input');
+    const amount = parseFloat(amountInput?.value);
+    
+    if (!amount || amount <= 0) {
+      tg.showAlert('Please enter a valid deposit amount (greater than 0)');
+      return;
+    }
+    
+    if (amount < 0.1) {
+      tg.showAlert('Minimum deposit amount is 0.1 TON');
+      return;
+    }
+    
+    try {
+      if (socket && socket.connected) {
+        socket.emit('initiateDeposit', { amount });
+      } else {
+        tg.showAlert('Connection error. Please reload the page.');
+      }
+    } catch (error) {
+      console.error('Error initiating deposit:', error);
+      tg.showAlert('Error initiating deposit. Please try again.');
+    }
+  });
+  
+  // Close deposit modal
+  document.getElementById('close-deposit-btn')?.addEventListener('click', () => {
+    toggleModal('deposit-modal', false);
+  });
+  
+  // Convert winnings to games button
+  document.getElementById('convert-winnings-btn')?.addEventListener('click', () => {
+    const winnings = window.appState?.user?.winnings_ton || 0;
+    if (winnings < 1) {
+      tg.showAlert('You don\'t have enough winnings. Minimum: 1 TON');
+      return;
+    }
+    
+    // Convert all available winnings to games (1 TON = 1 game)
+    const gamesToBuy = Math.floor(winnings);
+    if (socket && socket.connected) {
+      socket.emit('buyGamesWithWinnings', { amount: gamesToBuy });
+    } else {
+      tg.showAlert('Connection error. Please reload the page.');
+    }
+  });
+  
+  // Old buy buttons (removed, but keeping for compatibility)
   ['buy-1-btn', 'buy-5-btn', 'buy-10-btn'].forEach(btnId => {
     document.getElementById(btnId)?.addEventListener('click', () => {
       const packageId = document.getElementById(btnId).getAttribute('data-package');
@@ -1194,6 +1347,91 @@ function initEventListeners() {
   document.getElementById('withdrawal-modal')?.addEventListener('click', (e) => {
     if (e.target.id === 'withdrawal-modal') {
       toggleModal('withdrawal-modal', false);
+    }
+  });
+  
+  // Pay deposit with Tonkeeper button
+  document.getElementById('pay-deposit-tonkeeper-btn')?.addEventListener('click', () => {
+    const deposit = window.currentDeposit;
+    if (!deposit) {
+      tg.showAlert('Deposit data not found. Please try again.');
+      return;
+    }
+    
+    const address = deposit.walletAddress;
+    const amount = deposit.amount; // в нанотонах
+    const comment = deposit.comment;
+    
+    if (!address || !amount || !comment) {
+      tg.showAlert('Deposit data is incomplete. Please try again.');
+      return;
+    }
+    
+    console.log('Pay deposit with Tonkeeper clicked:', { address, amount, comment });
+    
+    // Создаем deep link для Tonkeeper
+    const tonkeeperUrl = `ton://transfer/${address}?amount=${amount}&text=${encodeURIComponent(comment)}`;
+    
+    console.log('Opening Tonkeeper URL:', tonkeeperUrl);
+    
+    // Пытаемся открыть Tonkeeper
+    try {
+      tg.openLink(tonkeeperUrl);
+      console.log('Clicked Tonkeeper link');
+      
+      // Начинаем polling баланса для депозита
+      const initialWinnings = localUserState.winnings_ton || 0;
+      let pollCount = 0;
+      const maxPolls = 30;
+      
+      const statusEl = document.getElementById('deposit-status');
+      const pollingStatusEl = document.getElementById('deposit-polling-status');
+      
+      if (pollingStatusEl) {
+        pollingStatusEl.style.display = 'block';
+        pollingStatusEl.textContent = '⏳ Waiting for transaction confirmation... (usually 15-30 sec)';
+      }
+      
+      const pollDeposit = setInterval(async () => {
+        pollCount++;
+        console.log(`🔄 Polling deposit balance (attempt ${pollCount}/${maxPolls})...`);
+        
+        try {
+          await refreshUserProfile();
+          const currentWinnings = localUserState.winnings_ton || 0;
+          
+          if (currentWinnings > initialWinnings) {
+            console.log('✅ Deposit received! Closing deposit modal.');
+            clearInterval(pollDeposit);
+            
+            if (pollingStatusEl) {
+              pollingStatusEl.style.display = 'none';
+            }
+            
+            toggleModal('deposit-modal', false);
+            
+            if (statusEl) {
+              statusEl.textContent = '✅ Deposit received!';
+              statusEl.style.color = '#00ff41';
+            }
+          } else if (pollCount >= maxPolls) {
+            clearInterval(pollDeposit);
+            if (pollingStatusEl) {
+              pollingStatusEl.style.display = 'none';
+            }
+          }
+        } catch (error) {
+          console.error('❌ Error polling deposit balance:', error);
+        }
+      }, 10000); // Проверяем каждые 10 секунд
+    } catch (error) {
+      console.error('Error opening Tonkeeper:', error);
+      const statusEl = document.getElementById('deposit-status');
+      if (statusEl) {
+        statusEl.innerHTML = '⚠️ Please copy the address and comment, then send the payment manually in Tonkeeper app.';
+        statusEl.style.color = '#ef4444';
+      }
+      tg.showAlert('Error opening Tonkeeper. Please send the payment manually using the address and comment above.');
     }
   });
   
@@ -1511,6 +1749,13 @@ function initEventListeners() {
     const resultScreen = document.getElementById('result-screen');
     if (resultScreen) {
       resultScreen.classList.remove('active');
+    }
+    
+    // Check if user has games balance
+    const gamesBalance = window.appState?.user?.games_balance || 0;
+    if (gamesBalance < 1) {
+      tg.showAlert('You don\'t have enough games. Please deposit first.');
+      return;
     }
     
     // Очищаем состояние игры
@@ -2110,6 +2355,19 @@ async function refreshUserProfile() {
   }
 }
 
+function updateConvertButtonVisibility() {
+  const convertBtn = document.getElementById('convert-winnings-btn');
+  const winnings = window.appState?.user?.winnings_ton || 0;
+  
+  if (convertBtn) {
+    if (winnings >= 1) {
+      convertBtn.style.display = 'block';
+    } else {
+      convertBtn.style.display = 'none';
+    }
+  }
+}
+
 function updateBalance(gamesBalance, winningsTon) {
   // STATE MANAGEMENT: Обновляем window.appState перед обновлением UI
   if (gamesBalance !== undefined) {
@@ -2120,6 +2378,9 @@ function updateBalance(gamesBalance, winningsTon) {
     window.appState.user.winnings_ton = winningsTon;
     localUserState.winnings_ton = winningsTon;
   }
+  
+  // Обновляем видимость кнопки конвертации
+  updateConvertButtonVisibility();
   
   const gamesEl = document.getElementById('games-balance');
   const winningsEl = document.getElementById('winnings-balance');
@@ -2551,10 +2812,11 @@ function startRenderLoop() {
     
     if (interpolatedGameState && previousGameState && lastStateUpdateTime > 0) {
       const timeSinceUpdate = performance.now() - lastStateUpdateTime;
-      // ИСПРАВЛЕНИЕ: Ограничиваем интерполяцию для предотвращения рывков
-      // Используем более консервативный фактор и сглаживание
+      // ИСПРАВЛЕНИЕ: Улучшенная интерполяция для устранения рывков
+      // Используем более плавное сглаживание с ограничением
       const rawFactor = timeSinceUpdate / TICK_DURATION;
-      const interpolationFactor = Math.min(Math.max(rawFactor, 0), 0.8); // Ограничиваем до 0.8 для плавности
+      // Ограничиваем интерполяцию и применяем сглаживание для плавности
+      const interpolationFactor = Math.min(Math.max(rawFactor, 0), 0.5); // Уменьшено до 0.5 для более плавного движения
       
       // Интерполируем позиции змеек
       if (interpolatedGameState.my_snake && previousGameState.my_snake) {

@@ -82,6 +82,66 @@ function nanoTonToTon(nanoTon) {
 }
 
 /**
+ * Создание депозита (любая сумма)
+ * @param {number} userId - ID пользователя
+ * @param {number} amount - Сумма депозита в TON
+ * @returns {Promise<Object>} - Данные платежа (comment, amount в нанотонах)
+ */
+async function createDeposit(userId, amount) {
+  try {
+    if (!amount || amount <= 0) {
+      return {
+        success: false,
+        error: 'Invalid deposit amount'
+      };
+    }
+
+    // Генерируем уникальный комментарий
+    const comment = generateComment();
+
+    // Читаем текущие pending_payments
+    let pendingPayments = {};
+    try {
+      const data = await fs.readFile(PENDING_PAYMENTS_FILE, 'utf8');
+      pendingPayments = JSON.parse(data);
+    } catch {
+      pendingPayments = {};
+    }
+
+    // Создаем запись о депозите
+    const paymentId = `deposit_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+    pendingPayments[paymentId] = {
+      userId,
+      type: 'deposit',
+      comment,
+      amount: amount, // TON
+      createdAt: Date.now(),
+      status: 'pending'
+    };
+
+    // Сохраняем в файл
+    await fs.writeFile(PENDING_PAYMENTS_FILE, JSON.stringify(pendingPayments, null, 2));
+
+    console.log(`💰 Создан депозит: userId=${userId}, amount=${amount} TON, comment=${comment}`);
+
+    return {
+      success: true,
+      paymentId,
+      comment,
+      amount: tonToNanoTon(amount), // Возвращаем в нанотонах для Deep Link
+      amountTon: amount, // Возвращаем в TON для отображения
+      walletAddress: TON_CONFIG.TON_WALLET_ADDRESS
+    };
+  } catch (error) {
+    console.error('❌ Ошибка создания депозита:', error);
+    return {
+      success: false,
+      error: error.message
+    };
+  }
+}
+
+/**
  * Создание платежного запроса
  * @param {number} userId - ID пользователя
  * @param {string} packageId - ID пакета (pkg_1, pkg_5, pkg_10)
@@ -480,6 +540,16 @@ async function scanTransactions(io) {
         }
       }
       
+      // Для депозитов проверяем сумму без games
+      if (foundPayment && foundPayment.type === 'deposit') {
+        // Депозит найден, проверка суммы будет ниже
+        console.log(`✅ [SCANNER] Депозит найден: amount=${foundPayment.amount} TON`);
+      } else if (foundPayment && !foundPayment.games && foundPayment.type !== 'deposit') {
+        // Если это не депозит и нет games, пропускаем
+        console.log(`⚠️ [SCANNER] Платеж найден, но нет games и не депозит, пропускаем`);
+        continue;
+      }
+      
       // ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: Если не нашли совпадение, пробуем найти комментарий в других местах
       if (!foundPayment && comment && Object.keys(pendingPayments).length > 0) {
         console.log(`⚠️ [Сканер] Комментарий "${comment}" не совпал с ожидаемыми. Пробуем альтернативные варианты...`);
@@ -562,51 +632,99 @@ async function scanTransactions(io) {
       // Всё верно! Обрабатываем платеж
       try {
         const user = await getUser(foundPayment.userId);
-        const newBalance = user.games_balance + foundPayment.games;
         
-        // Пополняем баланс игр
-        await updateUser(foundPayment.userId, {
-          games_balance: newBalance
-        });
-
-        // Получаем обновленные данные пользователя
-        const updatedUser = await getUser(foundPayment.userId);
-
-        // Удаляем из pending_payments
-        delete pendingPayments[foundPaymentId];
-
-        // Добавляем в processed_tx
-        processedTx[txHash] = {
-          userId: foundPayment.userId,
-          comment,
-          amount: expectedAmountTon, // Используем expectedAmountTon (из foundPayment.amount)
-          games: foundPayment.games,
-          processedAt: Date.now()
-        };
-
-        // Сохраняем файлы
-        await fs.writeFile(PENDING_PAYMENTS_FILE, JSON.stringify(pendingPayments, null, 2));
-        await fs.writeFile(PROCESSED_TX_FILE, JSON.stringify(processedTx, null, 2));
-
-        console.log(`✅ Платеж обработан:`);
-        console.log(`   userId: ${foundPayment.userId}`);
-        console.log(`   comment: ${comment}`);
-        console.log(`   заплачено: ${expectedAmountTon} TON`);
-        console.log(`   добавлено игр: ${foundPayment.games} (из пакета ${foundPayment.packageId})`);
-        console.log(`   баланс до: ${user.games_balance}`);
-        console.log(`   баланс после: ${newBalance}`);
-
-        // Отправляем событие клиенту через Socket.io
-        if (io) {
-          const userRoom = `user_${foundPayment.userId}`;
-          console.log(`📤 Отправляю payment_success в комнату: ${userRoom}`);
-          io.to(userRoom).emit('payment_success', {
-            paymentId: foundPaymentId,
-            games: foundPayment.games,
-            new_balance: newBalance,
-            winnings_ton: updatedUser.winnings_ton
+        // Проверяем тип платежа: депозит или покупка игр
+        if (foundPayment.type === 'deposit') {
+          // Депозит: добавляем в winnings_ton
+          const newWinnings = (user.winnings_ton || 0) + expectedAmountTon;
+          
+          await updateUser(foundPayment.userId, {
+            winnings_ton: newWinnings
           });
-          console.log(`✅ Событие payment_success отправлено: games=${foundPayment.games}, new_balance=${newBalance}`);
+
+          const updatedUser = await getUser(foundPayment.userId);
+
+          // Удаляем из pending_payments
+          delete pendingPayments[foundPaymentId];
+
+          // Добавляем в processed_tx
+          processedTx[txHash] = {
+            userId: foundPayment.userId,
+            comment,
+            amount: expectedAmountTon,
+            type: 'deposit',
+            processedAt: Date.now()
+          };
+
+          // Сохраняем файлы
+          await fs.writeFile(PENDING_PAYMENTS_FILE, JSON.stringify(pendingPayments, null, 2));
+          await fs.writeFile(PROCESSED_TX_FILE, JSON.stringify(processedTx, null, 2));
+
+          console.log(`✅ Депозит обработан:`);
+          console.log(`   userId: ${foundPayment.userId}`);
+          console.log(`   comment: ${comment}`);
+          console.log(`   заплачено: ${expectedAmountTon} TON`);
+          console.log(`   winnings до: ${user.winnings_ton || 0}`);
+          console.log(`   winnings после: ${newWinnings}`);
+
+          // Отправляем событие клиенту через Socket.io
+          if (io) {
+            const userRoom = `user_${foundPayment.userId}`;
+            console.log(`📤 Отправляю deposit_success в комнату: ${userRoom}`);
+            io.to(userRoom).emit('deposit_success', {
+              paymentId: foundPaymentId,
+              amount: expectedAmountTon,
+              new_winnings: newWinnings,
+              games_balance: updatedUser.games_balance
+            });
+            console.log(`✅ Событие deposit_success отправлено: amount=${expectedAmountTon}, new_winnings=${newWinnings}`);
+          }
+        } else {
+          // Покупка игр: добавляем в games_balance
+          const newBalance = user.games_balance + (foundPayment.games || 0);
+          
+          await updateUser(foundPayment.userId, {
+            games_balance: newBalance
+          });
+
+          const updatedUser = await getUser(foundPayment.userId);
+
+          // Удаляем из pending_payments
+          delete pendingPayments[foundPaymentId];
+
+          // Добавляем в processed_tx
+          processedTx[txHash] = {
+            userId: foundPayment.userId,
+            comment,
+            amount: expectedAmountTon,
+            games: foundPayment.games,
+            processedAt: Date.now()
+          };
+
+          // Сохраняем файлы
+          await fs.writeFile(PENDING_PAYMENTS_FILE, JSON.stringify(pendingPayments, null, 2));
+          await fs.writeFile(PROCESSED_TX_FILE, JSON.stringify(processedTx, null, 2));
+
+          console.log(`✅ Платеж обработан:`);
+          console.log(`   userId: ${foundPayment.userId}`);
+          console.log(`   comment: ${comment}`);
+          console.log(`   заплачено: ${expectedAmountTon} TON`);
+          console.log(`   добавлено игр: ${foundPayment.games} (из пакета ${foundPayment.packageId})`);
+          console.log(`   баланс до: ${user.games_balance}`);
+          console.log(`   баланс после: ${newBalance}`);
+
+          // Отправляем событие клиенту через Socket.io
+          if (io) {
+            const userRoom = `user_${foundPayment.userId}`;
+            console.log(`📤 Отправляю payment_success в комнату: ${userRoom}`);
+            io.to(userRoom).emit('payment_success', {
+              paymentId: foundPaymentId,
+              games: foundPayment.games,
+              new_balance: newBalance,
+              winnings_ton: updatedUser.winnings_ton
+            });
+            console.log(`✅ Событие payment_success отправлено: games=${foundPayment.games}, new_balance=${newBalance}`);
+          }
         }
 
       } catch (error) {
@@ -649,6 +767,7 @@ function initConfig(config) {
 module.exports = {
   initPaymentFiles,
   createPayment,
+  createDeposit,
   scanTransactions,
   checkTonPayments, // Алиас для scanTransactions
   initConfig,
