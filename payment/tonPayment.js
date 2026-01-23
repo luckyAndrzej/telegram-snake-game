@@ -417,8 +417,12 @@ async function scanTransactions(io) {
           const text = inMsg.msg_data.text.trim();
           console.log(`📄 [Сканер] msg_data.text: "${text.substring(0, 50)}..." (длина: ${text.length})`);
           
-          // Если это не Base64 и не Hex, используем как текст
-          if (!isBase64(text) && !text.startsWith('0x') && !/^[0-9a-fA-F]+$/i.test(text)) {
+          // ПРИОРИТЕТ 1: Если это похоже на валидный комментарий (4-20 символов, только буквы и цифры), используем напрямую
+          if (/^[A-Za-z0-9]{4,20}$/.test(text)) {
+            extractedComment = text;
+            console.log(`✅ [Сканер] Используем msg_data.text как комментарий напрямую (валидный формат): "${extractedComment}"`);
+          } else if (!isBase64(text) && !text.startsWith('0x') && !/^[0-9a-fA-F]+$/i.test(text)) {
+            // Если это не Base64 и не Hex, используем как текст
             extractedComment = text;
             console.log(`✅ [Сканер] Используем msg_data.text как обычный текст: "${extractedComment}"`);
           } else {
@@ -429,12 +433,7 @@ async function scanTransactions(io) {
               extractedComment = decoded;
               console.log(`✅ [Сканер] Декодировано из msg_data.text: "${extractedComment}"`);
             } else {
-              console.log(`⚠️ [Сканер] Не удалось декодировать msg_data.text, пробуем как обычный текст...`);
-              // Fallback: пробуем использовать как есть, если это похоже на валидный комментарий
-              if (/^[A-Za-z0-9]+$/.test(text) && text.length >= 4 && text.length <= 20) {
-                extractedComment = text;
-                console.log(`✅ [Сканер] Используем msg_data.text как комментарий напрямую: "${extractedComment}"`);
-              }
+              console.log(`⚠️ [Сканер] Не удалось декодировать msg_data.text`);
             }
           }
         }

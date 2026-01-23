@@ -389,10 +389,19 @@ body::before {
     cursor: pointer;
     text-align: left;
     transition: all 0.3s ease;
+    box-shadow: none !important;
+    outline: none !important;
 }
 
 .rules-toggle:hover {
     background: rgba(0, 245, 255, 0.1);
+    box-shadow: none !important;
+}
+
+.rules-toggle:active,
+.rules-toggle:focus {
+    box-shadow: none !important;
+    outline: none !important;
 }
 
 .rules-toggle h3 {
@@ -1010,6 +1019,11 @@ body::before {
 .snake-color.blue {
     color: var(--neon-cyan);
     text-shadow: 0 0 10px rgba(0, 245, 255, 0.8);
+}
+
+.snake-color.green {
+    color: #00FF41;
+    text-shadow: 0 0 10px rgba(0, 255, 65, 0.8);
 }
 
 /* Withdrawal Modal - Адаптивность и корректная работа с клавиатурой */

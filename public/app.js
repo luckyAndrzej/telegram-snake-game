@@ -292,6 +292,27 @@ function initSocket() {
   socket.on('match_found', (data) => {
     console.log('🎮 Opponent found (client):', data);
     
+    // ИСПРАВЛЕНИЕ: Очищаем состояние предыдущей игры перед началом новой
+    // Очищаем window.appState.game
+    if (window.appState && window.appState.game) {
+      window.appState.game.my_snake = null;
+      window.appState.game.opponent_snake = null;
+      window.appState.game.snakes = [];
+      window.appState.game.tick_number = 0;
+      window.appState.game.finished = false;
+      window.appState.game.status = 'countdown';
+    }
+    
+    // Очищаем состояние интерполяции
+    interpolatedGameState = null;
+    previousGameState = null;
+    lastStateUpdateTime = 0;
+    
+    // Очищаем очереди и историю
+    packetQueue = [];
+    headHistory = [];
+    opponentHeadHistory = [];
+    
     // Сохраняем данные игры
     if (!currentGame) {
       currentGame = {};
@@ -563,29 +584,38 @@ function initSocket() {
     // Очищаем старое начальное состояние сразу после скрытия overlay
     currentGame.initialState = null;
     
-    // ИСПРАВЛЕНИЕ: Сбрасываем состояние интерполяции для новой игры
-    // Это предотвращает использование данных из предыдущей игры
-    previousGameStateData = null;
-    // ИСПРАВЛЕНИЕ: Очищаем очередь только если игра действительно новая
-    // Не очищаем если game_state уже приходили (защита от потери данных)
-    if (packetQueue.length === 0 || !window.appState?.game?.my_snake) {
-      packetQueue = [];
-    } else {
-      // Если есть данные в очереди, оставляем их (возможно, они для текущей игры)
-      console.log(`ℹ️ Сохраняем ${packetQueue.length} пакетов в очереди при game_start`);
-    }
+    // ИСПРАВЛЕНИЕ: Полная очистка состояния для новой игры
+    // Очищаем очередь пакетов
+    packetQueue = [];
+    
+    // Очищаем состояние интерполяции
+    interpolatedGameState = null;
+    previousGameState = null;
+    lastStateUpdateTime = 0;
+    
     // CURRENT GAME STATE: Сбрасываем currentGameState при сбросе игры
     currentGameState = {
       snakes: [],
-      status: 'idle',
+      status: 'playing',
       my_snake: null,
       opponent_snake: null
     };
-    previousGameState = null; // Очищаем предыдущее состояние
-    lastStateUpdateTime = 0; // Сбрасываем время обновления
+    
+    // Очищаем историю позиций
     headHistory = [];
     opponentHeadHistory = [];
     lastStepTime = 0;
+    
+    // ИСПРАВЛЕНИЕ: Очищаем window.appState.game для предотвращения отображения старого состояния
+    if (window.appState && window.appState.game) {
+      // Сохраняем только статус, остальное очищаем
+      window.appState.game.my_snake = null;
+      window.appState.game.opponent_snake = null;
+      window.appState.game.snakes = [];
+      window.appState.game.tick_number = 0;
+      window.appState.game.finished = false;
+      window.appState.game.status = 'playing';
+    }
     
     // Скрываем countdown overlay (используем getElementById без объявления переменной, чтобы избежать дубликата)
     const overlayEl = document.getElementById('countdown-overlay');
@@ -2520,8 +2550,11 @@ function startRenderLoop() {
     let interpolatedOppSnake = null;
     
     if (interpolatedGameState && previousGameState && lastStateUpdateTime > 0) {
-      const timeSinceUpdate = now - lastStateUpdateTime;
-      const interpolationFactor = Math.min(timeSinceUpdate / TICK_DURATION, 1.0); // Ограничиваем до 1.0
+      const timeSinceUpdate = performance.now() - lastStateUpdateTime;
+      // ИСПРАВЛЕНИЕ: Ограничиваем интерполяцию для предотвращения рывков
+      // Используем более консервативный фактор и сглаживание
+      const rawFactor = timeSinceUpdate / TICK_DURATION;
+      const interpolationFactor = Math.min(Math.max(rawFactor, 0), 0.8); // Ограничиваем до 0.8 для плавности
       
       // Интерполируем позиции змеек
       if (interpolatedGameState.my_snake && previousGameState.my_snake) {
