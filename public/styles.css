@@ -1197,6 +1197,7 @@ body::before {
     
     /* Для мобилок, чтобы точно стояло по центру */
     .payment-modal-content {
+<<<<<<< HEAD
         position: fixed !important;
         left: 50% !important;
         top: 50% !important;

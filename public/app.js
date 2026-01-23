@@ -397,10 +397,10 @@ function initSocket() {
         const player1Status = document.getElementById('player1-status');
         const player2Status = document.getElementById('player2-status');
         if (player1Status) {
-          player1Status.textContent = 'You are the green snake';
+          player1Status.textContent = 'You - Green Snake';
         }
         if (player2Status) {
-          player2Status.textContent = 'Opponent - red snake';
+          player2Status.textContent = 'Opponent - Red Snake';
         }
         
         // CURRENT GAME STATE: Синхронизируем currentGameState с appState
@@ -495,10 +495,10 @@ function initSocket() {
     const player1Status = document.getElementById('player1-status');
     const player2Status = document.getElementById('player2-status');
     if (player1Status) {
-      player1Status.textContent = 'You are the green snake';
+      player1Status.textContent = 'You - Green Snake';
     }
     if (player2Status) {
-      player2Status.textContent = 'Opponent - red snake';
+      player2Status.textContent = 'Opponent - Red Snake';
     }
     
     // ВИДИМОСТЬ ОТСЧЕТА: Прямо сейчас отсчет перекрыт другими слоями
@@ -1525,84 +1525,48 @@ function initEventListeners() {
           }
         }
       } catch (linkError) {
-        // Если клик не сработал, пробуем tg.openLink()
-        console.warn('Link click failed, trying tg.openLink():', linkError);
+        // Если клик не сработал, пробуем window.location или window.open()
+        // ВАЖНО: tg.openLink() НЕ поддерживает протокол ton:// в Telegram WebApp
+        console.warn('Link click failed, trying window.location:', linkError);
         document.body.removeChild(link);
         
-        if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.openLink) {
-          try {
-            window.Telegram.WebApp.openLink(tonkeeperUrl, { try_instant_view: false });
-            console.log('Opened Tonkeeper via tg.openLink()');
-            paymentInitiated = true; // Транзакция инициирована
-            
-            const statusEl = document.getElementById('payment-status');
-            if (statusEl) {
-              statusEl.textContent = '⏳ Waiting for payment...';
-              statusEl.style.color = '#667eea';
-            }
-            
-            // STATE MANAGEMENT: Обновление баланса через 3-5 секунд после инициирования транзакции
-            if (paymentInitiated) {
-              setTimeout(() => {
-                console.log('🔄 Updating balance after transaction...');
-                refreshUserProfile();
-              }, 4000); // 4 секунды для обработки транзакции
-            }
-          } catch (tgError) {
-            // Если tg.openLink() тоже не сработал, пробуем window.location
-            console.warn('tg.openLink() failed, trying window.location:', tgError);
-            try {
-              window.location.href = tonkeeperUrl;
-              paymentInitiated = true; // Транзакция инициирована
-              const statusEl = document.getElementById('payment-status');
-              if (statusEl) {
-                statusEl.textContent = '⏳ Waiting for payment...';
-                statusEl.style.color = '#667eea';
-              }
-              
-              // STATE MANAGEMENT: Обновление баланса через 3-5 секунд после инициирования транзакции
-              if (paymentInitiated) {
-                setTimeout(() => {
-                  console.log('🔄 Updating balance after transaction...');
-                  refreshUserProfile();
-                }, 4000); // 4 секунды для обработки транзакции
-              }
-            } catch (locationError) {
-              console.error('All methods to open Tonkeeper failed:', locationError);
-              const statusEl = document.getElementById('payment-status');
-              if (statusEl) {
-                statusEl.innerHTML = '⚠️ Please copy the address and comment, then send the payment manually in Tonkeeper app.';
-                statusEl.style.color = '#ef4444';
-              }
-              tg.showAlert('Please open Tonkeeper app manually and send the payment using the address and comment shown above.');
-            }
-          }
-        } else {
-          // Fallback: используем window.location
-          try {
+        // Пропускаем tg.openLink() для протокола ton://, так как он не поддерживается
+        // Используем window.location.href или window.open() напрямую
+        try {
+          // Пробуем window.open() сначала (может работать лучше в некоторых случаях)
+          const opened = window.open(tonkeeperUrl, '_blank');
+          if (opened) {
+            console.log('Opened Tonkeeper via window.open()');
+            paymentInitiated = true;
+          } else {
+            // Если window.open() заблокирован, используем window.location.href
             window.location.href = tonkeeperUrl;
-            paymentInitiated = true; // Транзакция инициирована
-            const statusEl = document.getElementById('payment-status');
-            if (statusEl) {
-              statusEl.textContent = '⏳ Waiting for payment...';
-              statusEl.style.color = '#667eea';
-            }
-            
-            // STATE MANAGEMENT: Обновление баланса через 3-5 секунд после инициирования транзакции
-            if (paymentInitiated) {
-              setTimeout(() => {
-                console.log('🔄 Updating balance after transaction...');
-                refreshUserProfile();
-              }, 4000); // 4 секунды для обработки транзакции
-            }
-          } catch (locationError) {
-            console.error('Failed to open Tonkeeper:', locationError);
-            const statusEl = document.getElementById('payment-status');
-            if (statusEl) {
-              statusEl.innerHTML = '⚠️ Please copy the address and comment, then send the payment manually in Tonkeeper app.';
-              statusEl.style.color = '#ef4444';
-            }
+            console.log('Opened Tonkeeper via window.location.href');
+            paymentInitiated = true;
           }
+          }
+          
+          const statusEl = document.getElementById('payment-status');
+          if (statusEl) {
+            statusEl.textContent = '⏳ Waiting for payment...';
+            statusEl.style.color = '#667eea';
+          }
+          
+          // STATE MANAGEMENT: Обновление баланса через 3-5 секунд после инициирования транзакции
+          if (paymentInitiated) {
+            setTimeout(() => {
+              console.log('🔄 Обновление баланса после транзакции...');
+              refreshUserProfile();
+            }, 4000); // 4 секунды для обработки транзакции
+          }
+        } catch (locationError) {
+          console.error('All methods to open Tonkeeper failed:', locationError);
+          const statusEl = document.getElementById('payment-status');
+          if (statusEl) {
+            statusEl.innerHTML = '⚠️ Please copy the address and comment, then send the payment manually in Tonkeeper app.';
+            statusEl.style.color = '#ef4444';
+          }
+          tg.showAlert('Please open Tonkeeper app manually and send the payment using the address and comment shown above.');
         }
       }
     } catch (error) {
@@ -2647,42 +2611,56 @@ function startRenderLoop() {
     // 2. Сетка
     if (gridCanvas) gameCtx.drawImage(gridCanvas, 0, 0);
 
-    // ИСПРАВЛЕНИЕ: Раздели логику - пакеты из packetQueue только обновляют window.appState.game
-    // Обрабатываем очередь пакетов (только обновление состояния)
-    while (packetQueue.length > 0) {
-      const nextPacket = packetQueue.shift();
-      if (!nextPacket) continue;
-
-      // Сохраняем предыдущее состояние для интерполяции
-      if (interpolatedGameState) {
-        previousGameState = JSON.parse(JSON.stringify(interpolatedGameState));
-      }
-
-      // Синхронизируем состояние из пакета
-      const newState = {
-        my_snake: nextPacket.my_snake ? {
-          segments: nextPacket.my_snake.segments || nextPacket.my_snake.body || [],
-          direction: nextPacket.my_snake.direction || { dx: 1, dy: 0 },
-          alive: nextPacket.my_snake.alive !== undefined ? nextPacket.my_snake.alive : true
+    // ИНТЕРПОЛЯЦИЯ: Обрабатываем только один пакет за кадр для плавных движений
+    // Сохраняем предыдущее состояние перед обновлением
+    if (window.appState?.game?.my_snake || window.appState?.game?.opponent_snake) {
+      previousGameState = {
+        my_snake: window.appState.game.my_snake ? {
+          segments: [...(window.appState.game.my_snake.segments || window.appState.game.my_snake.body || [])],
+          direction: { ...(window.appState.game.my_snake.direction || { dx: 1, dy: 0 }) },
+          alive: window.appState.game.my_snake.alive !== undefined ? window.appState.game.my_snake.alive : true
         } : null,
-        opponent_snake: nextPacket.opponent_snake ? {
-          segments: nextPacket.opponent_snake.segments || nextPacket.opponent_snake.body || [],
-          direction: nextPacket.opponent_snake.direction || { dx: -1, dy: 0 },
-          alive: nextPacket.opponent_snake.alive !== undefined ? nextPacket.opponent_snake.alive : true
+        opponent_snake: window.appState.game.opponent_snake ? {
+          segments: [...(window.appState.game.opponent_snake.segments || window.appState.game.opponent_snake.body || [])],
+          direction: { ...(window.appState.game.opponent_snake.direction || { dx: -1, dy: 0 }) },
+          alive: window.appState.game.opponent_snake.alive !== undefined ? window.appState.game.opponent_snake.alive : true
         } : null,
-        tick_number: nextPacket.tick_number || 0,
-        finished: nextPacket.finished === true || nextPacket.game_finished === true
+        tick_number: window.appState.game.tick_number || 0
       };
+    }
 
-      // Обновляем window.appState.game
-      window.appState.game.my_snake = newState.my_snake;
-      window.appState.game.opponent_snake = newState.opponent_snake;
-      window.appState.game.tick_number = newState.tick_number;
-      window.appState.game.finished = newState.finished;
+    // Обрабатываем только один пакет за кадр
+    if (packetQueue.length > 0) {
+      const nextPacket = packetQueue.shift();
+      if (nextPacket) {
+        // Синхронизируем состояние из пакета
+        if (nextPacket.my_snake) {
+          window.appState.game.my_snake = {
+            segments: nextPacket.my_snake.segments || nextPacket.my_snake.body || [],
+            direction: nextPacket.my_snake.direction || { dx: 1, dy: 0 },
+            alive: nextPacket.my_snake.alive !== undefined ? nextPacket.my_snake.alive : true
+          };
+        }
+        if (nextPacket.opponent_snake) {
+          window.appState.game.opponent_snake = {
+            segments: nextPacket.opponent_snake.segments || nextPacket.opponent_snake.body || [],
+            direction: nextPacket.opponent_snake.direction || { dx: -1, dy: 0 },
+            alive: nextPacket.opponent_snake.alive !== undefined ? nextPacket.opponent_snake.alive : true
+          };
+        }
+        window.appState.game.tick_number = nextPacket.tick_number || 0;
+        window.appState.game.finished = nextPacket.finished === true || nextPacket.game_finished === true;
+        lastStateUpdateTime = now;
+      }
+    }
 
-      // Сохраняем текущее состояние для интерполяции (глубокая копия)
-      interpolatedGameState = JSON.parse(JSON.stringify(newState));
-      lastStateUpdateTime = performance.now(); // Используем performance.now() для точности
+    // Вычисляем коэффициент интерполяции (0 = предыдущее состояние, 1 = текущее состояние)
+    const expectedTickInterval = 111.11; // ~9 тиков в секунду (1000ms / 9)
+    const timeSinceUpdate = now - lastStateUpdateTime;
+    let interpolationFactor = Math.min(timeSinceUpdate / expectedTickInterval, 1);
+    if (lastStateUpdateTime === 0 || !previousGameState) {
+      interpolationFactor = 1; // Если нет предыдущего состояния, используем текущее
+    }
     }
 
     // ИСПРАВЛЕНИЕ: Отрисовка змеек должна идти ВСЕГДА на основе данных из window.appState.game
@@ -2717,49 +2695,13 @@ function startRenderLoop() {
       }
     }
     
-    // 4. ИНТЕРПОЛЯЦИЯ: Вычисляем интерполированное состояние для плавного движения
-    let interpolatedMySnake = null;
-    let interpolatedOppSnake = null;
-    
-    if (interpolatedGameState && previousGameState && lastStateUpdateTime > 0) {
-      const timeSinceUpdate = performance.now() - lastStateUpdateTime;
-      // ИСПРАВЛЕНИЕ: Улучшенная интерполяция для устранения рывков
-      // Используем более плавное сглаживание с ограничением
-      const rawFactor = timeSinceUpdate / TICK_DURATION;
-      // ИСПРАВЛЕНИЕ: Используем более консервативную интерполяцию для устранения рывков
-      // Ограничиваем интерполяцию для предотвращения экстраполяции
-      // Используем более низкое значение для плавности без рывков
-      const interpolationFactor = Math.min(Math.max(rawFactor, 0), 0.6); // Ограничиваем до 0.6 для плавности
-      
-      // Интерполируем позиции змеек только если сегменты совпадают по длине
-      if (interpolatedGameState.my_snake && previousGameState.my_snake) {
-        const currentSegments = interpolatedGameState.my_snake.segments || [];
-        const previousSegments = previousGameState.my_snake.segments || [];
-        if (currentSegments.length > 0 && previousSegments.length > 0 && currentSegments.length === previousSegments.length) {
-          interpolatedMySnake = {
-            ...interpolatedGameState.my_snake,
-            segments: interpolateSegments(previousSegments, currentSegments, interpolationFactor)
-          };
-        }
-      }
-      
-      if (interpolatedGameState.opponent_snake && previousGameState.opponent_snake) {
-        const currentSegments = interpolatedGameState.opponent_snake.segments || [];
-        const previousSegments = previousGameState.opponent_snake.segments || [];
-        if (currentSegments.length > 0 && previousSegments.length > 0 && currentSegments.length === previousSegments.length) {
-          interpolatedOppSnake = {
-            ...interpolatedGameState.opponent_snake,
-            segments: interpolateSegments(previousSegments, currentSegments, interpolationFactor)
-          };
-        }
-      }
-    }
-    
-    // Используем интерполированное состояние или текущее
-    const mySnake = interpolatedMySnake || window.appState?.game?.my_snake || interpolatedGameState?.my_snake || currentGameState?.my_snake || currentGame?.initialState?.my_snake;
-    const oppSnake = interpolatedOppSnake || window.appState?.game?.opponent_snake || interpolatedGameState?.opponent_snake || currentGameState?.opponent_snake || currentGame?.initialState?.opponent_snake;
-
-    // 5. РАЗНЫЕ ЦВЕТА ЗМЕЕК: Рисуем Змейку Игрока (Зеленая/Неоновая)
+    // 4. РАЗНЫЕ ЦВЕТА ЗМЕЕК: Рисуем Змейку Игрока (Зеленая/Неоновая)
+    // ИСПРАВЛЕНИЕ: Улучшаем проверку наличия данных для отрисовки
+    const currentMySnake = window.appState?.game?.my_snake || currentGameState?.my_snake || currentGame?.initialState?.my_snake;
+    // Используем интерполяцию для плавных движений
+    const mySnake = (previousGameState?.my_snake && currentMySnake && interpolationFactor < 1) 
+      ? interpolateSnake(previousGameState.my_snake, currentMySnake, interpolationFactor)
+      : currentMySnake;
     if (mySnake) {
       const mySnakeSegments = mySnake.segments || mySnake.body;
       if (mySnakeSegments && mySnakeSegments.length > 0) {
@@ -2781,7 +2723,7 @@ function startRenderLoop() {
               const tileSize = canvasLogicalSize / GRID_SIZE;
               const headX = mySnakeSegments[0].x * tileSize;
               const headY = mySnakeSegments[0].y * tileSize;
-              gameCtx.fillText("ВЫ", headX + tileSize / 2, headY - 5);
+              gameCtx.fillText("YOU", headX + tileSize / 2, headY - 5);
               gameCtx.restore();
             }
           }
@@ -2791,7 +2733,13 @@ function startRenderLoop() {
       }
     }
 
-    // 6. РАЗНЫЕ ЦВЕТА ЗМЕЕК: Рисуем Змейку Оппонента (Красная/Розовая)
+    // 5. РАЗНЫЕ ЦВЕТА ЗМЕЕК: Рисуем Змейку Оппонента (Красная/Розовая)
+    // ИСПРАВЛЕНИЕ: Улучшаем проверку наличия данных для отрисовки
+    const currentOppSnake = window.appState?.game?.opponent_snake || currentGameState?.opponent_snake || currentGame?.initialState?.opponent_snake;
+    // Используем интерполяцию для плавных движений
+    const oppSnake = (previousGameState?.opponent_snake && currentOppSnake && interpolationFactor < 1)
+      ? interpolateSnake(previousGameState.opponent_snake, currentOppSnake, interpolationFactor)
+      : currentOppSnake;
     if (oppSnake) {
       const oppSnakeSegments = oppSnake.segments || oppSnake.body;
       if (oppSnakeSegments && oppSnakeSegments.length > 0) {
@@ -3234,17 +3182,20 @@ function stopRenderLoop() {
  */
 function interpolateSnake(previousSnake, currentSnake, t, tickDiff = 1, gameStatesBuffer = [], snakeKey = 'my_snake') {
   // Если нет данных - возвращаем текущее состояние
-  if (!currentSnake || !currentSnake.body) {
+  const prevSegments = previousSnake?.segments || previousSnake?.body || [];
+  const currSegments = currentSnake?.segments || currentSnake?.body || [];
+  
+  if (!currentSnake || currSegments.length === 0) {
     return currentSnake;
   }
   
   // Если нет предыдущего состояния - возвращаем текущее без интерполяции
-  if (!previousSnake || !previousSnake.body) {
+  if (!previousSnake || prevSegments.length === 0) {
     return currentSnake;
   }
   
   // Если длина изменилась, не интерполируем (просто возвращаем текущее состояние)
-  if (previousSnake.body.length !== currentSnake.body.length) {
+  if (prevSegments.length !== currSegments.length) {
     return currentSnake;
   }
   
@@ -3253,7 +3204,7 @@ function interpolateSnake(previousSnake, currentSnake, t, tickDiff = 1, gameStat
   
   // Создаем новый объект змейки
   const interpolated = {
-    body: [],
+    segments: [],
     direction: { ...currentSnake.direction },
     alive: currentSnake.alive
   };
@@ -3262,8 +3213,8 @@ function interpolateSnake(previousSnake, currentSnake, t, tickDiff = 1, gameStat
   interpolated.direction = { ...currentSnake.direction };
   
   const headIndex = 0;
-  const prevHead = previousSnake.body[headIndex];
-  const currHead = currentSnake.body[headIndex];
+  const prevHead = prevSegments[headIndex];
+  const currHead = currSegments[headIndex];
   
   // УМНАЯ ИНТЕРПОЛЯЦИЯ ПОВОРОТОВ: если изменились и X, и Y - это поворот
   const dx = currHead.x - prevHead.x;
@@ -3280,13 +3231,13 @@ function interpolateSnake(previousSnake, currentSnake, t, tickDiff = 1, gameStat
       // ПЕРВАЯ ФАЗА (t < 0.5): двигаемся только по той оси, по которой двигались до этого
       if (wasMovingHorizontally) {
         // Двигались горизонтально - продолжаем по X
-        interpolated.body[headIndex] = {
+        interpolated.segments[headIndex] = {
           x: prevHead.x + dx * (interpolationT * 2), // Ускоряем в 2 раза для первой половины
           y: prevHead.y // Фиксируем Y на старой позиции
         };
       } else {
         // Двигались вертикально - продолжаем по Y
-        interpolated.body[headIndex] = {
+        interpolated.segments[headIndex] = {
           x: prevHead.x, // Фиксируем X на старой позиции
           y: prevHead.y + dy * (interpolationT * 2) // Ускоряем в 2 раза для первой половины
         };
@@ -3295,13 +3246,13 @@ function interpolateSnake(previousSnake, currentSnake, t, tickDiff = 1, gameStat
       // ВТОРАЯ ФАЗА (t >= 0.5): начинаем движение по новой оси
       if (wasMovingHorizontally) {
         // Были на горизонтали - теперь двигаемся по Y
-        interpolated.body[headIndex] = {
+        interpolated.segments[headIndex] = {
           x: currHead.x, // Фиксируем X на конечной позиции
           y: prevHead.y + dy * ((interpolationT - 0.5) * 2) // Двигаемся по Y
         };
       } else {
         // Были на вертикали - теперь двигаемся по X
-        interpolated.body[headIndex] = {
+        interpolated.segments[headIndex] = {
           x: prevHead.x + dx * ((interpolationT - 0.5) * 2), // Двигаемся по X
           y: currHead.y // Фиксируем Y на конечной позиции
         };
@@ -3309,7 +3260,7 @@ function interpolateSnake(previousSnake, currentSnake, t, tickDiff = 1, gameStat
     }
   } else {
     // Обычное движение без поворота - линейная интерполяция
-    interpolated.body[headIndex] = {
+    interpolated.segments[headIndex] = {
       x: prevHead.x + dx * interpolationT,
       y: prevHead.y + dy * interpolationT
     };
@@ -3321,8 +3272,8 @@ function interpolateSnake(previousSnake, currentSnake, t, tickDiff = 1, gameStat
   const GRID_SIZE = 1; // Размер одной клетки игрового поля
   
   // Начинаем с головы и выстраиваем хвост по цепочке
-  for (let i = 1; i < currentSnake.body.length; i++) {
-    const prevSegment = interpolated.body[i - 1]; // Предыдущий сегмент (голова или предыдущий сегмент хвоста)
+  for (let i = 1; i < currSegments.length; i++) {
+    const prevSegment = interpolated.segments[i - 1]; // Предыдущий сегмент (голова или предыдущий сегмент хвоста)
     
     // КОРРЕКЦИЯ ИЗ ИСТОРИИ: ищем позицию сегмента из предыдущих состояний gameStatesBuffer
     // Сегмент i должен находиться в позиции, где он был в предыдущих состояниях
@@ -3332,9 +3283,10 @@ function interpolateSnake(previousSnake, currentSnake, t, tickDiff = 1, gameStat
     // Используем самое старое доступное состояние из буфера
     for (let j = 0; j < gameStatesBuffer.length; j++) {
       const historyState = gameStatesBuffer[j];
-      if (historyState && historyState[snakeKey] && historyState[snakeKey].body && 
-          i < historyState[snakeKey].body.length) {
-        const historySegment = historyState[snakeKey].body[i];
+      const historySegments = historyState?.[snakeKey]?.segments || historyState?.[snakeKey]?.body || [];
+      if (historyState && historyState[snakeKey] && historySegments.length > 0 && 
+          i < historySegments.length) {
+        const historySegment = historySegments[i];
         // Используем позицию из истории как целевую
         targetSegmentPos = { x: historySegment.x, y: historySegment.y };
         break; // Берем первое найденное состояние
@@ -3352,15 +3304,15 @@ function interpolateSnake(previousSnake, currentSnake, t, tickDiff = 1, gameStat
         // Нормализуем и устанавливаем расстояние ровно в 1 единицу
         segmentDx = (segmentDx / segmentDistance) * GRID_SIZE;
         segmentDy = (segmentDy / segmentDistance) * GRID_SIZE;
-        interpolated.body[i] = {
+        interpolated.segments[i] = {
           x: prevSegment.x - segmentDx, // Вычитаем, так как хвост идет назад от головы
           y: prevSegment.y - segmentDy
         };
       } else {
         // Если расстояние 0, используем направление из предыдущего состояния
-        if (i < previousSnake.body.length && i > 0) {
-          const prevPrevSegment = previousSnake.body[i - 1];
-          const prevCurrSegment = previousSnake.body[i];
+        if (i < prevSegments.length && i > 0) {
+          const prevPrevSegment = prevSegments[i - 1];
+          const prevCurrSegment = prevSegments[i];
           segmentDx = prevCurrSegment.x - prevPrevSegment.x;
           segmentDy = prevCurrSegment.y - prevPrevSegment.y;
           const prevDistance = Math.sqrt(segmentDx * segmentDx + segmentDy * segmentDy);
@@ -3375,14 +3327,14 @@ function interpolateSnake(previousSnake, currentSnake, t, tickDiff = 1, gameStat
           segmentDx = currentSnake.direction.dx * GRID_SIZE;
           segmentDy = currentSnake.direction.dy * GRID_SIZE;
         }
-        interpolated.body[i] = {
+        interpolated.segments[i] = {
           x: prevSegment.x - segmentDx,
           y: prevSegment.y - segmentDy
         };
       }
     } else {
       // Fallback: используем текущее состояние и выравниваем расстояние
-      const currSegment = currentSnake.body[i];
+      const currSegment = currSegments[i];
       let segmentDx = currSegment.x - prevSegment.x;
       let segmentDy = currSegment.y - prevSegment.y;
       const segmentDistance = Math.sqrt(segmentDx * segmentDx + segmentDy * segmentDy);
@@ -3398,7 +3350,7 @@ function interpolateSnake(previousSnake, currentSnake, t, tickDiff = 1, gameStat
       }
       
       // Позиционируем сегмент на расстоянии ровно 1 единица от предыдущего
-      interpolated.body[i] = {
+      interpolated.segments[i] = {
         x: prevSegment.x - segmentDx, // Вычитаем, так как хвост идет назад от головы
         y: prevSegment.y - segmentDy
       };
