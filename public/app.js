@@ -49,9 +49,14 @@ let packetQueue = []; // Очередь пакетов game_state
 const TICK_DURATION = 120; // мс (длительность одного тика на сервере)
 
 // БУФЕР СОСТОЯНИЙ: Система буферизации для устранения микро-рывков
-let gameStateBuffer = []; // Массив состояний: { state: {...}, timestamp: number, tick_number: number }
-const RENDER_DELAY = 150; // Визуальная задержка в мс
-const MAX_BUFFER_SIZE = 5; // Максимальный размер буфера
+let gameStateBuffer = []; // Массив состояний: { state: {...}, receiveTime: number, tick: number }
+const RENDER_DELAY = 150; // Визуальная задержка в мс (страховка для сглаживания пропусков тиков)
+const MAX_BUFFER_SIZE = 10; // Максимальный размер буфера
+
+// Функция глубокого клонирования
+function deepClone(obj) {
+  return JSON.parse(JSON.stringify(obj));
+}
 
 // АБСОЛЮТНАЯ ПЛАВНОСТЬ: Система интерполяции для 60 FPS
 // Структура состояния для каждой змейки
@@ -753,7 +758,6 @@ function initSocket() {
     };
     socket.once('game_state', onGameState);
     
-    console.log('✅ Игра началась, ожидаем game_state события...');
   });
   
   // ОЧИСТКА ДУБЛЕЙ: Удаляем старый слушатель перед созданием нового (предотвращает рывки)
@@ -773,14 +777,14 @@ function initSocket() {
     
     // БУФЕР СОСТОЯНИЙ: Добавляем новое состояние в буфер
     if (data && (gameState === 'playing' || gameState === 'countdown')) {
-      const updateTime = performance.now();
-      const tickNumber = data.tick_number || 0;
+      const receiveTime = performance.now();
+      const tick = data.tick_number || 0;
       
-      // Добавляем состояние в буфер
+      // Добавляем состояние в буфер с глубоким клонированием
       gameStateBuffer.push({
-        state: JSON.parse(JSON.stringify(data)), // Глубокое копирование
-        timestamp: updateTime,
-        tick_number: tickNumber
+        state: deepClone(data),
+        receiveTime: receiveTime,
+        tick: tick
       });
       
       // Если в буфере больше MAX_BUFFER_SIZE элементов, удаляем самый старый
@@ -2792,14 +2796,12 @@ function cloneSnakeState(data) {
       }
     }
     
-    // ЛОГИРОВАНИЕ НАПРАВЛЕНИЯ ПЕРЕД СМЕРТЬЮ: если координаты невалидны и игра завершена
-    // ИСПРАВЛЕНИЕ ДОСТУПА К КООРДИНАТАМ: Используем segments вместо body
+    // ВАЛИДАЦИЯ КООРДИНАТ: Проверяем координаты без логирования (логи замедляют рендер)
     const opponentSegments = cloned.opponent_snake?.segments || cloned.opponent_snake?.body;
     if (isFinished && opponentSegments && opponentSegments[0]) {
       const head = opponentSegments[0];
       if (head.x < 0 || head.x >= GRID_SIZE || head.y < 0 || head.y >= GRID_SIZE) {
-        console.log(`📊 opponent_snake direction before death: dx=${cloned.opponent_snake.direction.dx}, dy=${cloned.opponent_snake.direction.dy}`);
-        console.log(`📊 opponent_snake final position: x=${head.x}, y=${head.y}, alive=${cloned.opponent_snake.alive}`);
+        // Координаты невалидны, но не логируем для производительности
       }
     }
   }
@@ -2820,7 +2822,6 @@ function cloneSnakeState(data) {
 function updateGameState(data) {
   // ВАЛИДАЦИЯ: проверяем координаты перед добавлением в очередь
   if (!data) {
-    console.error('❌ updateGameState: data is null');
     return;
   }
   
@@ -2876,21 +2877,12 @@ function updateGameState(data) {
     cloned.opponent_snake.segments = cloned.opponent_snake.body || [];
   }
   
-  // Логируем координаты для диагностики
-  // ИСПРАВЛЕНИЕ ДОСТУПА К КООРДИНАТАМ: Используем segments вместо body
+  // ВАЛИДАЦИЯ КООРДИНАТ: Проверяем координаты без логирования (логи замедляют рендер)
   const mySnakeSegments = cloned.my_snake?.segments || cloned.my_snake?.body;
   if (mySnakeSegments && mySnakeSegments[0]) {
     const head = mySnakeSegments[0];
     if (head.x < 0 || head.x >= GRID_SIZE || head.y < 0 || head.y >= GRID_SIZE) {
-      if (isFinished) {
-        console.warn(`⚠️ my_snake head out of bounds (game finished): x=${head.x}, y=${head.y}, tick=${cloned.tick_number}`);
-        // ЛОГИРОВАНИЕ НАПРАВЛЕНИЯ ПЕРЕД СМЕРТЬЮ
-        if (cloned.my_snake.direction) {
-          console.log(`📊 my_snake direction before death: dx=${cloned.my_snake.direction.dx}, dy=${cloned.my_snake.direction.dy}`);
-        }
-      } else {
-        console.error(`❌ CRITICAL: my_snake head out of bounds: x=${head.x}, y=${head.y}, tick=${cloned.tick_number}`);
-      }
+      // Координаты невалидны, но не логируем для производительности
     }
   }
   const opponentSnakeSegments = cloned.opponent_snake?.segments || cloned.opponent_snake?.body;
@@ -2990,19 +2982,32 @@ function startRenderLoop() {
     }
     
     // 4. РАЗНЫЕ ЦВЕТА ЗМЕЕК: Рисуем Змейку Игрока (Зеленая/Неоновая)
-    // ВИЗУАЛЬНАЯ ЗАДЕРЖКА: Ищем состояние, которое было RENDER_DELAY назад
+    // ЗАДЕРЖКА ПРЕДСТАВЛЕНИЯ: Определяем renderTime с задержкой 150мс
     let mySnake = null;
     const renderTime = now - RENDER_DELAY;
     
-    // Ищем два состояния в буфере: одно чуть раньше renderTime, другое чуть позже
+    // ПОИСК ТОЧЕК ДЛЯ ИНТЕРПОЛЯЦИИ: Ищем два состояния в буфере
+    // Состояние A: последний пакет, где receiveTime < renderTime
+    // Состояние B: первый пакет, где receiveTime > renderTime
     let stateA = null;
     let stateB = null;
     
-    for (let i = 0; i < gameStateBuffer.length - 1; i++) {
-      if (gameStateBuffer[i].timestamp <= renderTime && gameStateBuffer[i + 1].timestamp >= renderTime) {
+    for (let i = gameStateBuffer.length - 1; i >= 0; i--) {
+      if (gameStateBuffer[i].receiveTime <= renderTime) {
         stateA = gameStateBuffer[i];
-        stateB = gameStateBuffer[i + 1];
+        // Ищем состояние B после stateA
+        if (i + 1 < gameStateBuffer.length) {
+          stateB = gameStateBuffer[i + 1];
+        }
         break;
+      }
+    }
+    
+    // Если не нашли stateA, берем первое состояние
+    if (!stateA && gameStateBuffer.length > 0) {
+      stateA = gameStateBuffer[0];
+      if (gameStateBuffer.length > 1) {
+        stateB = gameStateBuffer[1];
       }
     }
     
@@ -3052,11 +3057,21 @@ function startRenderLoop() {
           }
         }
       }
-    } else {
+    } else if (stateA && stateB) {
       // ИНТЕРПОЛЯЦИЯ МЕЖДУ ТИКАМИ: Интерполируем между состояниями A и B
-      const timeA = stateA.timestamp;
-      const timeB = stateB.timestamp;
-      const alpha = (renderTime - timeA) / (timeB - timeA);
+      const timeA = stateA.receiveTime;
+      const timeB = stateB.receiveTime;
+      const tickDiff = stateB.tick - stateA.tick;
+      
+      // СГЛАЖИВАНИЕ СКОРОСТИ: Если между тиками разница больше 1, растягиваем интерполяцию
+      let alpha = 0;
+      if (timeB > timeA) {
+        alpha = (renderTime - timeA) / (timeB - timeA);
+        // Если пропущен тик (tickDiff > 1), нормализуем alpha на основе разницы тиков
+        if (tickDiff > 1) {
+          alpha = alpha / tickDiff; // Растягиваем движение
+        }
+      }
       const clampedAlpha = Math.min(Math.max(alpha, 0), 1);
       
       const segsA = stateA.state.my_snake?.segments || stateA.state.my_snake?.body || [];
@@ -3091,6 +3106,16 @@ function startRenderLoop() {
           segments: interpolatedSegments,
           direction: stateB.state.my_snake?.direction || { dx: 1, dy: 0 },
           alive: stateB.state.my_snake?.alive !== undefined ? stateB.state.my_snake.alive : true
+        };
+      }
+    } else if (stateA) {
+      // Если только одно состояние, плавно двигаем змейку к нему
+      const segsA = stateA.state.my_snake?.segments || stateA.state.my_snake?.body || [];
+      if (segsA.length > 0) {
+        mySnake = {
+          segments: segsA.map(s => ({ x: Number(s.x), y: Number(s.y) })),
+          direction: stateA.state.my_snake?.direction || { dx: 1, dy: 0 },
+          alive: stateA.state.my_snake?.alive !== undefined ? stateA.state.my_snake.alive : true
         };
       }
     }
@@ -3129,20 +3154,12 @@ function startRenderLoop() {
     }
 
     // 5. РАЗНЫЕ ЦВЕТА ЗМЕЕК: Рисуем Змейку Оппонента (Красная/Розовая)
-    // ВИЗУАЛЬНАЯ ЗАДЕРЖКА: Ищем состояние, которое было RENDER_DELAY назад
+    // ПОИСК ТОЧЕК ДЛЯ ИНТЕРПОЛЯЦИИ: Ищем два состояния в буфере
     let oppSnake = null;
     
-    // Ищем два состояния в буфере для opponent_snake
-    let oppStateA = null;
-    let oppStateB = null;
-    
-    for (let i = 0; i < gameStateBuffer.length - 1; i++) {
-      if (gameStateBuffer[i].timestamp <= renderTime && gameStateBuffer[i + 1].timestamp >= renderTime) {
-        oppStateA = gameStateBuffer[i];
-        oppStateB = gameStateBuffer[i + 1];
-        break;
-      }
-    }
+    // Используем те же stateA и stateB, что нашли для my_snake
+    let oppStateA = stateA;
+    let oppStateB = stateB;
     
     // Если не нашли два состояния, используем последнее состояние из буфера или interpolationState
     if (!oppStateA || !oppStateB) {
@@ -3190,11 +3207,21 @@ function startRenderLoop() {
           }
         }
       }
-    } else {
+    } else if (oppStateA && oppStateB) {
       // ИНТЕРПОЛЯЦИЯ МЕЖДУ ТИКАМИ: Интерполируем между состояниями A и B
-      const timeA = oppStateA.timestamp;
-      const timeB = oppStateB.timestamp;
-      const alpha = (renderTime - timeA) / (timeB - timeA);
+      const timeA = oppStateA.receiveTime;
+      const timeB = oppStateB.receiveTime;
+      const tickDiff = oppStateB.tick - oppStateA.tick;
+      
+      // СГЛАЖИВАНИЕ СКОРОСТИ: Если между тиками разница больше 1, растягиваем интерполяцию
+      let alpha = 0;
+      if (timeB > timeA) {
+        alpha = (renderTime - timeA) / (timeB - timeA);
+        // Если пропущен тик (tickDiff > 1), нормализуем alpha на основе разницы тиков
+        if (tickDiff > 1) {
+          alpha = alpha / tickDiff; // Растягиваем движение
+        }
+      }
       const clampedAlpha = Math.min(Math.max(alpha, 0), 1);
       
       const segsA = oppStateA.state.opponent_snake?.segments || oppStateA.state.opponent_snake?.body || [];
@@ -3229,6 +3256,16 @@ function startRenderLoop() {
           segments: interpolatedSegments,
           direction: oppStateB.state.opponent_snake?.direction || { dx: -1, dy: 0 },
           alive: oppStateB.state.opponent_snake?.alive !== undefined ? oppStateB.state.opponent_snake.alive : true
+        };
+      }
+    } else if (oppStateA) {
+      // Если только одно состояние, плавно двигаем змейку к нему
+      const segsA = oppStateA.state.opponent_snake?.segments || oppStateA.state.opponent_snake?.body || [];
+      if (segsA.length > 0) {
+        oppSnake = {
+          segments: segsA.map(s => ({ x: Number(s.x), y: Number(s.y) })),
+          direction: oppStateA.state.opponent_snake?.direction || { dx: -1, dy: 0 },
+          alive: oppStateA.state.opponent_snake?.alive !== undefined ? oppStateA.state.opponent_snake.alive : true
         };
       }
     }
