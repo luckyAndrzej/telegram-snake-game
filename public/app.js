@@ -2660,7 +2660,6 @@ function startRenderLoop() {
     if (lastStateUpdateTime === 0 || !previousGameState) {
       interpolationFactor = 1; // Если нет предыдущего состояния, используем текущее
     }
-    }
 
     // ИСПРАВЛЕНИЕ: Отрисовка змеек должна идти ВСЕГДА на основе данных из window.appState.game
     // (даже если новых пакетов нет) - это уберет мерцание и исчезновение змеек
