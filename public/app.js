@@ -48,16 +48,17 @@ let packetQueue = []; // Очередь пакетов game_state
 // Фиксированный шаг тика сервера (увеличено до 120мс для компенсации сетевых задержек)
 const TICK_DURATION = 120; // мс (длительность одного тика на сервере)
 
+// ИНИЦИАЛИЗАЦИЯ: СИСТЕМА БУФЕРИЗАЦИИ (Interpolation Buffer) - инициализируется В САМОМ НАЧАЛЕ
+// Глобальный объект игрового движка должен быть доступен сразу
+window.gameEngine = window.gameEngine || {
+  buffer: [],           // Массив: {data: msg, ts: performance.now()}
+  lastRenderTime: 0,   // Время последнего рендера
+  currentFrame: null    // Текущий кадр для отрисовки
+};
+
 // ИНИЦИАЛИЗАЦИЯ: Предотвращаем повторную инициализацию при перезагрузке
 if (!window.scriptInitialized) {
   window.scriptInitialized = true;
-  
-  // СИСТЕМА БУФЕРИЗАЦИИ (Interpolation Buffer): Глобальный объект игрового движка
-  window.gameEngine = {
-    buffer: [],           // Массив: {data: msg, ts: performance.now()}
-    lastRenderTime: 0,   // Время последнего рендера
-    currentFrame: null    // Текущий кадр для отрисовки
-  };
 }
 
 // Функция глубокого клонирования
@@ -620,14 +621,12 @@ function initSocket() {
     opponentHeadHistory = [];
     
     // ЖИЗНЕННЫЙ ЦИКЛ: На этапе playing обновляем через буфер
-    if (data.initial_state) {
+    if (data.initial_state && window.gameEngine) {
       const initTime = performance.now();
-      if (window.gameEngine) {
-        window.gameEngine.buffer.push({
-          data: deepClone(data.initial_state),
-          ts: initTime
-        });
-      }
+      window.gameEngine.buffer.push({
+        data: deepClone(data.initial_state),
+        ts: initTime
+      });
       if (!window.appState.game.initial_state) {
         window.appState.game.initial_state = deepClone(data.initial_state);
       }
@@ -736,35 +735,17 @@ function initSocket() {
       }
     }
     
-    // ИНТЕРПОЛЯЦИЯ И БУФЕРИЗАЦИЯ: Добавляем входящие данные в буфер
-    if (data && (gameState === 'playing' || gameState === 'countdown')) {
-      const timestamp = performance.now();
-      
-      // Добавляем в window.gameBuffer
-      if (!window.gameBuffer) {
-        window.gameBuffer = [];
-      }
-      window.gameBuffer.push({
-        state: deepClone(data),
-        timestamp: timestamp
+    // СИСТЕМА БУФЕРИЗАЦИИ: Добавляем пакет в window.gameEngine.buffer
+    if (data && window.gameEngine) {
+      const ts = performance.now();
+      window.gameEngine.buffer.push({
+        data: deepClone(data),
+        ts: ts
       });
       
-      // Ограничиваем размер буфера
-      if (window.gameBuffer.length > window.MAX_BUFFER_SIZE) {
-        window.gameBuffer.shift();
-      }
-      
-      // ЖИЗНЕННЫЙ ЦИКЛ: Обновляем currentVisualState на этапе 'playing'
-      if (gameState === 'playing') {
-        if (data.finished || data.game_finished) {
-          // Если игра завершена, прекращаем обновлять позиции, но сохраняем финальное состояние
-          if (!window.currentVisualState || !window.currentVisualState.finished) {
-            window.currentVisualState = deepClone(data);
-            window.currentVisualState.finished = true;
-          }
-        } else {
-          window.currentVisualState = deepClone(data);
-        }
+      // Если буфер > 20 элементов, делаем .shift()
+      if (window.gameEngine.buffer.length > 20) {
+        window.gameEngine.buffer.shift();
       }
       
       // Обновляем window.appState для обратной совместимости
@@ -844,19 +825,23 @@ function initSocket() {
     // ОПТИМИЗАЦИЯ: Получаем финальный JSON с результатом и только тогда обновляем баланс из БД
     endGame(data);
     
-    // Затем запрашиваем актуальный баланс из БД (если есть выигрыш)
-    if (data.prize && data.prize > 0) {
-      fetch(`/api/user/${userId}`)
-        .then(response => response.json())
-        .then(userData => {
-          updateBalance(0, userData.winnings_ton);
-        })
-        .catch(error => {
-          if (data.winnings_ton !== undefined) {
-            updateBalance(0, data.winnings_ton);
-          }
-        });
-    }
+    // СИНХРОНИЗАЦИЯ БАЛАНСА: Запрашиваем актуальный баланс из БД после завершения игры
+    // Это гарантирует правильное отображение баланса (текущий + prize)
+    fetch(`/api/user/${userId}`)
+      .then(response => response.json())
+      .then(userData => {
+        // Используем актуальное значение из БД (уже включает prize)
+        updateBalance(0, userData.winnings_ton);
+      })
+      .catch(error => {
+        // Fallback: если есть prize, складываем с текущим балансом
+        if (data.prize && data.prize > 0) {
+          const currentBalance = localUserState.winnings_ton || 0;
+          updateBalance(0, currentBalance + data.prize);
+        } else if (data.winnings_ton !== undefined) {
+          updateBalance(0, data.winnings_ton);
+        }
+      });
   });
   
   // Обновление баланса после начисления выигрыша
@@ -2819,9 +2804,21 @@ function startAnimationLoop() {
       gameCtx.drawImage(gridCanvas, 0, 0);
     }
     
+    // СТАБИЛЬНЫЙ ЦИКЛ: Проверка существования window.gameEngine.buffer
+    if (!window.gameEngine) {
+      window.gameEngine = {
+        buffer: [],
+        lastRenderTime: 0,
+        currentFrame: null
+      };
+    }
+    if (!window.gameEngine.buffer) {
+      window.gameEngine.buffer = [];
+    }
+    
     // ИНТЕРПОЛЯЦИЯ И БУФЕРИЗАЦИЯ: Вычисляем renderTime (задержка 150мс для идеальной плавности)
     const renderTime = now - 150;
-    const buffer = window.gameEngine?.buffer || [];
+    const buffer = window.gameEngine.buffer;
     
     let stateA = null;
     let stateB = null;
@@ -3410,13 +3407,13 @@ function renderGamePreviewOnCanvas(gameState, canvas, ctx) {
     ctx.stroke();
   }
   
-  // IN-MEMORY STATE: Используем drawSnakeSimple для отрисовки змеек из gameStateJSON
+  // IN-MEMORY STATE: Используем drawSnake для отрисовки змеек из gameStateJSON
   // Это обеспечивает единый стиль отрисовки во время countdown и во время игры
   if (stateToRender.my_snake) {
-    drawSnakeSimple(stateToRender.my_snake, [], '#ff4444', '#ff6666');
+    drawSnake(stateToRender.my_snake, '#00FF41', '#008F11');
   }
   if (stateToRender.opponent_snake) {
-    drawSnakeSimple(stateToRender.opponent_snake, [], '#4444ff', '#6666ff');
+    drawSnake(stateToRender.opponent_snake, '#FF3131', '#8B0000');
   }
 }
 
