@@ -555,6 +555,12 @@ function initSocket() {
   // Обновление countdown (сервер отправляет числа: 5, 4, 3, 2, 1) - overlay поверх game-canvas
   socket.on('countdown', (data) => {
     
+    // ИСПРАВЛЕНИЕ: Очищаем старые значения перед установкой нового
+    countdownValue = ""; // Очищаем глобальную переменную
+    if (window.appState && window.appState.game) {
+      window.appState.game.countdownValue = ""; // Очищаем в appState
+    }
+    
     // ИСПРАВЛЕНИЕ: Обновляем countdownValue в window.appState.game
     if (window.appState && window.appState.game) {
       window.appState.game.countdownValue = String(data.number);
@@ -594,9 +600,16 @@ function initSocket() {
       gameHeader.style.display = 'block';
     }
     
+    // ИСПРАВЛЕНИЕ: Показываем overlay перед установкой значения
+    const countdownOverlay = document.getElementById('countdown-overlay');
+    if (countdownOverlay) {
+      countdownOverlay.style.display = 'flex';
+      countdownOverlay.classList.add('active');
+    }
+    
     const countdownNumber = document.getElementById('countdown-number');
     if (countdownNumber) {
-      // Сбрасываем и устанавливаем новое значение (предотвращает наложение цифр)
+      // ИСПРАВЛЕНИЕ: Сбрасываем значение перед установкой нового (предотвращает показ старых значений)
       countdownNumber.textContent = '';
       // Используем requestAnimationFrame для плавного обновления
       requestAnimationFrame(() => {
@@ -612,6 +625,12 @@ function initSocket() {
   
   // Экран 4: Игра начинается (после countdown) - скрываем overlay
   socket.on('game_start', (data) => {
+    // ИСПРАВЛЕНИЕ: Очищаем значение обратного отсчета при старте игры
+    countdownValue = "";
+    if (window.appState && window.appState.game) {
+      window.appState.game.countdownValue = "";
+    }
+    
     // СИНХРОНИЗАЦИЯ СОСТОЯНИЯ: Полностью очищаем массивы отрисовки предыдущих состояний
     if (window.gameBuffer) {
       window.gameBuffer = [];
@@ -3001,6 +3020,66 @@ function drawSnake(snake, color) {
     gameCtx.fillStyle = fillColor;
     gameCtx.beginPath();
     gameCtx.arc(headX, headY, tileSize / 2.5, 0, Math.PI * 2);
+    gameCtx.fill();
+    gameCtx.restore();
+    
+    // ИСПРАВЛЕНИЕ: Добавляем глаза змейке с учетом направления движения
+    const direction = snake.direction || { dx: 1, dy: 0 }; // Направление по умолчанию - вправо
+    const dx = direction.dx || 0;
+    const dy = direction.dy || 0;
+    
+    // Размер глаз относительно размера головы
+    const eyeSize = tileSize * 0.15;
+    const eyeOffset = tileSize * 0.2; // Смещение глаз от центра головы
+    
+    // Позиции глаз в зависимости от направления
+    let eye1X, eye1Y, eye2X, eye2Y;
+    
+    if (dx === 1 && dy === 0) { // Вправо
+      eye1X = headX + eyeOffset;
+      eye1Y = headY - eyeOffset * 0.7;
+      eye2X = headX + eyeOffset;
+      eye2Y = headY + eyeOffset * 0.7;
+    } else if (dx === -1 && dy === 0) { // Влево
+      eye1X = headX - eyeOffset;
+      eye1Y = headY - eyeOffset * 0.7;
+      eye2X = headX - eyeOffset;
+      eye2Y = headY + eyeOffset * 0.7;
+    } else if (dx === 0 && dy === 1) { // Вниз
+      eye1X = headX - eyeOffset * 0.7;
+      eye1Y = headY + eyeOffset;
+      eye2X = headX + eyeOffset * 0.7;
+      eye2Y = headY + eyeOffset;
+    } else if (dx === 0 && dy === -1) { // Вверх
+      eye1X = headX - eyeOffset * 0.7;
+      eye1Y = headY - eyeOffset;
+      eye2X = headX + eyeOffset * 0.7;
+      eye2Y = headY - eyeOffset;
+    } else { // По умолчанию (вправо)
+      eye1X = headX + eyeOffset;
+      eye1Y = headY - eyeOffset * 0.7;
+      eye2X = headX + eyeOffset;
+      eye2Y = headY + eyeOffset * 0.7;
+    }
+    
+    // Рисуем белые глаза
+    gameCtx.save();
+    gameCtx.fillStyle = '#FFFFFF';
+    gameCtx.beginPath();
+    gameCtx.arc(eye1X, eye1Y, eyeSize, 0, Math.PI * 2);
+    gameCtx.fill();
+    gameCtx.beginPath();
+    gameCtx.arc(eye2X, eye2Y, eyeSize, 0, Math.PI * 2);
+    gameCtx.fill();
+    
+    // Рисуем черные зрачки
+    const pupilSize = eyeSize * 0.6;
+    gameCtx.fillStyle = '#000000';
+    gameCtx.beginPath();
+    gameCtx.arc(eye1X, eye1Y, pupilSize, 0, Math.PI * 2);
+    gameCtx.fill();
+    gameCtx.beginPath();
+    gameCtx.arc(eye2X, eye2Y, pupilSize, 0, Math.PI * 2);
     gameCtx.fill();
     gameCtx.restore();
   }

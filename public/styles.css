@@ -398,6 +398,15 @@ body::before {
     box-shadow: none !important;
 }
 
+/* ИСПРАВЛЕНИЕ: Круглая тень для круглой кнопки Rules (если есть) */
+#rules-btn {
+    border-radius: 50% !important;
+}
+
+#rules-btn:hover {
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3) !important; /* ИСПРАВЛЕНИЕ: Круглая тень для круглой кнопки */
+}
+
 .rules-toggle:active,
 .rules-toggle:focus {
     box-shadow: none !important;
@@ -800,7 +809,7 @@ body::before {
     width: 100%;
     display: flex;
     justify-content: center;
-    z-index: 101;
+    z-index: 100; /* ИСПРАВЛЕНИЕ: z-index ниже canvas (500), чтобы не перекрывать игровое поле */
     position: relative;
     flex-shrink: 0;
     padding: 0 10px;
@@ -828,9 +837,7 @@ body::before {
     font-size: 26px;
     cursor: pointer !important; /* ИСПРАВЛЕНИЕ: Убедись, что при наведении на кнопки управления курсор меняется на 'pointer' */
     transition: all 0.15s cubic-bezier(0.4, 0, 0.2, 1);
-    box-shadow: 
-        0 4px 20px rgba(0, 245, 255, 0.4),
-        inset 0 0 20px rgba(0, 245, 255, 0.1);
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.3); /* ИСПРАВЛЕНИЕ: Мягкая и современная тень */
     color: var(--neon-cyan);
     width: 65px;
     height: 65px;
@@ -848,10 +855,8 @@ body::before {
 .control-btn:active {
     background: linear-gradient(135deg, rgba(0, 245, 255, 0.4) 0%, rgba(176, 38, 255, 0.4) 100%);
     border-color: var(--neon-purple);
-    transform: scale(0.9);
-    box-shadow: 
-        0 2px 15px rgba(176, 38, 255, 0.8),
-        inset 0 0 30px rgba(176, 38, 255, 0.3);
+    transform: translateY(2px); /* ИСПРАВЛЕНИЕ: Эффект нажатия */
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.4); /* ИСПРАВЛЕНИЕ: Тень при нажатии */
 }
 
 .control-btn:hover {
@@ -975,30 +980,29 @@ body::before {
     position: fixed !important;
     top: 0 !important;
     left: 0 !important;
-    width: 100vw !important;
-    height: 100vh !important;
+    width: 100% !important;
+    height: 100% !important;
     display: none;
     z-index: 10000 !important;
-    background: rgba(0, 0, 0, 0.8);
+    background: rgba(0, 0, 0, 0.8) !important; /* ИСПРАВЛЕНИЕ: Полупрозрачный черный фон */
     padding: 0 !important;
     margin: 0 !important;
     right: 0 !important;
     bottom: 0 !important;
+    justify-content: center !important; /* ИСПРАВЛЕНИЕ: Центрирование через flex */
+    align-items: center !important; /* ИСПРАВЛЕНИЕ: Центрирование через flex */
 }
 
 .payment-modal.modal-visible {
-    display: block !important;
+    display: flex !important; /* ИСПРАВЛЕНИЕ: Используем flex для центрирования */
     opacity: 1 !important;
 }
 
 .payment-modal-content {
-    position: fixed !important;
-    left: 50% !important;
-    top: 50% !important;
-    transform: translate(-50%, -50%) !important;
+    position: relative !important; /* ИСПРАВЛЕНИЕ: relative вместо fixed для flex-центрирования */
     width: 90% !important;
-    max-width: 380px !important;
-    margin: 0 !important;
+    max-width: 400px !important; /* ИСПРАВЛЕНИЕ: Увеличена максимальная ширина */
+    margin: auto !important; /* ИСПРАВЛЕНИЕ: margin: auto для центрирования */
     box-sizing: border-box;
     background: #0a0a1a;
     border: 2px solid var(--neon-cyan);
@@ -1007,7 +1011,6 @@ body::before {
     box-shadow: 0 0 50px rgba(0, 245, 255, 0.3);
     max-height: 80vh;
     overflow-y: auto;
-    right: auto !important;
     z-index: 10001 !important;
 }
 
@@ -1365,16 +1368,16 @@ body::before {
 
 /* Withdrawal Modal - Адаптивность и корректная работа с клавиатурой */
 #withdrawal-modal {
-    position: fixed;
-    top: 0;
-    left: 0;
-    width: 100vw;
-    height: 100vh;
+    position: fixed !important; /* ИСПРАВЛЕНИЕ: fixed для полного покрытия */
+    top: 0 !important;
+    left: 0 !important;
+    width: 100% !important;
+    height: 100% !important;
     z-index: 99999;
-    background: rgba(0, 0, 0, 0.8);
+    background: rgba(0, 0, 0, 0.8) !important; /* ИСПРАВЛЕНИЕ: Полупрозрачный черный фон */
     display: none;
-    justify-content: center;
-    align-items: center;
+    justify-content: center !important; /* ИСПРАВЛЕНИЕ: Центрирование через flex */
+    align-items: center !important; /* ИСПРАВЛЕНИЕ: Центрирование через flex */
     opacity: 0;
     transition: opacity 0.3s ease;
 }
@@ -1385,10 +1388,8 @@ body::before {
 }
 
 #withdrawal-modal .payment-modal-content {
-    position: fixed;
-    left: 50% !important;
-    top: 50% !important;
-    transform: translate(-50%, -50%) !important;
+    position: relative !important; /* ИСПРАВЛЕНИЕ: relative вместо fixed для flex-центрирования */
+    margin: auto !important; /* ИСПРАВЛЕНИЕ: margin: auto для центрирования */
     z-index: 100000 !important;
     background: rgba(10, 10, 26, 0.95);
     backdrop-filter: blur(30px);
@@ -1403,13 +1404,12 @@ body::before {
         0 4px 24px rgba(0, 0, 0, 0.3),
         0 0 60px rgba(0, 245, 255, 0.5),
         inset 0 0 60px rgba(176, 38, 255, 0.1);
-    transition: opacity 0.3s ease, transform 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
-    opacity: 0;
+    transition: opacity 0.3s ease;
+    opacity: 1; /* ИСПРАВЛЕНИЕ: Устанавливаем opacity: 1 по умолчанию */
 }
 
 #withdrawal-modal.modal-visible .payment-modal-content {
     opacity: 1 !important;
-    transform: translate(-50%, -50%) !important;
 }
 
 /* Поле ввода адреса - предотвращение авто-зума на iPhone */
