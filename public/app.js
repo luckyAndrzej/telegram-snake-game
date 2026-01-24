@@ -52,24 +52,13 @@ const TICK_DURATION = 120; // мс (длительность одного тик
 if (!window.scriptInitialized) {
   window.scriptInitialized = true;
   
-  // ИНТЕРПОЛЯЦИЯ И БУФЕРИЗАЦИЯ: Создаем window.gameBuffer для плавного движения
-  window.gameBuffer = window.gameBuffer || []; // Массив: {state, timestamp: performance.now()}
-  
-  // ЖИЗНЕННЫЙ ЦИКЛ: Управление визуальным состоянием
-  window.currentVisualState = null;
-  
-  // СИСТЕМА ЕДИНОГО ХОЛСТА: Флаг для предотвращения множественных циклов рендеринга
-  window.renderLoopRunning = false;
-  
-  // КОНСТАНТЫ
-  window.RENDER_DELAY = 120; // Задержка интерполяции в мс
-  window.MAX_BUFFER_SIZE = 15; // Максимальный размер буфера
+  // СИСТЕМА БУФЕРИЗАЦИИ (Interpolation Buffer): Глобальный объект игрового движка
+  window.gameEngine = {
+    buffer: [],           // Массив: {data: msg, ts: performance.now()}
+    lastRenderTime: 0,   // Время последнего рендера
+    currentFrame: null    // Текущий кадр для отрисовки
+  };
 }
-
-// Локальные ссылки для обратной совместимости
-let gameStateBuffer = window.gameStateBuffer || [];
-const RENDER_DELAY = window.RENDER_DELAY || 120;
-const MAX_BUFFER_SIZE = window.MAX_BUFFER_SIZE || 15;
 
 // Функция глубокого клонирования
 function deepClone(obj) {
@@ -198,6 +187,9 @@ document.addEventListener('DOMContentLoaded', () => {
   initCanvas();
   initEventListeners();
   
+  // ГЛАВНЫЙ ЦИКЛ: Запускаем animationLoop один раз при инициализации приложения
+  startAnimationLoop();
+  
   // ФИКСАЦИЯ VIEWPORT: оптимизируем обработку событий Telegram WebApp
   // Не пересоздаем Canvas при изменении размера окна - используем фиксированный размер
   let resizeTimeout;
@@ -215,11 +207,9 @@ document.addEventListener('DOMContentLoaded', () => {
   try {
     initSocket();
   } catch (error) {
-    console.error('❌ Ошибка инициализации Socket:', error);
     tg.showAlert('Warning: Could not connect to server');
   }
   
-  console.log('✅ Приложение инициализировано');
 });
 
 /**
@@ -232,7 +222,6 @@ function initSocket() {
   username = user?.username || `User_${userId}`;
   
   if (!userId) {
-    console.error('User ID not found');
     tg.showAlert('Error: Could not identify user');
     return;
   }
@@ -252,15 +241,10 @@ function initSocket() {
   
   // Socket.io события
   socket.on('connect', () => {
-    console.log('✅ WebSocket подключен');
-    console.log('Socket ID:', socket.id);
-    // Запускаем измерение пинга
     startPingMeasurement();
   });
   
-  socket.on('disconnect', (reason) => {
-    console.warn('⚠️ WebSocket отключен:', reason);
-    // Останавливаем измерение пинга
+  socket.on('disconnect', () => {
     stopPingMeasurement();
   });
   
@@ -270,8 +254,8 @@ function initSocket() {
     updatePingDisplay(ping);
   });
   
-  socket.on('connect_error', (error) => {
-    console.error('❌ Ошибка подключения WebSocket:', error);
+  socket.on('connect_error', () => {
+    // Ошибка подключения WebSocket
   });
   
   socket.on('user_data', (data) => {
@@ -318,8 +302,12 @@ function initSocket() {
   
   // Screen 3: Opponent found (Match Found) - immediately switch to game-screen
   socket.on('match_found', (data) => {
+    // ЖЕСТКАЯ ОЧИСТКА (Anti-Ghosting): Очищаем буфер и текущий кадр перед новой игрой
+    if (window.gameEngine) {
+      window.gameEngine.buffer = [];
+      window.gameEngine.currentFrame = null;
+    }
     
-    // ИСПРАВЛЕНИЕ: Очищаем состояние предыдущей игры перед началом новой
     // Очищаем window.appState.game
     if (window.appState && window.appState.game) {
       window.appState.game.my_snake = null;
@@ -329,20 +317,6 @@ function initSocket() {
       window.appState.game.finished = false;
       window.appState.game.status = 'countdown';
     }
-    
-    // Очищаем состояние интерполяции
-    interpolatedGameState = null;
-    previousGameState = null;
-    lastStateUpdateTime = 0;
-    
-    // Очищаем интерполяционный буфер для новой игры
-    if (window.gameStateBuffer) {
-      window.gameStateBuffer = [];
-    }
-    if (window.gameBuffer) {
-      window.gameBuffer = [];
-    }
-    gameStateBuffer = [];
     
     // Очищаем очереди и историю
     packetQueue = [];
@@ -488,8 +462,10 @@ function initSocket() {
         }
         currentGame.initialState = initialState;
         
-        // ЖИЗНЕННЫЙ ЦИКЛ: На этапе countdown записываем в currentVisualState данные из initial_state
-        window.currentVisualState = deepClone(initialState);
+        // Сохраняем initial_state для fallback отрисовки
+        if (!window.appState.game.initial_state) {
+          window.appState.game.initial_state = deepClone(initialState);
+        }
       
       // Инициализируем текущее направление из начального состояния
       if (initialState.my_snake && initialState.my_snake.direction) {
@@ -545,10 +521,9 @@ function initSocket() {
         }
       }
       
-      // ПРИНУДИТЕЛЬНАЯ ОТРИСОВКА: Запускаем цикл render СРАЗУ при переходе на game-screen
-      // ЦИКЛ ОТРИСОВКИ ВО ВРЕМЯ ОТСЧЕТА: requestAnimationFrame запускается сразу
-      if (!animationFrameId && gameCanvas && gameCtx) {
-        startRenderLoop();
+      // ПРИНУДИТЕЛЬНАЯ ОТРИСОВКА: Запускаем цикл animationLoop СРАЗУ при переходе на game-screen
+      if (!animationLoopRunning && gameCanvas && gameCtx) {
+        startAnimationLoop();
       }
       
       // Обеспечиваем видимость змеек на старте
@@ -629,10 +604,9 @@ function initSocket() {
       });
     }
     
-    // ЦИКЛ ОТРИСОВКИ ВО ВРЕМЯ ОТСЧЕТА: Запускаем requestAnimationFrame СРАЗУ при получении countdown
-    // Убеждаемся, что цикл render работает во время countdown
-    if (!animationFrameId && gameCanvas && gameCtx) {
-      startRenderLoop();
+    // ЦИКЛ ОТРИСОВКИ ВО ВРЕМЯ ОТСЧЕТА: Запускаем animationLoop если еще не запущен
+    if (!animationLoopRunning && gameCanvas && gameCtx) {
+      startAnimationLoop();
     }
   });
   
@@ -645,14 +619,18 @@ function initSocket() {
     headHistory = [];
     opponentHeadHistory = [];
     
-    // ЖИЗНЕННЫЙ ЦИКЛ: На этапе playing обновляем currentVisualState через буфер
+    // ЖИЗНЕННЫЙ ЦИКЛ: На этапе playing обновляем через буфер
     if (data.initial_state) {
       const initTime = performance.now();
-      window.gameBuffer.push({
-        state: deepClone(data.initial_state),
-        timestamp: initTime
-      });
-      window.currentVisualState = deepClone(data.initial_state);
+      if (window.gameEngine) {
+        window.gameEngine.buffer.push({
+          data: deepClone(data.initial_state),
+          ts: initTime
+        });
+      }
+      if (!window.appState.game.initial_state) {
+        window.appState.game.initial_state = deepClone(data.initial_state);
+      }
     }
     
     // Сбрасываем переменную таймера при новом старте игры
@@ -858,34 +836,22 @@ function initSocket() {
           lobbyScreen.classList.remove('active');
           lobbyScreen.style.display = 'none';
         }
-        console.log('✅ Overlay и lobby очищены при первом game_state');
       }
-      updateGameState(data);
-    } else {
-      console.warn('⚠️ game_state received but gameState is:', gameState, 'currentGame:', currentGame);
     }
   });
   
   socket.on('game_end', (data) => {
-    console.log('📨 Событие game_end получено!', data);
-    
     // ОПТИМИЗАЦИЯ: Получаем финальный JSON с результатом и только тогда обновляем баланс из БД
-    // Сначала обрабатываем финальное состояние игры
     endGame(data);
     
     // Затем запрашиваем актуальный баланс из БД (если есть выигрыш)
     if (data.prize && data.prize > 0) {
-      // Запрашиваем актуальный баланс из БД через API
       fetch(`/api/user/${userId}`)
         .then(response => response.json())
         .then(userData => {
-          // Обновляем баланс из БД только после получения финального результата
           updateBalance(0, userData.winnings_ton);
-          console.log('💰 Balance updated from DB after game completion:', userData);
         })
         .catch(error => {
-          console.error('❌ Ошибка при получении баланса из БД:', error);
-          // Fallback: используем данные из game_end события
           if (data.winnings_ton !== undefined) {
             updateBalance(0, data.winnings_ton);
           }
@@ -895,11 +861,9 @@ function initSocket() {
   
   // Обновление баланса после начисления выигрыша
   socket.on('balance_updated', (data) => {
-    console.log('💰 Balance updated:', data);
     
-    // ОПТИМИЗАЦИЯ: Если есть флаг rollback, откатываем оптимистичное обновление
     if (data.rollback) {
-      console.warn('⚠️ Откат оптимистичного обновления баланса');
+      // Откат оптимистичного обновления баланса
     }
     
     updateBalance(0, data.winnings_ton);
@@ -907,7 +871,6 @@ function initSocket() {
   
   // ОПТИМИЗАЦИЯ: Обработчик обновления баланса игр
   socket.on('games_balance_updated', (data) => {
-    console.log('💰 Баланс игр обновлен:', data);
     refreshUserProfile();
   });
   
@@ -2817,22 +2780,18 @@ function updateGameState(data) {
   packetQueue.push(cloned);
   
   // Запускаем цикл отрисовки если он еще не запущен
-  if (!animationFrameId && gameState === 'playing') {
-    startRenderLoop();
+  if (!animationLoopRunning) {
+    startAnimationLoop();
   }
 }
 
-// STABLE PLAYBACK QUEUE: простой цикл отрисовки с фиксированным шагом
-function startRenderLoop() {
-  // СИСТЕМА ЕДИНОГО ХОЛСТА: Запускаем requestAnimationFrame только ОДИН раз за сессию
-  if (window.renderLoopRunning) {
-    return;
-  }
-  window.renderLoopRunning = true;
-  
-  if (animationFrameId) cancelAnimationFrame(animationFrameId);
-  isRendering = true;
+// ГЛАВНЫЙ ЦИКЛ (Universal Render Loop): ОДНА функция animationLoop
+let animationLoopRunning = false;
 
+function startAnimationLoop() {
+  if (animationLoopRunning) return;
+  animationLoopRunning = true;
+  
   if (!gridCanvas) {
     gridCanvas = document.createElement('canvas');
     gridCanvas.width = canvasLogicalSize;
@@ -2840,108 +2799,90 @@ function startRenderLoop() {
     gridCtx = gridCanvas.getContext('2d');
     drawGridToOffscreen();
   }
-
-  function render(now) {
-    if (!isRendering || !gameCtx) {
-      animationFrameId = requestAnimationFrame(render);
+  
+  function animationLoop(now) {
+    if (!gameCtx || !gameCanvas) {
+      animationFrameId = requestAnimationFrame(animationLoop);
       return;
     }
-
-    // СИСТЕМА ЕДИНОГО ХОЛСТА (Anti-Shadow): ОБЯЗАТЕЛЬНО сбрасываем трансформации и очищаем ВЕСЬ холст
+    
+    // ЖЕСТКАЯ ОЧИСТКА (Anti-Ghosting): Первым делом сбрасываем трансформации и очищаем ВЕСЬ холст
     gameCtx.setTransform(1, 0, 0, 1, 0, 0);
     gameCtx.clearRect(0, 0, gameCanvas.width, gameCanvas.height);
     
     // Фон
     gameCtx.fillStyle = '#0a0e27';
     gameCtx.fillRect(0, 0, canvasLogicalSize, canvasLogicalSize);
-
-    // Сетка
+    
+    // ГАРАНТИЯ ВИДИМОСТИ: Функция drawGrid() вызывается в каждом кадре ПЕРЕД змейками
     if (gridCanvas) {
       gameCtx.drawImage(gridCanvas, 0, 0);
     }
-
-    // ЖИЗНЕННЫЙ ЦИКЛ: Определяем состояние для отрисовки
-    let visualState = null;
-    const isCountdown = gameState === 'countdown' || window.appState?.game?.status === 'countdown' || window.appState?.gameState === 'countdown';
-    const isPlaying = gameState === 'playing' || window.appState?.game?.status === 'playing';
-    const isFinished = window.appState?.game?.finished || window.currentVisualState?.finished || window.currentVisualState?.game_finished;
     
-    // ЖИЗНЕННЫЙ ЦИКЛ: Если игра завершена, немедленно прекращаем обновлять позиции, но отрисовываем финальный кадр
-    if (isFinished && window.currentVisualState) {
-      visualState = window.currentVisualState;
-    }
-    // На этапе countdown используем currentVisualState из initial_state
-    else if (isCountdown && window.currentVisualState) {
-      visualState = window.currentVisualState;
-    } 
-    // На этапе playing используем интерполяцию из буфера
-    else if (isPlaying && !isFinished) {
-      // ИНТЕРПОЛЯЦИЯ И БУФЕРИЗАЦИЯ: Вычисляем renderTime и ищем состояния A и B
-      const renderTime = now - window.RENDER_DELAY;
-      const buffer = window.gameBuffer || [];
-      
-      let stateA = null;
-      let stateB = null;
-      
-      // Ищем два состояния: прошлое A (timestamp < renderTime) и будущее B (timestamp > renderTime)
-      for (let i = buffer.length - 1; i >= 0; i--) {
-        const timestamp = buffer[i].timestamp || 0;
-        if (timestamp <= renderTime) {
-          stateA = buffer[i];
-          if (i + 1 < buffer.length) {
-            stateB = buffer[i + 1];
-          }
-          break;
+    // ИНТЕРПОЛЯЦИЯ И БУФЕРИЗАЦИЯ: Вычисляем renderTime (задержка 150мс для идеальной плавности)
+    const renderTime = now - 150;
+    const buffer = window.gameEngine?.buffer || [];
+    
+    let stateA = null;
+    let stateB = null;
+    
+    // Ищем в buffer два состояния: A (ts < renderTime) и B (ts > renderTime)
+    for (let i = buffer.length - 1; i >= 0; i--) {
+      const ts = buffer[i].ts || 0;
+      if (ts <= renderTime) {
+        stateA = buffer[i];
+        if (i + 1 < buffer.length) {
+          stateB = buffer[i + 1];
         }
-      }
-      
-      // БЕЗОПАСНОСТЬ: Если буфер пуст или renderTime слишком велик, используем последнее известное состояние
-      if (!stateA && buffer.length > 0) {
-        stateA = buffer[buffer.length - 1];
-        if (buffer.length > 1) {
-          stateB = buffer[buffer.length - 2];
-        }
-      }
-      
-      // Если не нашли состояние в буфере, используем currentVisualState
-      if (!stateA && window.currentVisualState) {
-        visualState = window.currentVisualState;
-      }
-      // Интерполируем между A и B
-      else if (stateA && stateB && stateA.state && stateB.state) {
-        const timeA = stateA.timestamp || 0;
-        const timeB = stateB.timestamp || 0;
-        const timeDiff = timeB - timeA;
-        const t = timeDiff > 0 ? Math.min(Math.max((renderTime - timeA) / timeDiff, 0), 1) : 0;
-        
-        // Интерполируем состояние
-        visualState = {
-          my_snake: interpolateSnakeState(stateA.state.my_snake, stateB.state.my_snake, t),
-          opponent_snake: interpolateSnakeState(stateA.state.opponent_snake, stateB.state.opponent_snake, t),
-          finished: stateB.state.finished || stateB.state.game_finished
-        };
-      } else if (stateA && stateA.state) {
-        visualState = stateA.state;
+        break;
       }
     }
-    // Fallback на window.appState
-    if (!visualState && window.appState?.game) {
-      visualState = {
+    
+    // Если нашли только A: рисуем состояние A (статично)
+    // Если буфер пуст: рисуем window.appState.game.initial_state
+    let frameData = null;
+    
+    if (stateA && stateB && stateA.data && stateB.data) {
+      // Вычисляем t = (renderTime - A.ts) / (B.ts - A.ts)
+      const timeA = stateA.ts || 0;
+      const timeB = stateB.ts || 0;
+      const timeDiff = timeB - timeA;
+      const t = timeDiff > 0 ? Math.min(Math.max((renderTime - timeA) / timeDiff, 0), 1) : 0;
+      
+      // Интерполируем координаты каждой секции: x = A.x + (B.x - A.x) * t
+      frameData = {
+        my_snake: interpolateSnake(stateA.data.my_snake, stateB.data.my_snake, t),
+        opponent_snake: interpolateSnake(stateA.data.opponent_snake, stateB.data.opponent_snake, t)
+      };
+    } else if (stateA && stateA.data) {
+      // Если нашли только A: рисуем состояние A (статично)
+      frameData = {
+        my_snake: stateA.data.my_snake,
+        opponent_snake: stateA.data.opponent_snake
+      };
+    } else if (window.appState?.game?.initial_state) {
+      // Если буфер пуст: рисуем window.appState.game.initial_state
+      frameData = {
+        my_snake: window.appState.game.initial_state.my_snake,
+        opponent_snake: window.appState.game.initial_state.opponent_snake
+      };
+    } else if (window.appState?.game) {
+      // Fallback на window.appState.game
+      frameData = {
         my_snake: window.appState.game.my_snake,
-        opponent_snake: window.appState.game.opponent_snake,
-        finished: window.appState.game.finished
+        opponent_snake: window.appState.game.opponent_snake
       };
     }
     
-    // Отрисовка змеек
-    if (visualState) {
+    // ГАРАНТИЯ ВИДИМОСТИ: Змейки рисуются ВСЕГДА, если есть хоть какие-то координаты
+    if (frameData) {
       // Рисуем змейку игрока
-      if (visualState.my_snake && (visualState.my_snake.segments?.length > 0 || visualState.my_snake.body?.length > 0)) {
-        drawSnakeSmooth(visualState.my_snake, '#00FF41', '#008F11');
+      if (frameData.my_snake && (frameData.my_snake.segments?.length > 0 || frameData.my_snake.body?.length > 0)) {
+        drawSnake(frameData.my_snake, '#00FF41', '#008F11');
         
         // ВИЗУАЛЬНЫЙ ИНДИКАТОР: Рисуем текст "YOU"
-        const headSeg = visualState.my_snake.segments?.[0] || visualState.my_snake.body?.[0];
-        if (headSeg && gameCtx) {
+        const headSeg = frameData.my_snake.segments?.[0] || frameData.my_snake.body?.[0];
+        if (headSeg) {
           gameCtx.save();
           gameCtx.font = "bold 14px Inter, Arial, sans-serif";
           gameCtx.fillStyle = "#00FF41";
@@ -2958,12 +2899,13 @@ function startRenderLoop() {
       }
       
       // Рисуем змейку оппонента
-      if (visualState.opponent_snake && (visualState.opponent_snake.segments?.length > 0 || visualState.opponent_snake.body?.length > 0)) {
-        drawSnakeSmooth(visualState.opponent_snake, '#FF3131', '#8B0000');
+      if (frameData.opponent_snake && (frameData.opponent_snake.segments?.length > 0 || frameData.opponent_snake.body?.length > 0)) {
+        drawSnake(frameData.opponent_snake, '#FF3131', '#8B0000');
       }
     }
     
     // ОТРИСОВКА ОТСЧЕТА (COUNTDOWN): Рисуем ОТСЧЕТ ПОВЕРХ змеек
+    const isCountdown = gameState === 'countdown' || window.appState?.game?.status === 'countdown';
     if (isCountdown) {
       const countdownNumber = document.getElementById('countdown-number');
       const countdownVal = window.appState?.game?.countdownValue || 
@@ -2971,7 +2913,7 @@ function startRenderLoop() {
                           countdownValue || 
                           "";
       
-      if (countdownVal && gameCtx) {
+      if (countdownVal) {
         gameCtx.save();
         gameCtx.font = "bold 120px Inter, Arial, sans-serif";
         gameCtx.fillStyle = "#ffffff";
@@ -2986,15 +2928,18 @@ function startRenderLoop() {
         gameCtx.restore();
       }
     }
-
-    animationFrameId = requestAnimationFrame(render);
+    
+    // Цикл никогда не останавливается (просто очищает холст, если рисовать нечего)
+    animationFrameId = requestAnimationFrame(animationLoop);
   }
+  
+  animationFrameId = requestAnimationFrame(animationLoop);
 }
 
 /**
- * ИНТЕРПОЛЯЦИЯ СОСТОЯНИЯ ЗМЕЙКИ: Плавное движение между состояниями A и B
+ * ИНТЕРПОЛЯЦИЯ ЗМЕЙКИ: Интерполируем координаты каждой секции между состояниями A и B
  */
-function interpolateSnakeState(snakeA, snakeB, t) {
+function interpolateSnake(snakeA, snakeB, t) {
   if (!snakeA && !snakeB) return null;
   if (!snakeA) return snakeB;
   if (!snakeB) return snakeA;
@@ -3009,14 +2954,15 @@ function interpolateSnakeState(snakeA, snakeB, t) {
   // ОБРАБОТКА ТЕЛЕПОРТАЦИИ: Если расстояние > 2, мгновенно переходим к B
   const headA = segsA[0];
   const headB = segsB[0];
-  const distanceX = Math.abs(headB.x - headA.x);
-  const distanceY = Math.abs(headB.y - headA.y);
-  
-  if (distanceX > 2 || distanceY > 2) {
-    return snakeB; // Телепорт - используем состояние B
+  if (headA && headB) {
+    const distanceX = Math.abs(headB.x - headA.x);
+    const distanceY = Math.abs(headB.y - headA.y);
+    if (distanceX > 2 || distanceY > 2) {
+      return snakeB; // Телепорт - используем состояние B
+    }
   }
   
-  // Интерполируем каждый сегмент: Pos = A + (B - A) * t
+  // Интерполируем каждый сегмент: x = A.x + (B.x - A.x) * t
   const maxLen = Math.max(segsA.length, segsB.length);
   const interpolatedSegments = [];
   
@@ -3047,7 +2993,7 @@ function interpolateSnakeState(snakeA, snakeB, t) {
  * ОПТИМИЗАЦИЯ: Отрисовка змейки плавными линиями (ctx.beginPath, ctx.lineCap = 'round')
  * Это в разы быстрее и красивее, чем рисование отдельных квадратов
  */
-function drawSnakeSmooth(snake, color1, color2) {
+function drawSnake(snake, color1, color2) {
   if (!gameCtx || !snake) return;
   
   const segments = snake.segments || snake.body || [];
@@ -3097,372 +3043,7 @@ function drawSnakeSmooth(snake, color1, color2) {
   }
 }
 
-/**
- * ИНТЕРПОЛЯЦИЯ СЕГМЕНТОВ: Плавное движение между состояниями
- */
-function interpolateSegments(prevSegments, currentSegments, factor) {
-  if (!prevSegments || !currentSegments || prevSegments.length === 0 || currentSegments.length === 0) {
-    return currentSegments || prevSegments || [];
-  }
-  
-  // Ограничиваем factor для предотвращения экстраполяции
-  const clampedFactor = Math.min(Math.max(factor, 0), 1.0);
-  
-  const maxLength = Math.max(prevSegments.length, currentSegments.length);
-  const interpolated = [];
-  
-  for (let i = 0; i < maxLength; i++) {
-    const prev = prevSegments[i] || prevSegments[prevSegments.length - 1];
-    const curr = currentSegments[i] || currentSegments[currentSegments.length - 1];
-    
-    if (prev && curr) {
-      // Используем clamped factor для плавной интерполяции
-      interpolated.push({
-        x: prev.x + (curr.x - prev.x) * clampedFactor,
-        y: prev.y + (curr.y - prev.y) * clampedFactor
-      });
-    } else if (curr) {
-      interpolated.push(curr);
-    } else if (prev) {
-      interpolated.push(prev);
-    }
-  }
-  
-  return interpolated;
-}
-
-/**
- * STATE MANAGEMENT: Отрисовка змейки как единого пути из window.appState.game.snakes
- * Использует ctx.beginPath() и ctx.lineTo() для создания цельного тела без "дыр"
- * Голова рисуется отдельным ярким элементом
- */
-// Флаг для предотвращения бесконечного логирования невалидных координат
-let invalidPositionLogged = false;
-
-/**
- * ЦЕЛЬНАЯ ОТРИСОВКА (SNAKE BODY) - БЕЗ КВАДРАТИКОВ
- * Чтобы змейка не выглядела как "пунктир" и не исчезала, используем метод рисования пути
- */
-/**
- * ИСПРАВЛЕНИЕ ОТРИСОВКИ: Переписываем drawSnake, чтобы она принимала массив segments и рисовала их как одну сплошную линию
- */
-/**
- * ИСПРАВЛЕНИЕ ОТРИСОВКИ ЗМЕЕК: Рисуем каждый сегмент из массива segments с объемом
- */
-/**
- * ИСПРАВЛЕНИЕ ОТРИСОВКИ ТЕЛА ЗМЕЙКИ: Сейчас видно только голову. В функции drawSnake убедись, что ты проходишь циклом по ВСЕМУ массиву segments.
- * Логи показывают структуру: window.appState.game.my_snake.segments. Используй именно этот путь.
- */
-function drawSnakeSimple(snake, headHistory, color1, color2) {
-  // STATE MANAGEMENT: Используем данные из window.appState.game если snake не передан
-  if (!snake && window.appState && window.appState.game) {
-    const isMySnake = color1 === '#ff4444' || color1 === '#00FF00';
-    snake = isMySnake ? window.appState.game.my_snake : window.appState.game.opponent_snake;
-  }
-  
-  // УНИВЕРСАЛЬНАЯ ПРОВЕРКА: Заменяем проверку наличия данных на универсальную
-  // const s = snake.segments || snake.body;
-  let s = snake?.segments || snake?.body;
-  
-  // FALLBACK: Если !s, то вместо console.error попробуй взять данные из window.appState.game (как fallback)
-  if (!s && window.appState && window.appState.game) {
-    const isMySnake = color1 === '#ff4444' || color1 === '#00FF00';
-    const fallbackSnake = isMySnake ? window.appState.game.my_snake : window.appState.game.opponent_snake;
-    if (fallbackSnake) {
-      s = fallbackSnake.segments || fallbackSnake.body;
-      snake = fallbackSnake;
-    }
-  }
-  
-  // Если s все еще не существует, не рисуем
-  if (!s || s.length === 0) {
-    return; // Убрали console.error, чтобы не забивать логи
-  }
-  
-  // Проверка координат
-  const head = s[0];
-  if (head.x < -5 || head.x > GRID_SIZE + 5 || head.y < -5 || head.y > GRID_SIZE + 5) {
-    return;
-  }
-  
-  // КООРДИНАТЫ И РАЗМЕР: Убедись, что tileSize вычисляется правильно относительно ширины Canvas (canvas.width / 30)
-  const tileSize = Math.floor(canvasLogicalSize / GRID_SIZE);
-  
-  // ИСПРАВЛЕНИЕ: Используем переданные цвета color1 и color2 для отрисовки
-  // color1 - цвет головы, color2 - цвет тела
-  
-  // Проверка контекста
-  if (!gameCtx) {
-    return;
-  }
-  
-  // УЛЬТРА-ФУТУРИСТИЧНЫЙ ВИД: Многослойное свечение и эффекты
-  
-  const firstSegment = s[0];
-  if (!firstSegment) {
-    return;
-  }
-  
-  const lastSegment = s[s.length - 1];
-  const headCenterX = firstSegment.x * tileSize + tileSize / 2;
-  const headCenterY = firstSegment.y * tileSize + tileSize / 2;
-  
-  // ========== СЛОЙ 1: ВНЕШНЕЕ СВЕЧЕНИЕ ТЕЛА (самый большой радиус) ==========
-  gameCtx.save();
-  gameCtx.beginPath();
-  gameCtx.strokeStyle = color2 + '40'; // Очень прозрачный
-  gameCtx.lineWidth = tileSize * 1.4;
-  gameCtx.lineCap = 'round';
-  gameCtx.lineJoin = 'round';
-  gameCtx.shadowBlur = 30;
-  gameCtx.shadowColor = color2;
-  gameCtx.shadowOffsetX = 0;
-  gameCtx.shadowOffsetY = 0;
-  
-  const startX = firstSegment.x * tileSize + tileSize / 2;
-  const startY = firstSegment.y * tileSize + tileSize / 2;
-  gameCtx.moveTo(startX, startY);
-  
-  for (let i = 1; i < s.length; i++) {
-    const segment = s[i];
-    if (segment && segment.x !== undefined && segment.y !== undefined) {
-      gameCtx.lineTo(segment.x * tileSize + tileSize / 2, segment.y * tileSize + tileSize / 2);
-    }
-  }
-  gameCtx.stroke();
-  gameCtx.restore();
-  
-  // ========== СЛОЙ 2: СРЕДНЕЕ СВЕЧЕНИЕ ТЕЛА ==========
-  gameCtx.save();
-  const bodyGradient = gameCtx.createLinearGradient(
-    s[0].x * tileSize, s[0].y * tileSize,
-    lastSegment ? lastSegment.x * tileSize : s[0].x * tileSize,
-    lastSegment ? lastSegment.y * tileSize : s[0].y * tileSize
-  );
-  bodyGradient.addColorStop(0, color1 + 'FF'); // Яркий цвет у головы
-  bodyGradient.addColorStop(0.15, color1 + 'DD');
-  bodyGradient.addColorStop(0.4, color2 + 'FF');
-  bodyGradient.addColorStop(0.7, color2 + 'CC');
-  bodyGradient.addColorStop(1, color2 + '80'); // Полупрозрачный у хвоста
-  
-  gameCtx.beginPath();
-  gameCtx.strokeStyle = bodyGradient;
-  gameCtx.lineWidth = tileSize * 1.0;
-  gameCtx.lineCap = 'round';
-  gameCtx.lineJoin = 'round';
-  gameCtx.shadowBlur = 20;
-  gameCtx.shadowColor = color2;
-  gameCtx.shadowOffsetX = 0;
-  gameCtx.shadowOffsetY = 0;
-  
-  gameCtx.moveTo(startX, startY);
-  for (let i = 1; i < s.length; i++) {
-    const segment = s[i];
-    if (segment && segment.x !== undefined && segment.y !== undefined) {
-      gameCtx.lineTo(segment.x * tileSize + tileSize / 2, segment.y * tileSize + tileSize / 2);
-    }
-  }
-  gameCtx.stroke();
-  gameCtx.restore();
-  
-  // ========== СЛОЙ 3: ВНУТРЕННЕЕ ЯДРО ТЕЛА (яркое) ==========
-  gameCtx.save();
-  const coreGradient = gameCtx.createLinearGradient(
-    s[0].x * tileSize, s[0].y * tileSize,
-    lastSegment ? lastSegment.x * tileSize : s[0].x * tileSize,
-    lastSegment ? lastSegment.y * tileSize : s[0].y * tileSize
-  );
-  coreGradient.addColorStop(0, color1 + 'FF');
-  coreGradient.addColorStop(0.2, color1 + 'EE');
-  coreGradient.addColorStop(0.5, color2 + 'FF');
-  coreGradient.addColorStop(1, color2 + 'AA');
-  
-  gameCtx.beginPath();
-  gameCtx.strokeStyle = coreGradient;
-  gameCtx.lineWidth = tileSize * 0.7;
-  gameCtx.lineCap = 'round';
-  gameCtx.lineJoin = 'round';
-  gameCtx.shadowBlur = 15;
-  gameCtx.shadowColor = color1;
-  
-  gameCtx.moveTo(startX, startY);
-  for (let i = 1; i < s.length; i++) {
-    const segment = s[i];
-    if (segment && segment.x !== undefined && segment.y !== undefined) {
-      gameCtx.lineTo(segment.x * tileSize + tileSize / 2, segment.y * tileSize + tileSize / 2);
-    }
-  }
-  gameCtx.stroke();
-  gameCtx.restore();
-  
-  // ========== СЛОЙ 4: ЧАСТИЦЫ ВДОЛЬ ТЕЛА (эффект энергии) ==========
-  gameCtx.save();
-  for (let i = 0; i < s.length; i += 2) { // Каждый второй сегмент
-    const segment = s[i];
-    if (segment && segment.x !== undefined && segment.y !== undefined) {
-      const particleX = segment.x * tileSize + tileSize / 2;
-      const particleY = segment.y * tileSize + tileSize / 2;
-      const particleSize = (tileSize * 0.15) * (1 - i / s.length * 0.5); // Меньше к хвосту
-      
-      const particleGradient = gameCtx.createRadialGradient(
-        particleX, particleY, 0,
-        particleX, particleY, particleSize
-      );
-      particleGradient.addColorStop(0, color1 + 'FF');
-      particleGradient.addColorStop(0.5, color2 + 'AA');
-      particleGradient.addColorStop(1, color2 + '00');
-      
-      gameCtx.fillStyle = particleGradient;
-      gameCtx.shadowBlur = 10;
-      gameCtx.shadowColor = color2;
-      gameCtx.beginPath();
-      gameCtx.arc(particleX, particleY, particleSize, 0, Math.PI * 2);
-      gameCtx.fill();
-    }
-  }
-  gameCtx.restore();
-  
-  // ========== СЛОЙ 5: УЛЬТРА-ФУТУРИСТИЧНАЯ ГОЛОВА ==========
-  gameCtx.save();
-  
-  // Внешнее свечение головы (самое большое)
-  gameCtx.shadowBlur = 35;
-  gameCtx.shadowColor = color1;
-  gameCtx.fillStyle = color1 + '60';
-  gameCtx.beginPath();
-  gameCtx.arc(headCenterX, headCenterY, tileSize / 1.8, 0, Math.PI * 2);
-  gameCtx.fill();
-  
-  // Среднее свечение головы
-  const headOuterGradient = gameCtx.createRadialGradient(
-    headCenterX, headCenterY, 0,
-    headCenterX, headCenterY, tileSize / 2.0
-  );
-  headOuterGradient.addColorStop(0, color1 + 'FF');
-  headOuterGradient.addColorStop(0.5, color1 + 'DD');
-  headOuterGradient.addColorStop(1, color1 + '88');
-  
-  gameCtx.shadowBlur = 25;
-  gameCtx.shadowColor = color1;
-  gameCtx.fillStyle = headOuterGradient;
-  gameCtx.beginPath();
-  gameCtx.arc(headCenterX, headCenterY, tileSize / 2.2, 0, Math.PI * 2);
-  gameCtx.fill();
-  
-  // Внутреннее ядро головы (самое яркое)
-  const headCoreGradient = gameCtx.createRadialGradient(
-    headCenterX, headCenterY, 0,
-    headCenterX, headCenterY, tileSize / 3.2
-  );
-  headCoreGradient.addColorStop(0, '#FFFFFF');
-  headCoreGradient.addColorStop(0.3, color1 + 'FF');
-  headCoreGradient.addColorStop(1, color1 + 'AA');
-  
-  gameCtx.shadowBlur = 20;
-  gameCtx.shadowColor = '#FFFFFF';
-  gameCtx.fillStyle = headCoreGradient;
-  gameCtx.beginPath();
-  gameCtx.arc(headCenterX, headCenterY, tileSize / 3.2, 0, Math.PI * 2);
-  gameCtx.fill();
-  
-  // Центральное ядро (белое свечение)
-  gameCtx.fillStyle = '#FFFFFF';
-  gameCtx.shadowBlur = 15;
-  gameCtx.shadowColor = '#FFFFFF';
-  gameCtx.beginPath();
-  gameCtx.arc(headCenterX, headCenterY, tileSize / 5, 0, Math.PI * 2);
-  gameCtx.fill();
-  
-  // ========== СЛОЙ 6: УЛУЧШЕННЫЕ ГЛАЗА ==========
-  const direction = snake.direction || { dx: 1, dy: 0 };
-  const eyeSize = tileSize / 5.5;
-  const eyeOffsetX = tileSize / 3.2;
-  const eyeOffsetY = tileSize / 4.5;
-  
-  let leftEyeX, leftEyeY, rightEyeX, rightEyeY;
-  
-  if (direction.dx > 0) { // Вправо
-    leftEyeX = headCenterX - eyeOffsetX * 0.3;
-    leftEyeY = headCenterY - eyeOffsetY;
-    rightEyeX = headCenterX - eyeOffsetX * 0.3;
-    rightEyeY = headCenterY + eyeOffsetY;
-  } else if (direction.dx < 0) { // Влево
-    leftEyeX = headCenterX + eyeOffsetX * 0.3;
-    leftEyeY = headCenterY - eyeOffsetY;
-    rightEyeX = headCenterX + eyeOffsetX * 0.3;
-    rightEyeY = headCenterY + eyeOffsetY;
-  } else if (direction.dy > 0) { // Вниз
-    leftEyeX = headCenterX - eyeOffsetY;
-    leftEyeY = headCenterY - eyeOffsetX * 0.3;
-    rightEyeX = headCenterX + eyeOffsetY;
-    rightEyeY = headCenterY - eyeOffsetX * 0.3;
-  } else { // Вверх
-    leftEyeX = headCenterX - eyeOffsetY;
-    leftEyeY = headCenterY + eyeOffsetX * 0.3;
-    rightEyeX = headCenterX + eyeOffsetY;
-    rightEyeY = headCenterY + eyeOffsetX * 0.3;
-  }
-  
-  // Внешнее свечение глаз
-  gameCtx.shadowBlur = 12;
-  gameCtx.shadowColor = '#FFFFFF';
-  gameCtx.fillStyle = '#FFFFFF' + 'DD';
-  gameCtx.beginPath();
-  gameCtx.arc(leftEyeX, leftEyeY, eyeSize * 1.2, 0, Math.PI * 2);
-  gameCtx.fill();
-  gameCtx.beginPath();
-  gameCtx.arc(rightEyeX, rightEyeY, eyeSize * 1.2, 0, Math.PI * 2);
-  gameCtx.fill();
-  
-  // Основные глаза (белые с градиентом)
-  const eyeGradient = gameCtx.createRadialGradient(
-    leftEyeX, leftEyeY, 0,
-    leftEyeX, leftEyeY, eyeSize
-  );
-  eyeGradient.addColorStop(0, '#FFFFFF');
-  eyeGradient.addColorStop(1, '#FFFFFF' + 'AA');
-  
-  gameCtx.fillStyle = eyeGradient;
-  gameCtx.shadowBlur = 10;
-  gameCtx.beginPath();
-  gameCtx.arc(leftEyeX, leftEyeY, eyeSize, 0, Math.PI * 2);
-  gameCtx.fill();
-  
-  const eyeGradient2 = gameCtx.createRadialGradient(
-    rightEyeX, rightEyeY, 0,
-    rightEyeX, rightEyeY, eyeSize
-  );
-  eyeGradient2.addColorStop(0, '#FFFFFF');
-  eyeGradient2.addColorStop(1, '#FFFFFF' + 'AA');
-  
-  gameCtx.fillStyle = eyeGradient2;
-  gameCtx.beginPath();
-  gameCtx.arc(rightEyeX, rightEyeY, eyeSize, 0, Math.PI * 2);
-  gameCtx.fill();
-  
-  // Зрачки (черные с небольшим свечением)
-  gameCtx.fillStyle = '#000000';
-  gameCtx.shadowBlur = 5;
-  gameCtx.shadowColor = '#000000';
-  gameCtx.beginPath();
-  gameCtx.arc(leftEyeX, leftEyeY, eyeSize / 2.2, 0, Math.PI * 2);
-  gameCtx.fill();
-  gameCtx.beginPath();
-  gameCtx.arc(rightEyeX, rightEyeY, eyeSize / 2.2, 0, Math.PI * 2);
-  gameCtx.fill();
-  
-  // Блики в глазах (белые точки)
-  gameCtx.fillStyle = '#FFFFFF';
-  gameCtx.shadowBlur = 0;
-  gameCtx.beginPath();
-  gameCtx.arc(leftEyeX - eyeSize / 4, leftEyeY - eyeSize / 4, eyeSize / 4, 0, Math.PI * 2);
-  gameCtx.fill();
-  gameCtx.beginPath();
-  gameCtx.arc(rightEyeX - eyeSize / 4, rightEyeY - eyeSize / 4, eyeSize / 4, 0, Math.PI * 2);
-  gameCtx.fill();
-  
-  gameCtx.restore();
-}
+// УДАЛЕНА: Старая функция drawSnakeSimple заменена на оптимизированную drawSnake
 
 /**
  * Рисование сетки на offscreen canvas (один раз для оптимизации)
