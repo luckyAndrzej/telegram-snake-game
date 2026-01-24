@@ -48,12 +48,13 @@ let packetQueue = []; // Очередь пакетов game_state
 // Фиксированный шаг тика сервера (увеличено до 120мс для компенсации сетевых задержек)
 const TICK_DURATION = 120; // мс (длительность одного тика на сервере)
 
-// ИНИЦИАЛИЗАЦИЯ: СИСТЕМА БУФЕРИЗАЦИИ (Interpolation Buffer) - инициализируется В САМОМ НАЧАЛЕ
-// Глобальный объект игрового движка должен быть доступен сразу
-window.gameEngine = window.gameEngine || {
-  buffer: [],           // Массив: {data: msg, ts: performance.now()}
-  lastRenderTime: 0,   // Время последнего рендера
-  currentFrame: null    // Текущий кадр для отрисовки
+// ИНИЦИАЛИЗАЦИЯ: Глобальный объект движка (в самом верху файла, сразу после констант)
+// Должен быть доступен ВСЕГДА
+window.gameEngine = {
+  buffer: [],
+  lastRenderTime: 0,
+  isStarted: false,
+  renderLoopId: null
 };
 
 // ИНИЦИАЛИЗАЦИЯ: Предотвращаем повторную инициализацию при перезагрузке
@@ -735,18 +736,15 @@ function initSocket() {
       }
     }
     
-    // СИСТЕМА БУФЕРИЗАЦИИ: Добавляем пакет в window.gameEngine.buffer
-    if (data && window.gameEngine) {
-      const ts = performance.now();
-      window.gameEngine.buffer.push({
-        data: deepClone(data),
-        ts: ts
+    // ИСПРАВЛЕНИЕ ОБРАБОТЧИКА СОКЕТОВ: Добавляем пакет в буфер с проверкой
+    if (data) {
+      // Проверка перед push
+      if (!window.gameEngine.buffer) window.gameEngine.buffer = [];
+      window.gameEngine.buffer.push({ 
+        state: deepClone(data), 
+        ts: performance.now() 
       });
-      
-      // Если буфер > 20 элементов, делаем .shift()
-      if (window.gameEngine.buffer.length > 20) {
-        window.gameEngine.buffer.shift();
-      }
+      if (window.gameEngine.buffer.length > 20) window.gameEngine.buffer.shift();
       
       // Обновляем window.appState для обратной совместимости
       window.appState.game.status = 'playing';
@@ -822,23 +820,19 @@ function initSocket() {
   });
   
   socket.on('game_end', (data) => {
-    // ОПТИМИЗАЦИЯ: Получаем финальный JSON с результатом и только тогда обновляем баланс из БД
     endGame(data);
     
-    // СИНХРОНИЗАЦИЯ БАЛАНСА: Запрашиваем актуальный баланс из БД после завершения игры
-    // Это гарантирует правильное отображение баланса (текущий + prize)
+    // ЛОГИКА БАЛАНСА: Запрашиваем актуальный баланс из БД (текущий + выигрыш)
+    // Удалены все промежуточные "мгновенные" обновления
     fetch(`/api/user/${userId}`)
       .then(response => response.json())
       .then(userData => {
-        // Используем актуальное значение из БД (уже включает prize)
+        // Используем только значение из БД (уже включает prize)
         updateBalance(0, userData.winnings_ton);
       })
       .catch(error => {
-        // Fallback: если есть prize, складываем с текущим балансом
-        if (data.prize && data.prize > 0) {
-          const currentBalance = localUserState.winnings_ton || 0;
-          updateBalance(0, currentBalance + data.prize);
-        } else if (data.winnings_ton !== undefined) {
+        // Fallback только при ошибке запроса
+        if (data.winnings_ton !== undefined) {
           updateBalance(0, data.winnings_ton);
         }
       });
@@ -2485,8 +2479,7 @@ async function refreshUserProfile() {
 
 
 function updateBalance(gamesBalance, winningsTon) {
-  // STATE MANAGEMENT: Обновляем window.appState перед обновлением UI
-  // gamesBalance больше не используется, но оставляем для совместимости с сервером
+  // ЛОГИКА БАЛАНСА: Обновляем только из БД, без промежуточных "мгновенных" обновлений
   if (winningsTon !== undefined) {
     window.appState.user.winnings_ton = winningsTon;
     localUserState.winnings_ton = winningsTon;
@@ -2494,18 +2487,9 @@ function updateBalance(gamesBalance, winningsTon) {
   
   const winningsEl = document.getElementById('winnings-balance');
   
-  // ОПТИМИЗАЦИЯ: Мгновенно обновляем UI без ожидания перезагрузки страницы
   if (winningsEl) {
     winningsEl.textContent = `${(localUserState.winnings_ton || 0).toFixed(2)} TON`;
-    // Добавляем визуальную анимацию обновления для обратной связи
-    winningsEl.style.transition = 'transform 0.2s ease';
-    winningsEl.style.transform = 'scale(1.1)';
-    setTimeout(() => {
-      if (winningsEl) winningsEl.style.transform = 'scale(1)';
-    }, 200);
   }
-  
-  console.log(`💰 Balance updated instantly: winnings=${localUserState.winnings_ton.toFixed(2)} TON`);
 }
 
 /**
@@ -2787,11 +2771,11 @@ function startAnimationLoop() {
   
   function animationLoop(now) {
     if (!gameCtx || !gameCanvas) {
-      animationFrameId = requestAnimationFrame(animationLoop);
+      window.gameEngine.renderLoopId = requestAnimationFrame(animationLoop);
       return;
     }
     
-    // ЖЕСТКАЯ ОЧИСТКА (Anti-Ghosting): Первым делом сбрасываем трансформации и очищаем ВЕСЬ холст
+    // ЕДИНЫЙ ЦИКЛ ОТРИСОВКИ: ВСЕГДА вызываем setTransform и clearRect в начале
     gameCtx.setTransform(1, 0, 0, 1, 0, 0);
     gameCtx.clearRect(0, 0, gameCanvas.width, gameCanvas.height);
     
@@ -2799,31 +2783,19 @@ function startAnimationLoop() {
     gameCtx.fillStyle = '#0a0e27';
     gameCtx.fillRect(0, 0, canvasLogicalSize, canvasLogicalSize);
     
-    // ГАРАНТИЯ ВИДИМОСТИ: Функция drawGrid() вызывается в каждом кадре ПЕРЕД змейками
+    // Сетка
     if (gridCanvas) {
       gameCtx.drawImage(gridCanvas, 0, 0);
     }
     
-    // СТАБИЛЬНЫЙ ЦИКЛ: Проверка существования window.gameEngine.buffer
-    if (!window.gameEngine) {
-      window.gameEngine = {
-        buffer: [],
-        lastRenderTime: 0,
-        currentFrame: null
-      };
-    }
-    if (!window.gameEngine.buffer) {
-      window.gameEngine.buffer = [];
-    }
+    // Используем задержку интерполяции 150мс
+    const renderTime = performance.now() - 150;
+    const buffer = window.gameEngine.buffer || [];
     
-    // ИНТЕРПОЛЯЦИЯ И БУФЕРИЗАЦИЯ: Вычисляем renderTime (задержка 150мс для идеальной плавности)
-    const renderTime = now - 150;
-    const buffer = window.gameEngine.buffer;
-    
+    // Ищем две точки в buffer (A и B)
     let stateA = null;
     let stateB = null;
     
-    // Ищем в buffer два состояния: A (ts < renderTime) и B (ts > renderTime)
     for (let i = buffer.length - 1; i >= 0; i--) {
       const ts = buffer[i].ts || 0;
       if (ts <= renderTime) {
@@ -2835,45 +2807,41 @@ function startAnimationLoop() {
       }
     }
     
-    // Если нашли только A: рисуем состояние A (статично)
-    // Если буфер пуст: рисуем window.appState.game.initial_state
+    // Если точки найдены, вычисляем коэффициент t и интерполируем координаты
     let frameData = null;
     
-    if (stateA && stateB && stateA.data && stateB.data) {
-      // Вычисляем t = (renderTime - A.ts) / (B.ts - A.ts)
+    if (stateA && stateB && stateA.state && stateB.state) {
       const timeA = stateA.ts || 0;
       const timeB = stateB.ts || 0;
       const timeDiff = timeB - timeA;
       const t = timeDiff > 0 ? Math.min(Math.max((renderTime - timeA) / timeDiff, 0), 1) : 0;
       
-      // Интерполируем координаты каждой секции: x = A.x + (B.x - A.x) * t
       frameData = {
-        my_snake: interpolateSnake(stateA.data.my_snake, stateB.data.my_snake, t),
-        opponent_snake: interpolateSnake(stateA.data.opponent_snake, stateB.data.opponent_snake, t)
+        my_snake: interpolateSnake(stateA.state.my_snake, stateB.state.my_snake, t),
+        opponent_snake: interpolateSnake(stateA.state.opponent_snake, stateB.state.opponent_snake, t)
       };
-    } else if (stateA && stateA.data) {
-      // Если нашли только A: рисуем состояние A (статично)
+    } else if (stateA && stateA.state) {
+      // Если нашли только A, рисуем состояние A (статично)
       frameData = {
-        my_snake: stateA.data.my_snake,
-        opponent_snake: stateA.data.opponent_snake
+        my_snake: stateA.state.my_snake,
+        opponent_snake: stateA.state.opponent_snake
       };
     } else if (window.appState?.game?.initial_state) {
-      // Если буфер пуст: рисуем window.appState.game.initial_state
+      // Если точек нет, рисуем window.appState.game.initial_state
       frameData = {
         my_snake: window.appState.game.initial_state.my_snake,
         opponent_snake: window.appState.game.initial_state.opponent_snake
       };
     } else if (window.appState?.game) {
-      // Fallback на window.appState.game
+      // Fallback
       frameData = {
         my_snake: window.appState.game.my_snake,
         opponent_snake: window.appState.game.opponent_snake
       };
     }
     
-    // ГАРАНТИЯ ВИДИМОСТИ: Змейки рисуются ВСЕГДА, если есть хоть какие-то координаты
+    // Отрисовка змеек
     if (frameData) {
-      // Рисуем змейку игрока
       if (frameData.my_snake && (frameData.my_snake.segments?.length > 0 || frameData.my_snake.body?.length > 0)) {
         drawSnake(frameData.my_snake, '#00FF41', '#008F11');
         
@@ -2895,13 +2863,12 @@ function startAnimationLoop() {
         }
       }
       
-      // Рисуем змейку оппонента
       if (frameData.opponent_snake && (frameData.opponent_snake.segments?.length > 0 || frameData.opponent_snake.body?.length > 0)) {
         drawSnake(frameData.opponent_snake, '#FF3131', '#8B0000');
       }
     }
     
-    // ОТРИСОВКА ОТСЧЕТА (COUNTDOWN): Рисуем ОТСЧЕТ ПОВЕРХ змеек
+    // ОТРИСОВКА ОТСЧЕТА (COUNTDOWN)
     const isCountdown = gameState === 'countdown' || window.appState?.game?.status === 'countdown';
     if (isCountdown) {
       const countdownNumber = document.getElementById('countdown-number');
@@ -2926,11 +2893,11 @@ function startAnimationLoop() {
       }
     }
     
-    // Цикл никогда не останавливается (просто очищает холст, если рисовать нечего)
-    animationFrameId = requestAnimationFrame(animationLoop);
+    // Цикл продолжается
+    window.gameEngine.renderLoopId = requestAnimationFrame(animationLoop);
   }
   
-  animationFrameId = requestAnimationFrame(animationLoop);
+  window.gameEngine.renderLoopId = requestAnimationFrame(animationLoop);
 }
 
 /**
