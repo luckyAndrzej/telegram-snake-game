@@ -540,6 +540,30 @@ function initSocket() {
         
         // ПРИНУДИТЕЛЬНАЯ ОТРИСОВКА: Вызываем первый кадр отрисовки сразу после получения initial_state
         // render() уже запущен через startRenderLoop(), он автоматически отрисует змеек из initial_state
+        
+        // Обеспечиваем видимость змеек на старте
+        window.appState.gameState = 'countdown';
+        // Принудительно копируем начальные координаты в текущее состояние
+        if (initialState) {
+          // Создаем полную копию initial_state с правильными сегментами
+          const initStateCopy = {
+            ...initialState,
+            my_snake: {
+              ...initialState.my_snake,
+              segments: mySegsCopy,
+              direction: initialState.my_snake?.direction || { dx: 1, dy: 0 },
+              alive: initialState.my_snake?.alive !== undefined ? initialState.my_snake.alive : true
+            },
+            opponent_snake: {
+              ...initialState.opponent_snake,
+              segments: oppSegsCopy,
+              direction: initialState.opponent_snake?.direction || { dx: -1, dy: 0 },
+              alive: initialState.opponent_snake?.alive !== undefined ? initialState.opponent_snake.alive : true
+            }
+          };
+          window.appState.game.initial_state = deepClone(initStateCopy);
+          window.appState.game.current_state = deepClone(initStateCopy);
+        }
       }
     }
   });
@@ -2891,9 +2915,54 @@ function startRenderLoop() {
     // ИСПРАВЛЕНИЕ: Отрисовка змеек должна идти ВСЕГДА на основе данных из window.appState.game
     // (даже если новых пакетов нет) - это уберет мерцание и исчезновение змеек
     
-    // 3. ОТРИСОВКА ОТСЧЕТА (COUNTDOWN): Рисуем ОТСЧЕТ ПЕРЕД отрисовкой змеек
+    // ОБЕСПЕЧЕНИЕ ВИДИМОСТИ ЗМЕЕК НА СТАРТЕ: Рисуем змейки во время countdown
+    if (window.appState?.gameState === 'countdown' || gameState === 'countdown' || window.appState?.game?.status === 'countdown') {
+      // Рисуем змейки из current_state если он есть
+      if (window.appState?.game?.current_state) {
+        const currentState = window.appState.game.current_state;
+        if (currentState.my_snake && (currentState.my_snake.segments?.length > 0 || currentState.my_snake.body?.length > 0)) {
+          const mySnake = {
+            segments: currentState.my_snake.segments || currentState.my_snake.body || [],
+            direction: currentState.my_snake.direction || { dx: 1, dy: 0 },
+            alive: currentState.my_snake.alive !== undefined ? currentState.my_snake.alive : true
+          };
+          if (gameCtx && mySnake.segments.length > 0) {
+            drawSnakeSimple(mySnake, headHistory, '#00FF41', '#008F11');
+            
+            // ВИЗУАЛЬНЫЙ ИНДИКАТОР: Рисуем текст "YOU" рядом с головой
+            if (mySnake.segments[0]) {
+              gameCtx.save();
+              gameCtx.font = "bold 14px Inter, Arial, sans-serif";
+              gameCtx.fillStyle = "#00FF41";
+              gameCtx.textAlign = "center";
+              gameCtx.textBaseline = "bottom";
+              gameCtx.shadowBlur = 5;
+              gameCtx.shadowColor = "#00FF41";
+              const tileSize = canvasLogicalSize / GRID_SIZE;
+              const headX = mySnake.segments[0].x * tileSize;
+              const headY = mySnake.segments[0].y * tileSize;
+              gameCtx.fillText("YOU", headX + tileSize / 2, headY - 5);
+              gameCtx.restore();
+            }
+          }
+        }
+        
+        if (currentState.opponent_snake && (currentState.opponent_snake.segments?.length > 0 || currentState.opponent_snake.body?.length > 0)) {
+          const oppSnake = {
+            segments: currentState.opponent_snake.segments || currentState.opponent_snake.body || [],
+            direction: currentState.opponent_snake.direction || { dx: -1, dy: 0 },
+            alive: currentState.opponent_snake.alive !== undefined ? currentState.opponent_snake.alive : true
+          };
+          if (gameCtx && oppSnake.segments.length > 0) {
+            drawSnakeSimple(oppSnake, opponentHeadHistory, '#FF3131', '#8B0000');
+          }
+        }
+      }
+    }
+    
+    // 3. ОТРИСОВКА ОТСЧЕТА (COUNTDOWN): Рисуем ОТСЧЕТ ПОВЕРХ змеек
     // Проверяем несколько источников для получения значения отсчета
-    if (gameState === 'countdown' || window.appState?.game?.status === 'countdown') {
+    if (gameState === 'countdown' || window.appState?.game?.status === 'countdown' || window.appState?.gameState === 'countdown') {
       const countdownNumber = document.getElementById('countdown-number');
       const countdownVal = window.appState?.game?.countdownValue || 
                           countdownNumber?.textContent || 
