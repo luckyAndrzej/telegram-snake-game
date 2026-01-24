@@ -1545,7 +1545,13 @@ body::before {
     
     /* ИСПРАВЛЕНИЕ: Модальное окно депозита для маленьких экранов */
     .payment-modal {
+        display: none !important; /* ИСПРАВЛЕНИЕ: Скрыто по умолчанию на мобильных */
         padding: 15px !important; /* ИСПРАВЛЕНИЕ: Меньше padding на маленьких экранах */
+    }
+    
+    /* ИСПРАВЛЕНИЕ: Withdrawal modal также скрыт по умолчанию на мобильных */
+    #withdrawal-modal {
+        display: none !important; /* ИСПРАВЛЕНИЕ: Скрыто по умолчанию на мобильных */
     }
     
     .payment-modal-content {
@@ -1612,7 +1618,24 @@ body::before {
     }
     
     /* ИСПРАВЛЕНИЕ: Для мобилок - улучшенное позиционирование модального окна */
+    .payment-modal {
+        display: none !important; /* ИСПРАВЛЕНИЕ: Скрыто по умолчанию на очень маленьких экранах */
+    }
+    
+    /* ИСПРАВЛЕНИЕ: Withdrawal modal также скрыт по умолчанию на очень маленьких экранах */
+    #withdrawal-modal {
+        display: none !important; /* ИСПРАВЛЕНИЕ: Скрыто по умолчанию на очень маленьких экранах */
+    }
+    
     .payment-modal.modal-visible {
+        display: flex !important; /* ИСПРАВЛЕНИЕ: Показываем только когда видимо */
+        padding: 10px !important;
+        align-items: center !important; /* ИСПРАВЛЕНИЕ: Центрирование по вертикали */
+        justify-content: center !important;
+    }
+    
+    #withdrawal-modal.modal-visible {
+        display: flex !important; /* ИСПРАВЛЕНИЕ: Показываем только когда видимо */
         padding: 10px !important;
         align-items: center !important; /* ИСПРАВЛЕНИЕ: Центрирование по вертикали */
         justify-content: center !important;
@@ -1750,6 +1773,15 @@ body::before {
     .btn {
         font-size: 12px;
         padding: 8px 12px;
+    }
+    
+    /* ИСПРАВЛЕНИЕ: Модальные окна скрыты по умолчанию на очень маленьких экранах */
+    .payment-modal {
+        display: none !important; /* ИСПРАВЛЕНИЕ: Скрыто по умолчанию */
+    }
+    
+    #withdrawal-modal {
+        display: none !important; /* ИСПРАВЛЕНИЕ: Скрыто по умолчанию */
     }
     
     .payment-modal-content {
