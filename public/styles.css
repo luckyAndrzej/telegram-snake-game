@@ -514,6 +514,9 @@ body::before {
     /* ИСПРАВЛЕНИЕ: Удали backdrop-filter у родительских контейнеров игрового экрана */
     backdrop-filter: none !important;
     -webkit-backdrop-filter: none !important;
+    overflow-y: auto; /* Разрешаем прокрутку на больших экранах */
+    overflow-x: hidden;
+    min-height: 100vh; /* Минимальная высота для правильного отображения */
 }
 
 /* УБРАТЬ ЛИШНИЕ СЛОИ: временно скрываем header для теста */
@@ -594,31 +597,16 @@ body::before {
         max-width: 95vh;
         max-height: 95vh;
     }
-}
-
-/* Ноутбуки и Full Screen: используем больше пространства */
-@media (min-width: 1024px) and (min-height: 600px) {
-    #game-canvas {
-        width: 90vw;
-        height: 90vw;
-        max-width: 90vh;
-        max-height: 90vh;
-    }
     
-    .controls-grid {
-        grid-template-columns: repeat(3, 80px);
-        grid-template-rows: repeat(3, 80px);
-        gap: 15px;
-    }
-    
-    .control-btn {
-        width: 80px;
-        height: 80px;
-        font-size: 32px;
+    /* Убеждаемся, что стрелки видны на мобильных */
+    .game-controls {
+        margin-top: 10px;
+        margin-bottom: 10px;
     }
 }
 
-@media (min-width: 1920px) {
+/* Средние экраны (планшеты в портретной ориентации) */
+@media (min-width: 481px) and (max-width: 767px) {
     #game-canvas {
         width: 85vw;
         height: 85vw;
@@ -627,15 +615,90 @@ body::before {
     }
     
     .controls-grid {
-        grid-template-columns: repeat(3, 100px);
-        grid-template-rows: repeat(3, 100px);
+        grid-template-columns: repeat(3, 70px);
+        grid-template-rows: repeat(3, 70px);
+        gap: 12px;
+    }
+    
+    .control-btn {
+        width: 70px;
+        height: 70px;
+        font-size: 28px;
+    }
+}
+
+/* Ноутбуки и Full Screen: уменьшаем canvas, чтобы стрелки были видны */
+@media (min-width: 1024px) and (min-height: 600px) {
+    #game-canvas {
+        width: 60vw;
+        height: 60vw;
+        max-width: 60vh;
+        max-height: 60vh;
+    }
+    
+    .game-controls {
+        margin-top: 20px;
+        margin-bottom: 20px;
+    }
+    
+    .controls-grid {
+        grid-template-columns: repeat(3, 90px);
+        grid-template-rows: repeat(3, 90px);
         gap: 20px;
     }
     
     .control-btn {
-        width: 100px;
-        height: 100px;
-        font-size: 40px;
+        width: 90px;
+        height: 90px;
+        font-size: 36px;
+    }
+}
+
+@media (min-width: 1920px) {
+    #game-canvas {
+        width: 50vw;
+        height: 50vw;
+        max-width: 50vh;
+        max-height: 50vh;
+    }
+    
+    .game-controls {
+        margin-top: 30px;
+        margin-bottom: 30px;
+    }
+    
+    .controls-grid {
+        grid-template-columns: repeat(3, 110px);
+        grid-template-rows: repeat(3, 110px);
+        gap: 25px;
+    }
+    
+    .control-btn {
+        width: 110px;
+        height: 110px;
+        font-size: 44px;
+    }
+}
+
+/* Планшеты в альбомной ориентации */
+@media (min-width: 768px) and (max-width: 1023px) and (min-height: 600px) {
+    #game-canvas {
+        width: 70vw;
+        height: 70vw;
+        max-width: 70vh;
+        max-height: 70vh;
+    }
+    
+    .controls-grid {
+        grid-template-columns: repeat(3, 75px);
+        grid-template-rows: repeat(3, 75px);
+        gap: 18px;
+    }
+    
+    .control-btn {
+        width: 75px;
+        height: 75px;
+        font-size: 30px;
     }
 }
 
@@ -694,6 +757,9 @@ body::before {
     flex-shrink: 0;
     padding: 0 10px;
     transition: opacity 0.3s ease;
+    /* ИСПРАВЛЕНИЕ: Убеждаемся, что стрелки всегда видны */
+    visibility: visible !important;
+    opacity: 1 !important;
 }
 
 .controls-grid {
@@ -899,10 +965,7 @@ body::before {
 
 .payment-modal.modal-visible .payment-modal-content {
     opacity: 1 !important;
-    transform: translate(-50%, -50%) !important;
-    left: 50% !important;
-    top: 50% !important;
-    right: auto !important;
+    /* Убраны transform и позиционирование, так как теперь используется relative */
 }
 
 .payment-modal-content h3 {
@@ -1189,23 +1252,67 @@ body::before {
     .btn {
         font-size: 13px;
         padding: 10px 16px;
+    }
+    
+    /* Для мобилок, чтобы точно стояло по центру и было видно при открытой клавиатуре */
+    .payment-modal.modal-visible {
+        padding: 10px !important;
+        align-items: flex-start !important;
+        padding-top: 5vh !important;
+    }
+    
+    .payment-modal-content {
+        position: relative !important;
+        width: calc(100% - 40px) !important;
+        margin: 0 auto !important;
+        max-width: calc(100% - 40px) !important;
+        max-height: 90vh !important;
+        z-index: 10001 !important;
+        display: flex !important;
+        flex-direction: column !important;
+    }
+    
+    /* Кнопки в модальном окне всегда видны */
+    .payment-modal-content > div:last-child {
+        margin-top: auto !important;
+        padding-top: 15px !important;
+    }
+    
+    .btn {
+        font-size: 13px;
+        padding: 10px 16px;
         min-width: auto;
         max-width: 100%;
         word-wrap: break-word;
         white-space: normal;
     }
     
-    /* Для мобилок, чтобы точно стояло по центру */
+    /* Для мобилок, чтобы точно стояло по центру и было видно при открытой клавиатуре */
+    .payment-modal.modal-visible {
+        align-items: flex-start !important;
+        padding-top: 5vh !important;
+    }
+    
     .payment-modal-content {
-        position: fixed !important;
-        left: 50% !important;
-        top: 50% !important;
-        transform: translate(-50%, -50%) !important;
+        position: relative !important;
         width: calc(100% - 40px) !important;
-        margin: 0 !important;
+        margin: 0 auto !important;
         max-width: calc(100% - 40px) !important;
-        right: auto !important;
+        max-height: 90vh !important;
         z-index: 10001 !important;
+        display: flex !important;
+        flex-direction: column !important;
+    }
+    
+    /* Кнопки в модальном окне всегда видны */
+    .payment-modal-content > div:last-child,
+    .payment-modal-content > div[style*="margin-top: 20px"] {
+        margin-top: auto !important;
+        padding-top: 15px !important;
+        position: sticky !important;
+        bottom: 0 !important;
+        background: #0a0a1a !important;
+        z-index: 10002 !important;
     }
     
     .payment-modal-content h3 {
@@ -1264,12 +1371,9 @@ body::before {
     
     .payment-modal-content {
         padding: 20px 15px;
-        position: fixed !important;
-        left: 50% !important;
-        top: 50% !important;
-        transform: translate(-50%, -50%) !important;
-        right: auto !important;
-        margin: 0 !important;
+        position: relative !important;
+        margin: auto !important;
+        max-height: 95vh !important;
         z-index: 10001 !important;
     }
     
