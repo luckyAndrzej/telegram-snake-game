@@ -114,6 +114,9 @@ const INPUT_BUFFER_DELAY = 0; // Немедленная отправка для 
 // Offscreen canvas для сетки (оптимизация отрисовки)
 let gridCanvas = null;
 let gridCtx = null;
+// ОПТИМИЗАЦИЯ: Offscreen canvas для статичного фона (фон + сетка)
+let backgroundCanvas = null;
+let backgroundCtx = null;
 
 
 /**
@@ -2051,6 +2054,12 @@ function initCanvas() {
   // CSS размер (для отображения на экране) - устанавливается через CSS (95vw)
   // Не устанавливаем здесь, чтобы CSS мог управлять размером
   
+  // ОПТИМИЗАЦИЯ: Пересоздаем offscreen canvas для фона при изменении размера
+  if (backgroundCanvas && (backgroundCanvas.width !== canvasLogicalSize || backgroundCanvas.height !== canvasLogicalSize)) {
+    backgroundCanvas = null;
+    backgroundCtx = null;
+  }
+  
   // Помечаем Canvas как инициализированный
   canvasInitialized = true;
   
@@ -2787,12 +2796,33 @@ function startAnimationLoop() {
   if (animationLoopRunning) return;
   animationLoopRunning = true;
   
-  if (!gridCanvas) {
+  // ОПТИМИЗАЦИЯ: Создаем offscreen canvas для сетки
+  // Пересоздаем если размер изменился
+  if (!gridCanvas || gridCanvas.width !== canvasLogicalSize || gridCanvas.height !== canvasLogicalSize) {
     gridCanvas = document.createElement('canvas');
     gridCanvas.width = canvasLogicalSize;
     gridCanvas.height = canvasLogicalSize;
     gridCtx = gridCanvas.getContext('2d');
     drawGridToOffscreen();
+  }
+  
+  // ОПТИМИЗАЦИЯ: Создаем offscreen canvas для статичного фона (фон + сетка)
+  // Это позволяет не перерисовывать фон и сетку каждый кадр, а просто копировать готовое изображение
+  // Пересоздаем если размер изменился или gridCanvas был пересоздан
+  if (!backgroundCanvas || backgroundCanvas.width !== canvasLogicalSize || backgroundCanvas.height !== canvasLogicalSize) {
+    backgroundCanvas = document.createElement('canvas');
+    backgroundCanvas.width = canvasLogicalSize;
+    backgroundCanvas.height = canvasLogicalSize;
+    backgroundCtx = backgroundCanvas.getContext('2d');
+    
+    // Рисуем фон один раз
+    backgroundCtx.fillStyle = '#0a0e27';
+    backgroundCtx.fillRect(0, 0, canvasLogicalSize, canvasLogicalSize);
+    
+    // Копируем сетку на фон
+    if (gridCanvas) {
+      backgroundCtx.drawImage(gridCanvas, 0, 0);
+    }
   }
   
   function animationLoop(now) {
@@ -2811,13 +2841,17 @@ function startAnimationLoop() {
       gameCtx.setTransform(canvasDPR, 0, 0, canvasDPR, 0, 0);
     }
     
-    // Фон
-    gameCtx.fillStyle = '#0a0e27';
-    gameCtx.fillRect(0, 0, canvasLogicalSize, canvasLogicalSize);
-    
-    // Сетка
-    if (gridCanvas) {
-      gameCtx.drawImage(gridCanvas, 0, 0);
+    // ОПТИМИЗАЦИЯ: Используем готовый offscreen canvas для фона и сетки
+    // Это быстрее, чем рисовать fillRect + drawImage каждый кадр
+    if (backgroundCanvas) {
+      gameCtx.drawImage(backgroundCanvas, 0, 0);
+    } else {
+      // Fallback: если backgroundCanvas не создан, рисуем как раньше
+      gameCtx.fillStyle = '#0a0e27';
+      gameCtx.fillRect(0, 0, canvasLogicalSize, canvasLogicalSize);
+      if (gridCanvas) {
+        gameCtx.drawImage(gridCanvas, 0, 0);
+      }
     }
     
     // ЛОГИКА ОТОБРАЖЕНИЯ: Если window.gameEngine.buffer пуст, рисуем window.appState.game.initial_state

@@ -43,9 +43,23 @@ const io = new Server(server, {
     origin: "*",
     methods: ["GET", "POST"]
   },
-  // Включаем compression для быстрой передачи game_state пакетов
+  // ОПТИМИЗАЦИЯ: Улучшенное сжатие WebSocket для уменьшения трафика
   transports: ['websocket', 'polling'],
   compression: true,
+  // Более эффективное сжатие per-message deflate (экономия 60-80% трафика)
+  perMessageDeflate: {
+    zlibDeflateOptions: {
+      chunkSize: 1024,
+      memLevel: 7,
+      level: 3 // Баланс между скоростью и степенью сжатия
+    },
+    zlibInflateOptions: {
+      chunkSize: 1024,
+      memLevel: 7
+    },
+    // Сжимать только сообщения больше 1024 байт
+    threshold: 1024
+  },
   maxHttpBufferSize: 1e6,
   // Оптимизация сетевого обмена: отключаем задержку Nagle для мгновенной отправки
   pingTimeout: 60000,
