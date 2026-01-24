@@ -1544,7 +1544,6 @@ function initEventListeners() {
             console.log('Opened Tonkeeper via window.location.href');
             paymentInitiated = true;
           }
-          }
           
           const statusEl = document.getElementById('payment-status');
           if (statusEl) {
