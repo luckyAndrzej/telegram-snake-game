@@ -2727,8 +2727,11 @@ function startRenderLoop() {
     if (gridCanvas) gameCtx.drawImage(gridCanvas, 0, 0);
 
     // ИНТЕРПОЛЯЦИЯ: Обрабатываем только один пакет за кадр для плавных движений
-    // Сохраняем предыдущее состояние перед обновлением
-    if (window.appState?.game?.my_snake || window.appState?.game?.opponent_snake) {
+    // Сохраняем предыдущее состояние ПЕРЕД обработкой нового пакета
+    let newStateReceived = false;
+    
+    // Сохраняем текущее состояние как предыдущее ПЕРЕД обновлением (если есть данные)
+    if (packetQueue.length > 0 && (window.appState?.game?.my_snake || window.appState?.game?.opponent_snake)) {
       previousGameState = {
         my_snake: window.appState.game.my_snake ? {
           segments: [...(window.appState.game.my_snake.segments || window.appState.game.my_snake.body || [])],
@@ -2743,7 +2746,7 @@ function startRenderLoop() {
         tick_number: window.appState.game.tick_number || 0
       };
     }
-
+    
     // Обрабатываем только один пакет за кадр
     if (packetQueue.length > 0) {
       const nextPacket = packetQueue.shift();
@@ -2766,15 +2769,22 @@ function startRenderLoop() {
         window.appState.game.tick_number = nextPacket.tick_number || 0;
         window.appState.game.finished = nextPacket.finished === true || nextPacket.game_finished === true;
         lastStateUpdateTime = now;
+        newStateReceived = true;
       }
     }
 
     // Вычисляем коэффициент интерполяции (0 = предыдущее состояние, 1 = текущее состояние)
     const expectedTickInterval = 111.11; // ~9 тиков в секунду (1000ms / 9)
-    const timeSinceUpdate = now - lastStateUpdateTime;
-    let interpolationFactor = Math.min(timeSinceUpdate / expectedTickInterval, 1);
-    if (lastStateUpdateTime === 0 || !previousGameState) {
-      interpolationFactor = 1; // Если нет предыдущего состояния, используем текущее
+    let interpolationFactor = 1; // По умолчанию используем текущее состояние
+    
+    if (previousGameState && lastStateUpdateTime > 0) {
+      // Интерполируем между предыдущим и текущим состоянием
+      const timeSinceUpdate = now - lastStateUpdateTime;
+      // Используем более плавную интерполяцию с ограничением до 1.0 (без экстраполяции для стабильности)
+      interpolationFactor = Math.min(Math.max(timeSinceUpdate / expectedTickInterval, 0), 1.0);
+    } else {
+      // Если нет предыдущего состояния или времени обновления, используем текущее без интерполяции
+      interpolationFactor = 1;
     }
 
     // ИСПРАВЛЕНИЕ: Отрисовка змеек должна идти ВСЕГДА на основе данных из window.appState.game
@@ -2813,7 +2823,7 @@ function startRenderLoop() {
     // ИСПРАВЛЕНИЕ: Улучшаем проверку наличия данных для отрисовки
     const currentMySnake = window.appState?.game?.my_snake || currentGameState?.my_snake || currentGame?.initialState?.my_snake;
     // Используем интерполяцию для плавных движений
-    const mySnake = (previousGameState?.my_snake && currentMySnake && interpolationFactor < 1) 
+    const mySnake = (previousGameState?.my_snake && currentMySnake && interpolationFactor >= 0 && interpolationFactor <= 1) 
       ? interpolateSnake(previousGameState.my_snake, currentMySnake, interpolationFactor)
       : currentMySnake;
     if (mySnake) {
@@ -2851,7 +2861,7 @@ function startRenderLoop() {
     // ИСПРАВЛЕНИЕ: Улучшаем проверку наличия данных для отрисовки
     const currentOppSnake = window.appState?.game?.opponent_snake || currentGameState?.opponent_snake || currentGame?.initialState?.opponent_snake;
     // Используем интерполяцию для плавных движений
-    const oppSnake = (previousGameState?.opponent_snake && currentOppSnake && interpolationFactor < 1)
+    const oppSnake = (previousGameState?.opponent_snake && currentOppSnake && interpolationFactor >= 0 && interpolationFactor <= 1)
       ? interpolateSnake(previousGameState.opponent_snake, currentOppSnake, interpolationFactor)
       : currentOppSnake;
     if (oppSnake) {
@@ -3330,144 +3340,35 @@ function interpolateSnake(previousSnake, currentSnake, t, tickDiff = 1, gameStat
   const prevHead = prevSegments[headIndex];
   const currHead = currSegments[headIndex];
   
-  // УМНАЯ ИНТЕРПОЛЯЦИЯ ПОВОРОТОВ: если изменились и X, и Y - это поворот
+  // УПРОЩЕННАЯ ЛИНЕЙНАЯ ИНТЕРПОЛЯЦИЯ: интерполируем голову линейно для плавного движения
+  // Это обеспечивает плавное движение без рывков
   const dx = currHead.x - prevHead.x;
   const dy = currHead.y - prevHead.y;
-  const isTurn = (dx !== 0 && dy !== 0); // Если изменились обе координаты - был поворот
   
-  if (isTurn) {
-    // ОРТОДОКСАЛЬНОЕ ДВИЖЕНИЕ: разделяем интерполяцию на две фазы
-    // Определяем направление движения ДО поворота (из предыдущего состояния)
-    const prevDirection = previousSnake.direction;
-    const wasMovingHorizontally = Math.abs(prevDirection.dx) > Math.abs(prevDirection.dy);
-    
-    if (interpolationT < 0.5) {
-      // ПЕРВАЯ ФАЗА (t < 0.5): двигаемся только по той оси, по которой двигались до этого
-      if (wasMovingHorizontally) {
-        // Двигались горизонтально - продолжаем по X
-        interpolated.segments[headIndex] = {
-          x: prevHead.x + dx * (interpolationT * 2), // Ускоряем в 2 раза для первой половины
-          y: prevHead.y // Фиксируем Y на старой позиции
-        };
-      } else {
-        // Двигались вертикально - продолжаем по Y
-        interpolated.segments[headIndex] = {
-          x: prevHead.x, // Фиксируем X на старой позиции
-          y: prevHead.y + dy * (interpolationT * 2) // Ускоряем в 2 раза для первой половины
-        };
-      }
-    } else {
-      // ВТОРАЯ ФАЗА (t >= 0.5): начинаем движение по новой оси
-      if (wasMovingHorizontally) {
-        // Были на горизонтали - теперь двигаемся по Y
-        interpolated.segments[headIndex] = {
-          x: currHead.x, // Фиксируем X на конечной позиции
-          y: prevHead.y + dy * ((interpolationT - 0.5) * 2) // Двигаемся по Y
-        };
-      } else {
-        // Были на вертикали - теперь двигаемся по X
-        interpolated.segments[headIndex] = {
-          x: prevHead.x + dx * ((interpolationT - 0.5) * 2), // Двигаемся по X
-          y: currHead.y // Фиксируем Y на конечной позиции
-        };
-      }
-    }
-  } else {
-    // Обычное движение без поворота - линейная интерполяция
-    interpolated.segments[headIndex] = {
-      x: prevHead.x + dx * interpolationT,
-      y: prevHead.y + dy * interpolationT
-    };
-  }
+  // Простая линейная интерполяция для головы
+  interpolated.segments[headIndex] = {
+    x: prevHead.x + dx * interpolationT,
+    y: prevHead.y + dy * interpolationT
+  };
   
-  // КОРРЕКЦИЯ ХВОСТА (Tail Anchoring): запрет на 'плавание' сегментов
-  // Каждый сегмент хвоста должен находиться строго на расстоянии 1 клетки от предыдущего
-  // Используем позиции из истории gameStatesBuffer для точного позиционирования
-  const GRID_SIZE = 1; // Размер одной клетки игрового поля
-  
-  // Начинаем с головы и выстраиваем хвост по цепочке
+  // УПРОЩЕННАЯ ИНТЕРПОЛЯЦИЯ ХВОСТА: интерполируем каждый сегмент линейно между предыдущим и текущим состоянием
+  // Это обеспечивает плавное движение всего тела змейки
   for (let i = 1; i < currSegments.length; i++) {
-    const prevSegment = interpolated.segments[i - 1]; // Предыдущий сегмент (голова или предыдущий сегмент хвоста)
+    const prevSeg = prevSegments[i] || prevSegments[prevSegments.length - 1];
+    const currSeg = currSegments[i] || currSegments[currSegments.length - 1];
     
-    // КОРРЕКЦИЯ ИЗ ИСТОРИИ: ищем позицию сегмента из предыдущих состояний gameStatesBuffer
-    // Сегмент i должен находиться в позиции, где он был в предыдущих состояниях
-    let targetSegmentPos = null;
-    
-    // Ищем в истории состояние, где сегмент i был на корректной позиции
-    // Используем самое старое доступное состояние из буфера
-    for (let j = 0; j < gameStatesBuffer.length; j++) {
-      const historyState = gameStatesBuffer[j];
-      const historySegments = historyState?.[snakeKey]?.segments || historyState?.[snakeKey]?.body || [];
-      if (historyState && historyState[snakeKey] && historySegments.length > 0 && 
-          i < historySegments.length) {
-        const historySegment = historySegments[i];
-        // Используем позицию из истории как целевую
-        targetSegmentPos = { x: historySegment.x, y: historySegment.y };
-        break; // Берем первое найденное состояние
-      }
-    }
-    
-    // Если нашли позицию из истории, используем её с выравниванием расстояния
-    if (targetSegmentPos) {
-      // Вычисляем вектор от предыдущего сегмента к целевой позиции
-      let segmentDx = targetSegmentPos.x - prevSegment.x;
-      let segmentDy = targetSegmentPos.y - prevSegment.y;
-      const segmentDistance = Math.sqrt(segmentDx * segmentDx + segmentDy * segmentDy);
-      
-      if (segmentDistance > 0) {
-        // Нормализуем и устанавливаем расстояние ровно в 1 единицу
-        segmentDx = (segmentDx / segmentDistance) * GRID_SIZE;
-        segmentDy = (segmentDy / segmentDistance) * GRID_SIZE;
-        interpolated.segments[i] = {
-          x: prevSegment.x - segmentDx, // Вычитаем, так как хвост идет назад от головы
-          y: prevSegment.y - segmentDy
-        };
-      } else {
-        // Если расстояние 0, используем направление из предыдущего состояния
-        if (i < prevSegments.length && i > 0) {
-          const prevPrevSegment = prevSegments[i - 1];
-          const prevCurrSegment = prevSegments[i];
-          segmentDx = prevCurrSegment.x - prevPrevSegment.x;
-          segmentDy = prevCurrSegment.y - prevPrevSegment.y;
-          const prevDistance = Math.sqrt(segmentDx * segmentDx + segmentDy * segmentDy);
-          if (prevDistance > 0) {
-            segmentDx = (segmentDx / prevDistance) * GRID_SIZE;
-            segmentDy = (segmentDy / prevDistance) * GRID_SIZE;
-          } else {
-            segmentDx = currentSnake.direction.dx * GRID_SIZE;
-            segmentDy = currentSnake.direction.dy * GRID_SIZE;
-          }
-        } else {
-          segmentDx = currentSnake.direction.dx * GRID_SIZE;
-          segmentDy = currentSnake.direction.dy * GRID_SIZE;
-        }
-        interpolated.segments[i] = {
-          x: prevSegment.x - segmentDx,
-          y: prevSegment.y - segmentDy
-        };
-      }
-    } else {
-      // Fallback: используем текущее состояние и выравниваем расстояние
-      const currSegment = currSegments[i];
-      let segmentDx = currSegment.x - prevSegment.x;
-      let segmentDy = currSegment.y - prevSegment.y;
-      const segmentDistance = Math.sqrt(segmentDx * segmentDx + segmentDy * segmentDy);
-      
-      if (segmentDistance > 0) {
-        // Нормализуем и устанавливаем расстояние ровно в 1 единицу
-        segmentDx = (segmentDx / segmentDistance) * GRID_SIZE;
-        segmentDy = (segmentDy / segmentDistance) * GRID_SIZE;
-      } else {
-        // Если сегменты на одной позиции, используем направление змейки
-        segmentDx = currentSnake.direction.dx * GRID_SIZE;
-        segmentDy = currentSnake.direction.dy * GRID_SIZE;
-      }
-      
-      // Позиционируем сегмент на расстоянии ровно 1 единица от предыдущего
+    if (prevSeg && currSeg) {
+      // Простая линейная интерполяция для каждого сегмента хвоста
       interpolated.segments[i] = {
-        x: prevSegment.x - segmentDx, // Вычитаем, так как хвост идет назад от головы
-        y: prevSegment.y - segmentDy
+        x: prevSeg.x + (currSeg.x - prevSeg.x) * interpolationT,
+        y: prevSeg.y + (currSeg.y - prevSeg.y) * interpolationT
       };
+    } else if (currSeg) {
+      // Если нет предыдущего сегмента, используем текущий
+      interpolated.segments[i] = { x: currSeg.x, y: currSeg.y };
+    } else if (prevSeg) {
+      // Если нет текущего сегмента, используем предыдущий
+      interpolated.segments[i] = { x: prevSeg.x, y: prevSeg.y };
     }
   }
   
