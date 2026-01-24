@@ -66,7 +66,7 @@
                     <!-- Deposit Modal -->
                     <div id="deposit-modal" class="payment-modal">
                         <div class="payment-modal-content">
-                            <h3>Deposit</h3>
+                            <h3>Deposit <button id="close-deposit-header-btn" class="close-header-btn" style="display: none; float: right; background: transparent; border: none; color: var(--neon-cyan); font-size: 24px; cursor: pointer; padding: 0; width: 32px; height: 32px; line-height: 32px; text-align: center; border-radius: 50%; transition: all 0.3s ease;">×</button></h3>
                             <div id="deposit-info">
                                 <!-- Step 1: Enter Amount (shown initially) -->
                                 <div id="deposit-amount-section">
@@ -98,14 +98,15 @@
                                 </div>
                             </div>
                             
+                            <!-- ИСПРАВЛЕНИЕ: Статусы перед кнопками, но вне скроллируемой области -->
+                            <p id="deposit-status"></p>
+                            <div id="deposit-polling-status" style="display: none;"></div>
+                            
                             <div class="deposit-buttons">
                                 <button id="confirm-deposit-btn" class="btn btn-primary">Confirm Amount</button>
                                 <button id="pay-deposit-tonkeeper-btn" class="btn btn-primary" style="display: none;">Pay with Tonkeeper</button>
                                 <button id="close-deposit-btn" class="btn btn-secondary">Close</button>
                             </div>
-                            
-                            <p id="deposit-status"></p>
-                            <div id="deposit-polling-status" style="display: none;"></div>
                         </div>
                     </div>
                     

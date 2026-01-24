@@ -1345,6 +1345,16 @@ function initEventListeners() {
     }
   });
   
+  // Close deposit modal (header button for mobile)
+  document.getElementById('close-deposit-header-btn')?.addEventListener('click', () => {
+    toggleModal('deposit-modal', false);
+    // Сбрасываем форму при закрытии
+    const amountInput = document.getElementById('deposit-amount-input');
+    if (amountInput) {
+      amountInput.value = '';
+    }
+  });
+  
   // Close deposit modal
   document.getElementById('close-deposit-btn')?.addEventListener('click', () => {
     toggleModal('deposit-modal', false);
