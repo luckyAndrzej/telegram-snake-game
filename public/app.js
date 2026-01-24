@@ -2896,30 +2896,12 @@ function startAnimationLoop() {
     }
     
     // Отрисовка змеек (работает и во время countdown, и во время игры)
+    // ИСПРАВЛЕНИЕ: Текст "You" теперь отрисовывается внутри функции drawSnake
     if (frameData) {
       if (frameData.my_snake && (frameData.my_snake.segments?.length > 0 || frameData.my_snake.body?.length > 0)) {
         // Определяем цвет для змейки игрока
         const playerColor = '#00FF41';
         drawSnake(frameData.my_snake, playerColor);
-        
-        // ВИЗУАЛЬНЫЙ ИНДИКАТОР: Рисуем текст "YOU" (только если не countdown, чтобы не перекрывать цифры)
-        if (!isCountdown) {
-          const headSegment = frameData.my_snake.segments?.[0] || frameData.my_snake.body?.[0];
-          if (headSegment) {
-            gameCtx.save();
-            gameCtx.font = "bold 14px Inter, Arial, sans-serif";
-            gameCtx.fillStyle = "#00FF41";
-            gameCtx.textAlign = "center";
-            gameCtx.textBaseline = "bottom";
-            gameCtx.shadowBlur = 5;
-            gameCtx.shadowColor = "#00FF41";
-            const tileSize = canvasLogicalSize / GRID_SIZE;
-            const headX = headSegment.x * tileSize;
-            const headY = headSegment.y * tileSize;
-            gameCtx.fillText("YOU", headX + tileSize / 2, headY - 5);
-            gameCtx.restore();
-          }
-        }
       }
       
       if (frameData.opponent_snake && (frameData.opponent_snake.segments?.length > 0 || frameData.opponent_snake.body?.length > 0)) {
@@ -3116,6 +3098,24 @@ function drawSnake(snake, color) {
     gameCtx.arc(eye2X, eye2Y, pupilSize, 0, Math.PI * 2);
     gameCtx.fill();
     gameCtx.restore();
+    
+    // ИСПРАВЛЕНИЕ: Отрисовка текста "You" над змейкой игрока
+    if (isMySnake) {
+      gameCtx.save();
+      gameCtx.fillStyle = "white";
+      gameCtx.font = "bold 14px Arial, sans-serif";
+      gameCtx.textAlign = "center";
+      gameCtx.textBaseline = "bottom";
+      // Визуальная полировка: добавляем тень для лучшей видимости
+      gameCtx.shadowBlur = 4;
+      gameCtx.shadowColor = 'black';
+      gameCtx.shadowOffsetX = 1;
+      gameCtx.shadowOffsetY = 1;
+      // Рисуем надпись чуть выше головы змейки (на 20 пикселей выше центра головы)
+      // headX и headY уже содержат координаты центра головы
+      gameCtx.fillText("You", headX, headY - 20);
+      gameCtx.restore();
+    }
   }
 }
 
