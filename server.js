@@ -582,8 +582,9 @@ io.on('connection', async (socket) => {
             const { mnemonicToWalletKey } = require('@ton/crypto');
             
             // Используем децентрализованный Orbs Access вместо TonCenter
-            const isTestnet = process.env.IS_TESTNET === 'true' || process.env.IS_TESTNET === true || process.env.IS_TESTNET === 'TRUE';
-            console.log(`🌐 [Withdrawal] IS_TESTNET=${isTestnet} (из env: ${process.env.IS_TESTNET}), network=${isTestnet ? 'testnet' : 'mainnet'}`);
+            // ВАЖНО: Используем ту же логику, что и для сканера (с fallback на testnet)
+            const isTestnet = process.env.IS_TESTNET === 'true' || process.env.IS_TESTNET === true || process.env.IS_TESTNET === 'TRUE' || true; // Fallback: true (тестнет)
+            console.log(`🌐 [Withdrawal] IS_TESTNET=${isTestnet} (из env: ${process.env.IS_TESTNET || 'undefined (fallback=true)'}), network=${isTestnet ? 'testnet' : 'mainnet'}`);
             
             // Получаем endpoint через децентрализованную сеть Orbs
             console.log(`🔗 [Withdrawal] Получение endpoint через Orbs Access...`);
