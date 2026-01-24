@@ -738,10 +738,18 @@ body::before {
         font-size: 14px !important;
     }
     
-    .deposit-address-box,
-    .deposit-comment-box {
+    .deposit-address-box {
         font-size: 14px !important;
         padding: 16px 18px !important;
+    }
+    
+    /* Payment Comment крупнее — удобнее при транзакции */
+    .deposit-comment-box,
+    #deposit-comment {
+        font-size: 22px !important;
+        padding: 14px 18px !important;
+        min-height: 54px !important;
+        letter-spacing: 2.5px !important;
     }
 }
 
@@ -1297,19 +1305,21 @@ body::before {
     font-family: 'Courier New', monospace;
     font-weight: 700;
     color: var(--neon-purple);
-    font-size: 18px;
-    letter-spacing: 2px;
+    font-size: 24px !important; /* Увеличен для лучшей читаемости при транзакции */
+    letter-spacing: 3px;
     text-shadow: 0 0 15px rgba(176, 38, 255, 0.8);
     background: rgba(176, 38, 255, 0.1);
-    padding: 10px 14px;
-    border-radius: 10px;
-    border: 1px solid rgba(176, 38, 255, 0.3);
+    padding: 16px 20px !important; /* Увеличен padding */
+    border-radius: 12px;
+    border: 2px solid rgba(176, 38, 255, 0.4);
     display: inline-block;
-    margin-top: 5px;
+    margin-top: 8px;
     box-shadow: 
         0 0 20px rgba(176, 38, 255, 0.2),
         inset 0 0 15px rgba(176, 38, 255, 0.05);
     overflow: hidden; /* ИСПРАВЛЕНИЕ: Обрезаем внутренние элементы по границе скругления */
+    min-height: 56px; /* Увеличен минимальный размер блока */
+    line-height: 1.4;
 }
 
 /* Предупреждение в модальном окне депозита */
@@ -1704,10 +1714,18 @@ body::before {
         padding: 14px 16px !important;
     }
     
-    .deposit-address-box,
-    .deposit-comment-box {
+    .deposit-address-box {
         font-size: 12px !important;
         padding: 12px 14px !important;
+    }
+    
+    /* Payment Comment крупнее на мобильных — удобнее копировать при транзакции */
+    .deposit-comment-box,
+    #deposit-comment {
+        font-size: 20px !important;
+        padding: 14px 18px !important;
+        min-height: 52px !important;
+        letter-spacing: 2px !important;
     }
     
     .deposit-buttons {
