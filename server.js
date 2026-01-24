@@ -616,42 +616,95 @@ io.on('connection', async (socket) => {
               throw new Error(errorDetails);
             }
             
-            // Пробуем сначала V4, потом V3R2 (если V4 дает нулевой баланс)
-            let wallet = WalletContractV4.create({ publicKey: keyPair.publicKey, workchain: 0 });
-            let walletVersion = 'V4';
-            console.log(`✅ [Withdrawal] Wallet V4 создан`);
-            
-            // Корректный вывод адреса с параметрами (для тестнета используем testOnly: true)
-            const walletAddress = wallet.address.toString({ 
-              testOnly: isTestnet, // Используем isTestnet вместо принудительного true
-              bounceable: false, 
-              urlSafe: true 
-            });
-            console.log(`📝 [Withdrawal] Адрес кошелька админа: ${walletAddress.substring(0, 20)}...`);
-            
-            // Проверяем баланс кошелька администратора
-            console.log(`💰 [Withdrawal] Проверка баланса кошелька админа...`);
+            const opts = { testOnly: isTestnet, bounceable: false, urlSafe: true };
+            const walletV4 = WalletContractV4.create({ publicKey: keyPair.publicKey, workchain: 0 });
+            const walletV3R2 = WalletContractV3R2.create({ publicKey: keyPair.publicKey, workchain: 0 });
+            const addrV4 = walletV4.address.toString(opts);
+            const addrV3R2 = walletV3R2.address.toString(opts);
+            console.log(`📝 [Withdrawal] Адрес V4 (из seed):    ${addrV4}`);
+            console.log(`📝 [Withdrawal] Адрес V3R2 (из seed): ${addrV3R2}`);
+
+            const expectedAddrRaw = (process.env.TON_WALLET_ADDRESS || '').trim();
+            let wallet = null;
+            let walletVersion = '';
+
+            if (expectedAddrRaw) {
+              let expectedNorm;
+              try {
+                expectedNorm = Address.parse(expectedAddrRaw).toString(opts);
+              } catch (parseErr) {
+                errorDetails = `Некорректный TON_WALLET_ADDRESS: ${parseErr.message}`;
+                throw new Error(errorDetails);
+              }
+              if (addrV4 === expectedNorm) {
+                wallet = walletV4;
+                walletVersion = 'V4';
+                console.log(`✅ [Withdrawal] Используем V4: адрес совпадает с TON_WALLET_ADDRESS`);
+              } else if (addrV3R2 === expectedNorm) {
+                wallet = walletV3R2;
+                walletVersion = 'V3R2';
+                console.log(`✅ [Withdrawal] Используем V3R2: адрес совпадает с TON_WALLET_ADDRESS`);
+              } else {
+                errorDetails = `Адрес TON_WALLET_ADDRESS (${expectedAddrRaw}) не совпадает ни с V4 (${addrV4}), ни с V3R2 (${addrV3R2}) из ADMIN_SEED. Проверьте, что seed соответствует этому кошельку.`;
+                throw new Error(errorDetails);
+              }
+            }
+
+            if (!wallet) {
+              let balV4 = BigInt(0);
+              let balV3 = BigInt(0);
+              try {
+                balV4 = await client.getBalance(walletV4.address);
+                console.log(`💰 [Withdrawal] Баланс V4: ${balV4.toString()} нанотонов`);
+              } catch (e) {
+                console.warn(`⚠️ [Withdrawal] Ошибка getBalance V4:`, e.message);
+              }
+              try {
+                balV3 = await client.getBalance(walletV3R2.address);
+                console.log(`💰 [Withdrawal] Баланс V3R2: ${balV3.toString()} нанотонов`);
+              } catch (e) {
+                console.warn(`⚠️ [Withdrawal] Ошибка getBalance V3R2:`, e.message);
+              }
+              const requiredNano = BigInt(Math.ceil((amountInTon + 0.1) * 1e9));
+              if (balV4 >= requiredNano) {
+                wallet = walletV4;
+                walletVersion = 'V4';
+                console.log(`✅ [Withdrawal] Используем V4: достаточно баланса`);
+              } else if (balV3 >= requiredNano) {
+                wallet = walletV3R2;
+                walletVersion = 'V3R2';
+                console.log(`✅ [Withdrawal] Используем V3R2: достаточно баланса`);
+              } else {
+                const balanceV4Ton = Number(balV4) / 1e9;
+                const balanceV3Ton = Number(balV3) / 1e9;
+                errorDetails = `Недостаточно средств на кошельке админа. V4: ${balanceV4Ton.toFixed(4)} TON, V3R2: ${balanceV3Ton.toFixed(4)} TON; требуется ${(amountInTon + 0.1).toFixed(4)} TON (сумма + 0.1 комиссия). Убедитесь, что TON_WALLET_ADDRESS соответствует кошельку из ADMIN_SEED (V4 или V3R2).`;
+                throw new Error(errorDetails);
+              }
+            }
+
+            const walletAddress = wallet.address.toString(opts);
+            console.log(`📝 [Withdrawal] Выбран кошелёк ${walletVersion}: ${walletAddress}`);
+
             let balance;
             try {
               balance = await client.getBalance(wallet.address);
               console.log(`✅ [Withdrawal] Баланс получен: ${balance.toString()} нанотонов`);
             } catch (balanceError) {
               console.error('❌ [Withdrawal] Ошибка getBalance:', balanceError.message);
-              console.error('❌ [Withdrawal] Stack:', balanceError.stack);
               errorDetails = `Ошибка проверки баланса: ${balanceError.message}`;
               throw balanceError;
             }
-            
+
             const balanceInTon = parseFloat(balance.toString()) / 1000000000;
             console.log(`💰 [Withdrawal] Баланс админа: ${balanceInTon.toFixed(4)} TON, требуется: ${(amountInTon + 0.1).toFixed(4)} TON`);
-            
+
             if (balanceInTon < amountInTon + 0.1) {
               const required = amountInTon + 0.1;
               errorDetails = `Недостаточно средств на администраторском кошельке. Баланс: ${balanceInTon.toFixed(4)} TON, требуется: ${required.toFixed(4)} TON (${amountInTon} TON + 0.1 TON комиссия)`;
               throw new Error(errorDetails);
             }
-            
-            // Используем проверенный метод для Wallet V4
+
+            // Используем выбранный кошелёк (V4 или V3R2)
             console.log(`🚀 [Withdrawal] Подготовка транзакции...`);
             try {
               const provider = client.provider(wallet.address);
