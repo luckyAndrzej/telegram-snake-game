@@ -48,10 +48,29 @@ let packetQueue = []; // Очередь пакетов game_state
 // Фиксированный шаг тика сервера (увеличено до 120мс для компенсации сетевых задержек)
 const TICK_DURATION = 120; // мс (длительность одного тика на сервере)
 
-// Текущее состояние игры для отрисовки
-let previousGameState = null; // Предыдущее состояние для интерполяции
-let interpolatedGameState = null; // Текущее состояние для интерполяции (не путать с currentGameState)
-let lastStateUpdateTime = 0; // Время последнего обновления состояния
+// МАСЛЯНАЯ ПЛАВНОСТЬ: Оптимизированная система интерполяции
+// Храним oldPos и targetPos для каждой змейки отдельно
+let snakeInterpolationState = {
+  my_snake: {
+    oldPos: null,      // Старые координаты сегментов
+    targetPos: null,   // Целевые координаты сегментов
+    lastUpdate: 0,     // Время последнего обновления (performance.now())
+    direction: null,   // Направление движения
+    alive: true
+  },
+  opponent_snake: {
+    oldPos: null,
+    targetPos: null,
+    lastUpdate: 0,
+    direction: null,
+    alive: true
+  }
+};
+
+// Для обратной совместимости
+let previousGameState = null;
+let interpolatedGameState = null;
+let lastStateUpdateTime = 0;
 let headHistory = []; // История позиций головы для хвоста (массив {x, y, direction})
 let opponentHeadHistory = []; // История позиций головы противника
 
@@ -309,6 +328,12 @@ function initSocket() {
     previousGameState = null;
     lastStateUpdateTime = 0;
     
+    // Сброс состояния интерполяции для новой игры
+    snakeInterpolationState = {
+      my_snake: { oldPos: null, targetPos: null, lastUpdate: 0, direction: null, alive: true },
+      opponent_snake: { oldPos: null, targetPos: null, lastUpdate: 0, direction: null, alive: true }
+    };
+    
     // Очищаем очереди и историю
     packetQueue = [];
     headHistory = [];
@@ -381,16 +406,33 @@ function initSocket() {
           console.log('🔧 Fixed opponent_snake initial position to horizontal:', fixedOpponentSnakeSegments);
         }
         
+        const mySnakeSegs = fixedMySnakeSegments || mySnakeSegments || [];
+        const oppSnakeSegs = fixedOpponentSnakeSegments || opponentSnakeSegments || [];
+        
         window.appState.game.my_snake = {
-          segments: fixedMySnakeSegments || mySnakeSegments || [],
+          segments: mySnakeSegs,
           direction: { dx: 1, dy: 0 }, // Горизонтально вправо
           alive: true
         };
         window.appState.game.opponent_snake = {
-          segments: fixedOpponentSnakeSegments || opponentSnakeSegments || [],
+          segments: oppSnakeSegs,
           direction: { dx: -1, dy: 0 }, // Горизонтально влево
           alive: true
         };
+        
+        // Инициализация состояния интерполяции из initial_state
+        const initTime = performance.now();
+        snakeInterpolationState.my_snake.oldPos = mySnakeSegs.map(s => ({ x: s.x, y: s.y }));
+        snakeInterpolationState.my_snake.targetPos = mySnakeSegs.map(s => ({ x: s.x, y: s.y }));
+        snakeInterpolationState.my_snake.lastUpdate = initTime;
+        snakeInterpolationState.my_snake.direction = { dx: 1, dy: 0 };
+        snakeInterpolationState.my_snake.alive = true;
+        
+        snakeInterpolationState.opponent_snake.oldPos = oppSnakeSegs.map(s => ({ x: s.x, y: s.y }));
+        snakeInterpolationState.opponent_snake.targetPos = oppSnakeSegs.map(s => ({ x: s.x, y: s.y }));
+        snakeInterpolationState.opponent_snake.lastUpdate = initTime;
+        snakeInterpolationState.opponent_snake.direction = { dx: -1, dy: 0 };
+        snakeInterpolationState.opponent_snake.alive = true;
         window.appState.game.snakes = [window.appState.game.my_snake, window.appState.game.opponent_snake].filter(s => s !== null);
         
         // ОБНОВЛЕНИЕ ИНФОРМАЦИИ О ЗМЕЙКАХ: Показываем, кто за какую змейку играет
@@ -549,6 +591,18 @@ function initSocket() {
   socket.on('game_start', (data) => {
     console.log('🎮 Game started (client):', data);
     
+    // ОЧИСТКА ДУБЛЕЙ: Удаляем старый слушатель game_state перед началом новой игры
+    // Это предотвращает рывки от "наслаивающихся" данных
+    if (socket) {
+      socket.off('game_state');
+    }
+    
+    // Сброс состояния интерполяции для новой игры
+    snakeInterpolationState = {
+      my_snake: { oldPos: null, targetPos: null, lastUpdate: 0, direction: null, alive: true },
+      opponent_snake: { oldPos: null, targetPos: null, lastUpdate: 0, direction: null, alive: true }
+    };
+    
     // Сбрасываем переменную таймера при новом старте игры
     const countdownNumber = document.getElementById('countdown-number');
     if (countdownNumber) {
@@ -657,6 +711,9 @@ function initSocket() {
     console.log('✅ Игра началась, ожидаем game_state события...');
   });
   
+  // ОЧИСТКА ДУБЛЕЙ: Удаляем старый слушатель перед созданием нового (предотвращает рывки)
+  socket.off('game_state');
+  
   socket.on('game_state', (data) => {
     // Логирование для диагностики
     console.log('Данные игры получены:', data);
@@ -685,15 +742,32 @@ function initSocket() {
     // ЛОГИКА ОТРИСОВКИ: Обновляем window.appState.game данными из game_state всегда, если gameState === 'playing'
     // Не блокируем отрисовку из-за несовпадения ID - обновляем состояние в любом случае
     if (data && (gameState === 'playing' || gameState === 'countdown')) {
+      const updateTime = performance.now(); // Точное время получения пакета
+      
       window.appState.game.status = 'playing';
       window.appState.game.tick_number = data.tick_number || 0;
+      
+      // МАСЛЯНАЯ ПЛАВНОСТЬ: Сохраняем oldPos и targetPos для интерполяции
       // ИСПРАВЛЕНИЕ ДОСТУПА К КООРДИНАТАМ: Сервер присылает segments, а не body
       // ИСПРАВЛЕНИЕ: Гарантируем, что my_snake и opponent_snake всегда обновляются, даже если один из них null
       if (data.my_snake) {
+        const segments = data.my_snake.segments ? [...data.my_snake.segments] : (data.my_snake.body ? [...data.my_snake.body] : []);
+        
+        // Сохраняем текущие координаты как oldPos, новые как targetPos
+        if (snakeInterpolationState.my_snake.targetPos) {
+          snakeInterpolationState.my_snake.oldPos = [...snakeInterpolationState.my_snake.targetPos];
+        } else {
+          snakeInterpolationState.my_snake.oldPos = segments.map(s => ({ x: s.x, y: s.y }));
+        }
+        snakeInterpolationState.my_snake.targetPos = segments.map(s => ({ x: s.x, y: s.y }));
+        snakeInterpolationState.my_snake.lastUpdate = updateTime;
+        snakeInterpolationState.my_snake.direction = data.my_snake.direction ? { ...data.my_snake.direction } : { dx: 1, dy: 0 };
+        snakeInterpolationState.my_snake.alive = data.my_snake.alive !== undefined ? data.my_snake.alive : true;
+        
         window.appState.game.my_snake = {
-          segments: data.my_snake.segments ? [...data.my_snake.segments] : (data.my_snake.body ? [...data.my_snake.body] : []),
-          direction: data.my_snake.direction ? { ...data.my_snake.direction } : { dx: 1, dy: 0 },
-          alive: data.my_snake.alive !== undefined ? data.my_snake.alive : true
+          segments: segments,
+          direction: snakeInterpolationState.my_snake.direction,
+          alive: snakeInterpolationState.my_snake.alive
         };
       } else {
         // Если my_snake не пришла, сохраняем предыдущее состояние
@@ -703,10 +777,23 @@ function initSocket() {
       }
       
       if (data.opponent_snake) {
+        const segments = data.opponent_snake.segments ? [...data.opponent_snake.segments] : (data.opponent_snake.body ? [...data.opponent_snake.body] : []);
+        
+        // Сохраняем текущие координаты как oldPos, новые как targetPos
+        if (snakeInterpolationState.opponent_snake.targetPos) {
+          snakeInterpolationState.opponent_snake.oldPos = [...snakeInterpolationState.opponent_snake.targetPos];
+        } else {
+          snakeInterpolationState.opponent_snake.oldPos = segments.map(s => ({ x: s.x, y: s.y }));
+        }
+        snakeInterpolationState.opponent_snake.targetPos = segments.map(s => ({ x: s.x, y: s.y }));
+        snakeInterpolationState.opponent_snake.lastUpdate = updateTime;
+        snakeInterpolationState.opponent_snake.direction = data.opponent_snake.direction ? { ...data.opponent_snake.direction } : { dx: -1, dy: 0 };
+        snakeInterpolationState.opponent_snake.alive = data.opponent_snake.alive !== undefined ? data.opponent_snake.alive : true;
+        
         window.appState.game.opponent_snake = {
-          segments: data.opponent_snake.segments ? [...data.opponent_snake.segments] : (data.opponent_snake.body ? [...data.opponent_snake.body] : []),
-          direction: data.opponent_snake.direction ? { ...data.opponent_snake.direction } : { dx: -1, dy: 0 },
-          alive: data.opponent_snake.alive !== undefined ? data.opponent_snake.alive : true
+          segments: segments,
+          direction: snakeInterpolationState.opponent_snake.direction,
+          alive: snakeInterpolationState.opponent_snake.alive
         };
       } else {
         // Если opponent_snake не пришла, сохраняем предыдущее состояние
@@ -2781,84 +2868,59 @@ function startRenderLoop() {
     // 2. Сетка
     if (gridCanvas) gameCtx.drawImage(gridCanvas, 0, 0);
 
-    // МАКСИМАЛЬНАЯ ПЛАВНОСТЬ: Оптимизированная система интерполяции с экстраполяцией
-    let newStateReceived = false;
-    
-    // ОПТИМИЗАЦИЯ: Обрабатываем ВСЕ накопившиеся пакеты за один кадр для устранения задержек
-    // Но сохраняем предыдущее состояние только перед первым пакетом
-    if (packetQueue.length > 0 && (window.appState?.game?.my_snake || window.appState?.game?.opponent_snake)) {
-      previousGameState = {
-        my_snake: window.appState.game.my_snake ? {
-          segments: [...(window.appState.game.my_snake.segments || window.appState.game.my_snake.body || [])],
-          direction: { ...(window.appState.game.my_snake.direction || { dx: 1, dy: 0 }) },
-          alive: window.appState.game.my_snake.alive !== undefined ? window.appState.game.my_snake.alive : true
-        } : null,
-        opponent_snake: window.appState.game.opponent_snake ? {
-          segments: [...(window.appState.game.opponent_snake.segments || window.appState.game.opponent_snake.body || [])],
-          direction: { ...(window.appState.game.opponent_snake.direction || { dx: -1, dy: 0 }) },
-          alive: window.appState.game.opponent_snake.alive !== undefined ? window.appState.game.opponent_snake.alive : true
-        } : null,
-        tick_number: window.appState.game.tick_number || 0
-      };
-      
-      // Обрабатываем все накопившиеся пакеты (но не более 5 за кадр для предотвращения лагов)
+    // МАСЛЯНАЯ ПЛАВНОСТЬ: Оптимизированная система интерполяции
+    // Обрабатываем пакеты из очереди (для обратной совместимости)
+    if (packetQueue.length > 0) {
       let packetsProcessed = 0;
       const maxPacketsPerFrame = 5;
       while (packetQueue.length > 0 && packetsProcessed < maxPacketsPerFrame) {
-        const nextPacket = packetQueue.shift();
-        if (nextPacket) {
-          // Синхронизируем состояние из пакета
-          if (nextPacket.my_snake) {
-            window.appState.game.my_snake = {
-              segments: nextPacket.my_snake.segments || nextPacket.my_snake.body || [],
-              direction: nextPacket.my_snake.direction || { dx: 1, dy: 0 },
-              alive: nextPacket.my_snake.alive !== undefined ? nextPacket.my_snake.alive : true
-            };
-          }
-          if (nextPacket.opponent_snake) {
-            window.appState.game.opponent_snake = {
-              segments: nextPacket.opponent_snake.segments || nextPacket.opponent_snake.body || [],
-              direction: nextPacket.opponent_snake.direction || { dx: -1, dy: 0 },
-              alive: nextPacket.opponent_snake.alive !== undefined ? nextPacket.opponent_snake.alive : true
-            };
-          }
-          window.appState.game.tick_number = nextPacket.tick_number || 0;
-          window.appState.game.finished = nextPacket.finished === true || nextPacket.game_finished === true;
-          lastStateUpdateTime = now;
-          newStateReceived = true;
-          packetsProcessed++;
+        packetQueue.shift(); // Пакеты уже обработаны в socket.on('game_state')
+        packetsProcessed++;
+      }
+    }
+    
+    // ВЫЧИСЛЕНИЕ КОЭФФИЦИЕНТА ИНТЕРПОЛЯЦИИ (alpha) для каждой змейки
+    const TICK_RATE = TICK_DURATION; // 120ms - интервал сервера
+    const currentTime = performance.now();
+    
+    // Функция для вычисления alpha с обработкой телепортации
+    function calculateAlpha(snakeState) {
+      if (!snakeState.oldPos || !snakeState.targetPos || snakeState.lastUpdate === 0) {
+        return 1; // Нет данных для интерполяции
+      }
+      
+      const elapsed = currentTime - snakeState.lastUpdate;
+      let alpha = elapsed / TICK_RATE;
+      
+      // ОБРАБОТКА ТЕЛЕПОРТАЦИИ: Если расстояние между oldPos и targetPos > 1,
+      // значит змея прошла сквозь стену или произошла телепортация
+      if (snakeState.oldPos.length > 0 && snakeState.targetPos.length > 0) {
+        const headOld = snakeState.oldPos[0];
+        const headTarget = snakeState.targetPos[0];
+        const distance = Math.abs(headTarget.x - headOld.x) + Math.abs(headTarget.y - headOld.y);
+        
+        // Если расстояние больше 1 клетки, это телепортация - устанавливаем alpha = 1
+        if (distance > 1) {
+          alpha = 1;
         }
       }
-    }
-
-    // ОПТИМАЛЬНОЕ ВЫЧИСЛЕНИЕ КОЭФФИЦИЕНТА ИНТЕРПОЛЯЦИИ с ограниченной экстраполяцией
-    const expectedTickInterval = 111.11; // ~9 тиков в секунду (1000ms / 9)
-    const maxExtrapolation = 0.5; // Максимальная экстраполяция = 50% от интервала (для предсказания движения)
-    let interpolationFactor = 1; // По умолчанию используем текущее состояние
-    
-    if (previousGameState && lastStateUpdateTime > 0 && (window.appState?.game?.my_snake || window.appState?.game?.opponent_snake)) {
-      const timeSinceUpdate = now - lastStateUpdateTime;
-      // Вычисляем базовый коэффициент интерполяции (может быть > 1 для экстраполяции)
-      let rawFactor = timeSinceUpdate / expectedTickInterval;
       
-      // Разрешаем ограниченную экстраполяцию для предсказания движения (до 50% вперед)
-      // Это обеспечивает плавность даже когда новый пакет еще не пришел
-      rawFactor = Math.min(Math.max(rawFactor, 0), 1.0 + maxExtrapolation);
+      // Ограничиваем alpha до [0, 1.2] (разрешаем небольшую экстраполяцию)
+      alpha = Math.min(Math.max(alpha, 0), 1.2);
       
-      // Применяем улучшенную easing функцию для максимальной плавности
-      // Используем smoothstep (S-образная кривая) для более естественного движения
-      if (rawFactor <= 1.0) {
-        // Интерполяция: используем smoothstep для плавного перехода
-        const t = rawFactor;
-        interpolationFactor = t * t * (3 - 2 * t); // Smoothstep
+      // Применяем smoothstep для максимальной плавности
+      if (alpha <= 1.0) {
+        return alpha * alpha * (3 - 2 * alpha); // Smoothstep
       } else {
-        // Экстраполяция: используем более консервативный подход
-        const extrapolation = rawFactor - 1.0;
-        interpolationFactor = 1.0 + extrapolation * 0.3; // Ограничиваем экстраполяцию до 30% от избытка
+        // Экстраполяция: консервативный подход
+        const extrapolation = alpha - 1.0;
+        return 1.0 + extrapolation * 0.2; // Ограничиваем до 20%
       }
-    } else {
-      interpolationFactor = 1;
     }
+    
+    // Вычисляем alpha для каждой змейки
+    const mySnakeAlpha = calculateAlpha(snakeInterpolationState.my_snake);
+    const oppSnakeAlpha = calculateAlpha(snakeInterpolationState.opponent_snake);
 
     // ИСПРАВЛЕНИЕ: Отрисовка змеек должна идти ВСЕГДА на основе данных из window.appState.game
     // (даже если новых пакетов нет) - это уберет мерцание и исчезновение змеек
@@ -2893,12 +2955,29 @@ function startRenderLoop() {
     }
     
     // 4. РАЗНЫЕ ЦВЕТА ЗМЕЕК: Рисуем Змейку Игрока (Зеленая/Неоновая)
-    // ИСПРАВЛЕНИЕ: Улучшаем проверку наличия данных для отрисовки
-    const currentMySnake = window.appState?.game?.my_snake || currentGameState?.my_snake || currentGame?.initialState?.my_snake;
-    // Используем интерполяцию для плавных движений (поддерживаем экстраполяцию до 1.5)
-    const mySnake = (previousGameState?.my_snake && currentMySnake && interpolationFactor >= 0 && interpolationFactor <= 1.5) 
-      ? interpolateSnake(previousGameState.my_snake, currentMySnake, interpolationFactor)
-      : currentMySnake;
+    // МАСЛЯНАЯ ПЛАВНОСТЬ: Используем oldPos/targetPos для интерполяции
+    let mySnake = null;
+    const mySnakeState = snakeInterpolationState.my_snake;
+    if (mySnakeState.oldPos && mySnakeState.targetPos && mySnakeState.oldPos.length > 0) {
+      // Интерполируем каждый сегмент: drawX = oldX + (targetX - oldX) * alpha
+      const interpolatedSegments = mySnakeState.oldPos.map((oldSeg, i) => {
+        const targetSeg = mySnakeState.targetPos[i] || oldSeg;
+        return {
+          x: oldSeg.x + (targetSeg.x - oldSeg.x) * mySnakeAlpha,
+          y: oldSeg.y + (targetSeg.y - oldSeg.y) * mySnakeAlpha
+        };
+      });
+      
+      mySnake = {
+        segments: interpolatedSegments,
+        direction: mySnakeState.direction || { dx: 1, dy: 0 },
+        alive: mySnakeState.alive !== undefined ? mySnakeState.alive : true
+      };
+    } else {
+      // Fallback на старую систему для обратной совместимости
+      const currentMySnake = window.appState?.game?.my_snake || currentGameState?.my_snake || currentGame?.initialState?.my_snake;
+      mySnake = currentMySnake;
+    }
     if (mySnake) {
       const mySnakeSegments = mySnake.segments || mySnake.body;
       if (mySnakeSegments && mySnakeSegments.length > 0) {
@@ -2931,12 +3010,29 @@ function startRenderLoop() {
     }
 
     // 5. РАЗНЫЕ ЦВЕТА ЗМЕЕК: Рисуем Змейку Оппонента (Красная/Розовая)
-    // ИСПРАВЛЕНИЕ: Улучшаем проверку наличия данных для отрисовки
-    const currentOppSnake = window.appState?.game?.opponent_snake || currentGameState?.opponent_snake || currentGame?.initialState?.opponent_snake;
-    // Используем интерполяцию для плавных движений (поддерживаем экстраполяцию до 1.5)
-    const oppSnake = (previousGameState?.opponent_snake && currentOppSnake && interpolationFactor >= 0 && interpolationFactor <= 1.5)
-      ? interpolateSnake(previousGameState.opponent_snake, currentOppSnake, interpolationFactor)
-      : currentOppSnake;
+    // МАСЛЯНАЯ ПЛАВНОСТЬ: Используем oldPos/targetPos для интерполяции
+    let oppSnake = null;
+    const oppSnakeState = snakeInterpolationState.opponent_snake;
+    if (oppSnakeState.oldPos && oppSnakeState.targetPos && oppSnakeState.oldPos.length > 0) {
+      // Интерполируем каждый сегмент: drawX = oldX + (targetX - oldX) * alpha
+      const interpolatedSegments = oppSnakeState.oldPos.map((oldSeg, i) => {
+        const targetSeg = oppSnakeState.targetPos[i] || oldSeg;
+        return {
+          x: oldSeg.x + (targetSeg.x - oldSeg.x) * oppSnakeAlpha,
+          y: oldSeg.y + (targetSeg.y - oldSeg.y) * oppSnakeAlpha
+        };
+      });
+      
+      oppSnake = {
+        segments: interpolatedSegments,
+        direction: oppSnakeState.direction || { dx: -1, dy: 0 },
+        alive: oppSnakeState.alive !== undefined ? oppSnakeState.alive : true
+      };
+    } else {
+      // Fallback на старую систему для обратной совместимости
+      const currentOppSnake = window.appState?.game?.opponent_snake || currentGameState?.opponent_snake || currentGame?.initialState?.opponent_snake;
+      oppSnake = currentOppSnake;
+    }
     if (oppSnake) {
       const oppSnakeSegments = oppSnake.segments || oppSnake.body;
       if (oppSnakeSegments && oppSnakeSegments.length > 0) {
