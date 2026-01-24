@@ -1345,8 +1345,9 @@ function initEventListeners() {
     }
   });
   
-  // Close deposit modal
-  document.getElementById('close-deposit-btn')?.addEventListener('click', () => {
+  // Close deposit modal (крестик в заголовке)
+  document.getElementById('close-deposit-modal-btn')?.addEventListener('click', (e) => {
+    e.stopPropagation(); // Предотвращаем всплытие события
     toggleModal('deposit-modal', false);
     // Сбрасываем форму при закрытии
     const amountInput = document.getElementById('deposit-amount-input');
@@ -1362,6 +1363,17 @@ function initEventListeners() {
     if (detailsSection) detailsSection.style.display = 'none';
     if (confirmBtn) confirmBtn.style.display = 'block';
     if (payBtn) payBtn.style.display = 'none';
+    
+    // Очищаем статусы
+    const statusEl = document.getElementById('deposit-status');
+    if (statusEl) {
+      statusEl.textContent = '';
+    }
+    const pollingStatusEl = document.getElementById('deposit-polling-status');
+    if (pollingStatusEl) {
+      pollingStatusEl.style.display = 'none';
+      pollingStatusEl.textContent = '';
+    }
   });
   
   // Old buy buttons (removed, but keeping for compatibility)

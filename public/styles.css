@@ -1044,7 +1044,7 @@ body::before {
 /* ИСПРАВЛЕНИЕ: Заголовок модального окна с padding */
 .payment-modal-content h3 {
     margin: 0 !important; /* ИСПРАВЛЕНИЕ: Убираем margin, используем padding */
-    padding: 25px 25px 15px 25px !important; /* ИСПРАВЛЕНИЕ: Padding для заголовка */
+    padding: 25px 50px 15px 25px !important; /* ИСПРАВЛЕНИЕ: Padding для заголовка с учетом крестика справа */
     background: linear-gradient(135deg, var(--neon-cyan) 0%, var(--neon-purple) 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
@@ -1058,6 +1058,45 @@ body::before {
     position: relative;
     flex-shrink: 0; /* ИСПРАВЛЕНИЕ: Заголовок не сжимается */
     overflow: visible !important; /* ИСПРАВЛЕНИЕ: Позволяем кнопке закрытия быть видимой */
+}
+
+/* ИСПРАВЛЕНИЕ: Крестик закрытия в заголовке модального окна */
+.modal-close-btn {
+    position: absolute !important;
+    right: 15px !important;
+    top: 50% !important;
+    transform: translateY(-50%) !important;
+    width: 36px !important;
+    height: 36px !important;
+    background: rgba(0, 245, 255, 0.1) !important;
+    border: 2px solid rgba(0, 245, 255, 0.3) !important;
+    border-radius: 50% !important;
+    color: var(--neon-cyan) !important;
+    font-size: 28px !important;
+    font-weight: 300 !important;
+    line-height: 32px !important;
+    text-align: center !important;
+    cursor: pointer !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    z-index: 10003 !important;
+    transition: all 0.3s ease !important;
+    display: flex !important;
+    align-items: center !important;
+    justify-content: center !important;
+    box-sizing: border-box !important;
+}
+
+.modal-close-btn:hover {
+    background: rgba(0, 245, 255, 0.2) !important;
+    border-color: var(--neon-cyan) !important;
+    box-shadow: 0 0 15px rgba(0, 245, 255, 0.5) !important;
+    transform: translateY(-50%) scale(1.1) !important;
+}
+
+.modal-close-btn:active {
+    transform: translateY(-50%) scale(0.95) !important;
+    background: rgba(0, 245, 255, 0.3) !important;
 }
 
 
@@ -1587,8 +1626,16 @@ body::before {
     
     .payment-modal-content h3 {
         font-size: 24px !important;
-        padding: 20px 20px 15px 20px !important; /* ИСПРАВЛЕНИЕ: Padding для заголовка */
+        padding: 20px 50px 15px 20px !important; /* ИСПРАВЛЕНИЕ: Padding для заголовка с учетом крестика */
         margin: 0 !important;
+    }
+    
+    .modal-close-btn {
+        width: 32px !important;
+        height: 32px !important;
+        font-size: 24px !important;
+        line-height: 28px !important;
+        right: 10px !important;
     }
     
     #deposit-info {
@@ -1748,7 +1795,15 @@ body::before {
     }
     
     .payment-modal-content h3 {
-        padding: 20px 15px 15px 15px !important; /* ИСПРАВЛЕНИЕ: Padding для заголовка */
+        padding: 20px 50px 15px 15px !important; /* ИСПРАВЛЕНИЕ: Padding для заголовка с учетом крестика */
+    }
+    
+    .modal-close-btn {
+        width: 30px !important;
+        height: 30px !important;
+        font-size: 22px !important;
+        line-height: 26px !important;
+        right: 8px !important;
     }
     
     #deposit-info {
