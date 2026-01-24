@@ -104,6 +104,7 @@ body::before {
         inset 0 0 20px rgba(255, 255, 255, 0.2);
     border: 1px solid rgba(255, 255, 255, 0.3);
     animation: neonPulse 2s ease-in-out infinite;
+    overflow: hidden; /* ИСПРАВЛЕНИЕ: Обрезаем внутренние элементы по границе скругления */
 }
 
 @keyframes neonPulse {
@@ -154,7 +155,8 @@ body::before {
         0 0 60px rgba(0, 245, 255, 0.2),
         inset 0 0 60px rgba(176, 38, 255, 0.1);
     position: relative;
-    overflow: visible;
+    /* ИСПРАВЛЕНИЕ: overflow: hidden обрезает внутренние элементы, но transform (анимация) все равно работает */
+    overflow: hidden;
     animation: menuAppear 0.6s ease-out;
     min-height: fit-content;
     margin: 0 auto;
@@ -213,6 +215,7 @@ body::before {
     box-shadow: 
         0 4px 20px rgba(0, 0, 0, 0.3),
         inset 0 0 30px rgba(0, 245, 255, 0.1);
+    overflow: hidden; /* ИСПРАВЛЕНИЕ: Обрезаем внутренние элементы по границе скругления */
 }
 
 .balance-item {
@@ -550,6 +553,7 @@ body::before {
     border-radius: 15px;
     padding: 10px 12px;
     box-shadow: 0 0 30px rgba(0, 245, 255, 0.2);
+    overflow: hidden; /* ИСПРАВЛЕНИЕ: Обрезаем внутренние элементы по границе скругления */
 }
 
 .player-stats {
@@ -921,6 +925,7 @@ body::before {
         inset 0 0 60px rgba(176, 38, 255, 0.1);
     animation: resultAppear 0.5s ease-out;
     margin: 0 auto;
+    overflow: hidden; /* ИСПРАВЛЕНИЕ: Обрезаем внутренние элементы по границе скругления */
 }
 
 @keyframes resultAppear {
@@ -988,13 +993,16 @@ body::before {
     height: 100% !important;
     display: none;
     z-index: 10000 !important;
-    background: rgba(0, 0, 0, 0.8) !important; /* ИСПРАВЛЕНИЕ: Полупрозрачный черный фон */
+    /* ИСПРАВЛЕНИЕ: Backdrop отдельный, без border-radius - это просто затемнение экрана */
+    background: rgba(0, 0, 0, 0.8) !important;
     padding: 0 !important;
     margin: 0 !important;
     right: 0 !important;
     bottom: 0 !important;
     justify-content: center !important; /* ИСПРАВЛЕНИЕ: Центрирование через flex */
     align-items: center !important; /* ИСПРАВЛЕНИЕ: Центрирование через flex */
+    /* ИСПРАВЛЕНИЕ: Убеждаемся, что backdrop не имеет border-radius */
+    border-radius: 0 !important;
 }
 
 .payment-modal.modal-visible {
@@ -1010,10 +1018,14 @@ body::before {
     box-sizing: border-box;
     background: #0a0a1a;
     border: 2px solid var(--neon-cyan);
-    border-radius: 20px;
+    border-radius: 24px; /* ИСПРАВЛЕНИЕ: Увеличен border-radius для более плавного скругления */
     padding: 25px;
+    /* ИСПРАВЛЕНИЕ: Box-shadow с учетом border-radius - тень следует за формой скругления */
     box-shadow: 0 0 50px rgba(0, 245, 255, 0.3);
     max-height: 80vh;
+    /* ИСПРАВЛЕНИЕ: overflow: hidden обрезает все внутренние элементы по границе border-radius */
+    overflow: hidden;
+    /* ИСПРАВЛЕНИЕ: overflow-y: auto разрешает прокрутку, но контент обрезается по border-radius */
     overflow-y: auto;
     z-index: 10001 !important;
 }
@@ -1154,6 +1166,7 @@ body::before {
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
+    overflow: hidden; /* ИСПРАВЛЕНИЕ: Обрезаем внутренние элементы по границе скругления */
 }
 
 .deposit-value-large span {
@@ -1185,6 +1198,7 @@ body::before {
     min-height: 50px;
     display: flex;
     align-items: center;
+    overflow: hidden; /* ИСПРАВЛЕНИЕ: Обрезаем внутренние элементы по границе скругления */
 }
 
 #payment-address:hover,
@@ -1215,6 +1229,7 @@ body::before {
     box-shadow: 
         0 0 20px rgba(176, 38, 255, 0.2),
         inset 0 0 15px rgba(176, 38, 255, 0.05);
+    overflow: hidden; /* ИСПРАВЛЕНИЕ: Обрезаем внутренние элементы по границе скругления */
 }
 
 /* Предупреждение в модальном окне депозита */
@@ -1230,6 +1245,7 @@ body::before {
     box-shadow: 
         0 0 20px rgba(255, 193, 7, 0.15),
         inset 0 0 15px rgba(255, 193, 7, 0.05);
+    overflow: hidden; /* ИСПРАВЛЕНИЕ: Обрезаем внутренние элементы по границе скругления */
 }
 
 .warning-icon {
@@ -1274,6 +1290,7 @@ body::before {
     background: rgba(0, 245, 255, 0.1);
     border: 1px solid rgba(0, 245, 255, 0.2);
     box-shadow: 0 0 15px rgba(0, 245, 255, 0.1);
+    overflow: hidden; /* ИСПРАВЛЕНИЕ: Обрезаем внутренние элементы по границе скругления */
 }
 
 #deposit-polling-status {
@@ -1282,6 +1299,7 @@ body::before {
     background: rgba(0, 245, 255, 0.08);
     border: 1px solid rgba(0, 245, 255, 0.15);
     animation: pulse 2s ease-in-out infinite;
+    overflow: hidden; /* ИСПРАВЛЕНИЕ: Обрезаем внутренние элементы по границе скругления */
 }
 
 @keyframes pulse {
@@ -1313,6 +1331,7 @@ body::before {
     text-transform: uppercase;
     letter-spacing: 1px;
     text-shadow: 0 0 10px rgba(0, 255, 136, 0.8);
+    overflow: hidden; /* ИСПРАВЛЕНИЕ: Обрезаем внутренние элементы по границе скругления */
 }
 
 .btn-buy:hover:not(:disabled) {
@@ -1342,6 +1361,7 @@ body::before {
     border: 1px solid rgba(0, 245, 255, 0.2);
     border-radius: 20px;
     box-shadow: 0 0 30px rgba(0, 245, 255, 0.1);
+    overflow: hidden; /* ИСПРАВЛЕНИЕ: Обрезаем внутренние элементы по границе скругления */
 }
 
 #buy-games-section strong {
@@ -1378,12 +1398,15 @@ body::before {
     width: 100% !important;
     height: 100% !important;
     z-index: 99999;
-    background: rgba(0, 0, 0, 0.8) !important; /* ИСПРАВЛЕНИЕ: Полупрозрачный черный фон */
+    /* ИСПРАВЛЕНИЕ: Backdrop отдельный, без border-radius - это просто затемнение экрана */
+    background: rgba(0, 0, 0, 0.8) !important;
     display: none;
     justify-content: center !important; /* ИСПРАВЛЕНИЕ: Центрирование через flex */
     align-items: center !important; /* ИСПРАВЛЕНИЕ: Центрирование через flex */
     opacity: 0;
     transition: opacity 0.3s ease;
+    /* ИСПРАВЛЕНИЕ: Убеждаемся, что backdrop не имеет border-radius */
+    border-radius: 0 !important;
 }
 
 #withdrawal-modal.modal-visible {
@@ -1398,12 +1421,14 @@ body::before {
     background: rgba(10, 10, 26, 0.95);
     backdrop-filter: blur(30px);
     border: 2px solid var(--neon-cyan);
-    border-radius: 16px;
+    border-radius: 24px; /* ИСПРАВЛЕНИЕ: Увеличен border-radius для согласованности с deposit modal */
     padding: 30px 25px;
     width: calc(100% - 40px);
     max-width: 400px;
     max-height: 80vh;
-    overflow-y: auto;
+    overflow: hidden; /* ИСПРАВЛЕНИЕ: Обрезаем все внутренние элементы по границе скругления */
+    overflow-y: auto; /* Разрешаем прокрутку, но с учетом border-radius */
+    /* ИСПРАВЛЕНИЕ: Box-shadow с учетом border-radius - тени следуют за формой */
     box-shadow: 
         0 4px 24px rgba(0, 0, 0, 0.3),
         0 0 60px rgba(0, 245, 255, 0.5),
