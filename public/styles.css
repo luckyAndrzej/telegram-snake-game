@@ -991,7 +991,7 @@ body::before {
     left: 0 !important;
     width: 100% !important;
     height: 100% !important;
-    display: none;
+    display: none !important; /* ИСПРАВЛЕНИЕ: Скрыто по умолчанию */
     z-index: 10000 !important;
     /* ИСПРАВЛЕНИЕ: Backdrop отдельный, без border-radius - это просто затемнение экрана */
     background: rgba(0, 0, 0, 0.8) !important;
@@ -1001,16 +1001,14 @@ body::before {
     margin: 0 !important;
     right: 0 !important;
     bottom: 0 !important;
-    /* ИСПРАВЛЕНИЕ: Центрирование через flex */
-    display: flex !important;
-    align-items: center !important;
-    justify-content: center !important;
     /* ИСПРАВЛЕНИЕ: Убеждаемся, что backdrop не имеет border-radius */
     border-radius: 0 !important;
 }
 
 .payment-modal.modal-visible {
-    display: flex !important; /* ИСПРАВЛЕНИЕ: Используем flex для центрирования */
+    display: flex !important; /* ИСПРАВЛЕНИЕ: Используем flex для центрирования только когда видимо */
+    align-items: center !important; /* ИСПРАВЛЕНИЕ: Центрирование по вертикали */
+    justify-content: center !important; /* ИСПРАВЛЕНИЕ: Центрирование по горизонтали */
     opacity: 1 !important;
 }
 
@@ -1422,34 +1420,37 @@ body::before {
     z-index: 99999;
     /* ИСПРАВЛЕНИЕ: Backdrop отдельный, без border-radius - это просто затемнение экрана */
     background: rgba(0, 0, 0, 0.8) !important;
-    display: none;
-    justify-content: center !important; /* ИСПРАВЛЕНИЕ: Центрирование через flex */
-    align-items: center !important; /* ИСПРАВЛЕНИЕ: Центрирование через flex */
+    display: none !important; /* ИСПРАВЛЕНИЕ: Скрыто по умолчанию - важно для предотвращения показа при загрузке */
     opacity: 0;
     transition: opacity 0.3s ease;
     /* ИСПРАВЛЕНИЕ: Убеждаемся, что backdrop не имеет border-radius */
     border-radius: 0 !important;
+    /* ИСПРАВЛЕНИЕ: Отступы, чтобы окно не прилипало к краям экрана на мобильных */
+    padding: 20px !important;
+    box-sizing: border-box !important;
 }
 
 #withdrawal-modal.modal-visible {
-    display: flex !important;
+    display: flex !important; /* ИСПРАВЛЕНИЕ: Показываем только когда видимо */
+    align-items: center !important; /* ИСПРАВЛЕНИЕ: Центрирование по вертикали */
+    justify-content: center !important; /* ИСПРАВЛЕНИЕ: Центрирование по горизонтали */
     opacity: 1;
 }
 
 #withdrawal-modal .payment-modal-content {
     position: relative !important; /* ИСПРАВЛЕНИЕ: relative вместо fixed для flex-центрирования */
-    margin: auto !important; /* ИСПРАВЛЕНИЕ: margin: auto для центрирования */
+    margin: 0 !important; /* ИСПРАВЛЕНИЕ: margin: 0, так как центрирование через flex родителя */
     z-index: 100000 !important;
     background: rgba(10, 10, 26, 0.95);
     backdrop-filter: blur(30px);
     border: 2px solid var(--neon-cyan);
-    border-radius: 24px; /* ИСПРАВЛЕНИЕ: Увеличен border-radius для согласованности с deposit modal */
-    padding: 30px 25px;
-    width: calc(100% - 40px);
-    max-width: 400px;
-    max-height: 80vh;
-    overflow: hidden; /* ИСПРАВЛЕНИЕ: Обрезаем все внутренние элементы по границе скругления */
-    overflow-y: auto; /* Разрешаем прокрутку, но с учетом border-radius */
+    border-radius: 20px !important; /* ИСПРАВЛЕНИЕ: border-radius: 20px для согласованности */
+    padding: 30px 25px !important; /* ИСПРАВЛЕНИЕ: Сохраняем padding для withdrawal modal */
+    width: 100% !important; /* ИСПРАВЛЕНИЕ: 100% с учетом padding родителя */
+    max-width: 400px !important;
+    max-height: 90vh !important; /* ИСПРАВЛЕНИЕ: Ограничение высоты */
+    overflow: hidden !important; /* ИСПРАВЛЕНИЕ: Обрезаем все внутренние элементы по границе скругления */
+    overflow-y: auto !important; /* Разрешаем прокрутку, но с учетом border-radius */
     /* ИСПРАВЛЕНИЕ: Box-shadow с учетом border-radius - тени следуют за формой */
     box-shadow: 
         0 4px 24px rgba(0, 0, 0, 0.3),
@@ -1457,6 +1458,8 @@ body::before {
         inset 0 0 60px rgba(176, 38, 255, 0.1);
     transition: opacity 0.3s ease;
     opacity: 1; /* ИСПРАВЛЕНИЕ: Устанавливаем opacity: 1 по умолчанию */
+    /* ИСПРАВЛЕНИЕ: НЕ применяем flex-структуру к withdrawal modal, так как у него другая структура */
+    display: block !important; /* ИСПРАВЛЕНИЕ: block вместо flex для withdrawal modal */
 }
 
 #withdrawal-modal.modal-visible .payment-modal-content {
