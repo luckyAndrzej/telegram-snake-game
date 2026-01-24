@@ -1028,8 +1028,8 @@ body::before {
     /* ИСПРАВЛЕНИЕ: Flex-структура для правильного расположения контента и кнопок */
     display: flex !important;
     flex-direction: column !important;
-    /* ИСПРАВЛЕНИЕ: overflow: visible для кнопок, но скролл внутри #deposit-info */
-    overflow: visible !important; /* ИСПРАВЛЕНИЕ: Позволяем кнопкам быть видимыми */
+    /* ИСПРАВЛЕНИЕ: overflow: hidden — убираем тёмные уголки внизу (как в rules) */
+    overflow: hidden !important;
     z-index: 10001 !important;
     padding: 0 !important; /* ИСПРАВЛЕНИЕ: Убираем padding, чтобы добавить его к внутренним элементам */
     /* ИСПРАВЛЕНИЕ: Убеждаемся, что flex работает правильно */
@@ -1060,7 +1060,7 @@ body::before {
     overflow: visible !important; /* ИСПРАВЛЕНИЕ: Позволяем кнопке закрытия быть видимой */
 }
 
-/* ИСПРАВЛЕНИЕ: Крестик закрытия в заголовке модального окна */
+/* ИСПРАВЛЕНИЕ: Крестик закрытия в заголовке модального окна — именно крест, понятно что это */
 .modal-close-btn {
     position: absolute !important;
     right: 15px !important;
@@ -1068,14 +1068,9 @@ body::before {
     transform: translateY(-50%) !important;
     width: 36px !important;
     height: 36px !important;
-    background: rgba(0, 0, 0, 0.3) !important;
-    border: 2px solid rgba(255, 68, 68, 0.5) !important;
+    background: rgba(0, 0, 0, 0.4) !important;
+    border: 2px solid rgba(255, 68, 68, 0.6) !important;
     border-radius: 50% !important;
-    color: #ff4444 !important;
-    font-size: 22px !important;
-    font-weight: 700 !important;
-    line-height: 1 !important;
-    text-align: center !important;
     cursor: pointer !important;
     padding: 0 !important;
     margin: 0 !important;
@@ -1085,37 +1080,58 @@ body::before {
     align-items: center !important;
     justify-content: center !important;
     box-sizing: border-box !important;
-    text-shadow: 0 0 8px rgba(255, 68, 68, 0.6) !important;
 }
 
 .modal-close-btn:hover {
-    background: rgba(255, 68, 68, 0.2) !important;
+    background: rgba(255, 68, 68, 0.25) !important;
     border-color: #ff4444 !important;
-    color: #ff6666 !important;
     box-shadow: 0 0 15px rgba(255, 68, 68, 0.5) !important;
     transform: translateY(-50%) scale(1.1) !important;
-    text-shadow: 0 0 12px rgba(255, 68, 68, 0.8) !important;
+}
+
+.modal-close-btn:hover .modal-close-x::before,
+.modal-close-btn:hover .modal-close-x::after {
+    background: #ff6666 !important;
+    box-shadow: 0 0 6px rgba(255, 68, 68, 0.8) !important;
 }
 
 .modal-close-btn:active {
     transform: translateY(-50%) scale(0.95) !important;
-    background: rgba(255, 68, 68, 0.3) !important;
-    color: #ff2222 !important;
+    background: rgba(255, 68, 68, 0.35) !important;
+}
+
+/* Крест из двух линий */
+.modal-close-x {
+    position: relative !important;
+    width: 18px !important;
+    height: 18px !important;
+    display: block !important;
+}
+
+.modal-close-x::before,
+.modal-close-x::after {
+    content: '' !important;
+    position: absolute !important;
+    left: 50% !important;
+    top: 50% !important;
+    width: 3px !important;
+    height: 20px !important;
+    background: #ff4444 !important;
+    border-radius: 2px !important;
+    transform: translate(-50%, -50%) !important;
+    box-shadow: 0 0 6px rgba(255, 68, 68, 0.6) !important;
+}
+
+.modal-close-x::before {
+    transform: translate(-50%, -50%) rotate(45deg) !important;
+}
+
+.modal-close-x::after {
+    transform: translate(-50%, -50%) rotate(-45deg) !important;
 }
 
 
-.payment-modal-content h3::after {
-    content: '';
-    position: absolute;
-    bottom: 0;
-    left: 50%;
-    transform: translateX(-50%);
-    width: 60px;
-    height: 3px;
-    background: linear-gradient(90deg, transparent, var(--neon-cyan), transparent);
-    border-radius: 2px;
-    box-shadow: 0 0 10px rgba(0, 245, 255, 0.6);
-}
+/* Убрана неоновая полоска под Deposit — по запросу пользователя */
 
 .payment-modal-content p {
     margin: 12px 0;
@@ -1347,6 +1363,9 @@ body::before {
     border-top: 1px solid rgba(0, 245, 255, 0.1); /* ИСПРАВЛЕНИЕ: Визуальное разделение */
     position: relative !important; /* ИСПРАВЛЕНИЕ: Убеждаемся, что кнопки позиционированы правильно */
     z-index: 10002 !important; /* ИСПРАВЛЕНИЕ: Кнопки поверх контента */
+    /* ИСПРАВЛЕНИЕ: Убираем тёмные уголки внизу (как в rules) */
+    border-radius: 0 0 18px 18px !important;
+    overflow: hidden !important;
 }
 
 #payment-status,
@@ -1625,7 +1644,7 @@ body::before {
     .payment-modal-content {
         padding: 0 !important; /* ИСПРАВЛЕНИЕ: Padding убран, добавляется к внутренним элементам */
         max-height: 90vh !important;
-        overflow: visible !important; /* ИСПРАВЛЕНИЕ: Позволяем кнопкам быть видимыми */
+        overflow: hidden !important; /* ИСПРАВЛЕНИЕ: Убираем тёмные уголки внизу (как в rules) */
     }
     
     .payment-modal-content h3 {
@@ -1637,11 +1656,18 @@ body::before {
     .modal-close-btn {
         width: 32px !important;
         height: 32px !important;
-        font-size: 20px !important;
-        line-height: 1 !important;
         right: 10px !important;
-        color: #ff4444 !important;
-        border-color: rgba(255, 68, 68, 0.5) !important;
+    }
+    
+    .modal-close-x {
+        width: 14px !important;
+        height: 14px !important;
+    }
+    
+    .modal-close-x::before,
+    .modal-close-x::after {
+        width: 2.5px !important;
+        height: 16px !important;
     }
     
     #deposit-info {
@@ -1658,6 +1684,8 @@ body::before {
         z-index: 10002 !important; /* ИСПРАВЛЕНИЕ: Кнопки поверх контента */
         min-height: 80px !important; /* ИСПРАВЛЕНИЕ: Минимальная высота для кнопок */
         box-sizing: border-box !important;
+        border-radius: 0 0 18px 18px !important;
+        overflow: hidden !important;
     }
     
     #deposit-status,
@@ -1739,7 +1767,7 @@ body::before {
         display: flex !important;
         flex-direction: column !important;
         border-radius: 20px !important; /* ИСПРАВЛЕНИЕ: border-radius: 20px */
-        overflow: visible !important; /* ИСПРАВЛЕНИЕ: Позволяем кнопкам быть видимыми */
+        overflow: hidden !important; /* ИСПРАВЛЕНИЕ: Убираем тёмные уголки внизу (как в rules) */
     }
     
     #deposit-info {
@@ -1782,7 +1810,7 @@ body::before {
         display: flex !important;
         flex-direction: column !important;
         border-radius: 20px !important;
-        overflow: visible !important; /* ИСПРАВЛЕНИЕ: Позволяем кнопкам быть видимыми */
+        overflow: hidden !important; /* ИСПРАВЛЕНИЕ: Убираем тёмные уголки внизу (как в rules) */
         padding: 0 !important; /* ИСПРАВЛЕНИЕ: Padding убран, добавляется к внутренним элементам */
     }
     
@@ -1798,6 +1826,8 @@ body::before {
         z-index: 10002 !important; /* ИСПРАВЛЕНИЕ: Кнопки поверх контента */
         min-height: 80px !important; /* ИСПРАВЛЕНИЕ: Минимальная высота для кнопок */
         box-sizing: border-box !important;
+        border-radius: 0 0 18px 18px !important;
+        overflow: hidden !important;
     }
     
     .payment-modal-content h3 {
@@ -1807,11 +1837,18 @@ body::before {
     .modal-close-btn {
         width: 30px !important;
         height: 30px !important;
-        font-size: 18px !important;
-        line-height: 1 !important;
         right: 8px !important;
-        color: #ff4444 !important;
-        border-color: rgba(255, 68, 68, 0.5) !important;
+    }
+    
+    .modal-close-x {
+        width: 12px !important;
+        height: 12px !important;
+    }
+    
+    .modal-close-x::before,
+    .modal-close-x::after {
+        width: 2px !important;
+        height: 14px !important;
     }
     
     #deposit-info {
