@@ -430,11 +430,13 @@ function initSocket() {
           tick: 0
         });
         
-        // Для обратной совместимости также в window.gameBuffer
-        window.gameBuffer.push({
-          state: deepClone(initState),
-          clientTime: initTime
-        });
+        // Для обратной совместимости также в window.gameBuffer (если существует)
+        if (window.gameBuffer && Array.isArray(window.gameBuffer)) {
+          window.gameBuffer.push({
+            state: deepClone(initState),
+            clientTime: initTime
+          });
+        }
       }
       window.appState.game.snakes = [window.appState.game.my_snake, window.appState.game.opponent_snake].filter(s => s !== null);
       
@@ -3179,148 +3181,7 @@ function drawGrid() {
   }
 }
 
-
-/**
- * Рисование змейки (оптимизированная версия без Math.sqrt и с кэшированием градиента/shadow)
- */
-function drawSnake(snake, color1, color2) {
-  if (!snake || !snake.body || snake.body.length === 0) return;
-  
-  // Используем логический размер canvas (без DPR) для корректной отрисовки
-  const tileSize = canvasLogicalSize / 30; // 30 клеток по ширине
-  
-  // ОПТИМИЗАЦИЯ: берем направление напрямую из snake.direction без перерасчета
-  // Если direction отсутствует или некорректно, используем fallback
-  let direction = snake.direction;
-  if (!direction || (direction.dx === 0 && direction.dy === 0)) {
-    // Fallback: красная змейка вправо, синяя влево
-    direction = color1 === '#ff4444' ? { dx: 1, dy: 0 } : { dx: -1, dy: 0 };
-  }
-  
-  // ОПТИМИЗАЦИЯ: нормализуем направление БЕЗ Math.sqrt и Math.abs
-  // Для единичных векторов (dx, dy) = (-1,0), (1,0), (0,-1), (0,1) нормализация не нужна
-  // Проверяем только если это не единичный вектор
-  const dx = direction.dx;
-  const dy = direction.dy;
-  if (dx !== 0 && dx !== 1 && dx !== -1 && dy !== 0 && dy !== 1 && dy !== -1) {
-    // Только если это не стандартное направление, нормализуем (но без Math.sqrt и Math.abs)
-    // Используем приближение: если dx > 0 или dx < 0, то нормализуем по dx, иначе по dy
-    if (dx > 0 || dx < 0) {
-      direction = { dx: dx > 0 ? 1 : -1, dy: 0 };
-    } else {
-      direction = { dx: 0, dy: dy > 0 ? 1 : -1 };
-    }
-  }
-  
-  // ОПТИМИЗАЦИЯ: создаем градиент и настраиваем shadow ОДИН РАЗ перед циклом
-  const gradient = gameCtx.createLinearGradient(0, 0, gameCanvas.width, gameCanvas.height);
-  gradient.addColorStop(0, color1); // Яркий цвет
-  gradient.addColorStop(0.5, color2); // Средний цвет
-  gradient.addColorStop(1, color1); // Темный оттенок для объема
-  
-  // Настраиваем shadow эффекты один раз
-  gameCtx.shadowColor = color1;
-  gameCtx.shadowBlur = 18; // Увеличенная интенсивность для лучшей видимости
-  gameCtx.shadowOffsetX = 0;
-  gameCtx.shadowOffsetY = 0;
-  
-  // ИСПРАВЛЕНИЕ: Используем s (segments или body) вместо snake.body
-  // ОПТИМИЗАЦИЯ FPS: для длинных змеек используем упрощенную отрисовку
-  const isLongSnake = s && s.length > 10;
-  
-  if (!s || s.length === 0) return; // Защита от пустого массива
-  
-  s.forEach((segment, index) => {
-    const x = segment.x * tileSize;
-    const y = segment.y * tileSize;
-    const size = tileSize - 2;
-    const offset = 1;
-    const radius = size * (index === 0 ? 0.2 : 0.15);
-    
-    if (index === 0) {
-      // Голова - рисуем с градиентом и скруглениями (всегда с эффектами)
-      gameCtx.fillStyle = gradient;
-      gameCtx.beginPath();
-      gameCtx.roundRect(x + offset, y + offset, size, size, radius);
-      gameCtx.fill();
-      
-      // Яркая белая обводка головы для лучшей видимости
-      gameCtx.strokeStyle = '#ffffff';
-      gameCtx.lineWidth = 2;
-      gameCtx.beginPath();
-      gameCtx.roundRect(x + offset, y + offset, size, size, radius);
-      gameCtx.stroke();
-      
-      // Сбрасываем свечение для глаз
-      gameCtx.shadowBlur = 0;
-      gameCtx.shadowColor = 'transparent';
-      
-      // Глаза на голове с учетом направления
-      const centerX = x + offset + size / 2;
-      const centerY = y + offset + size / 2;
-      const eyeOffset = size * 0.2;
-      const eyeSize = size * 0.12;
-      
-      let eyeX1, eyeY1, eyeX2, eyeY2;
-      
-      // Определяем позицию глаз на основе направления
-        if (direction.dx > 0) {
-          eyeX1 = centerX + eyeOffset * 0.5;
-          eyeY1 = centerY - eyeOffset * 0.5;
-          eyeX2 = centerX + eyeOffset * 0.5;
-          eyeY2 = centerY + eyeOffset * 0.5;
-        } else if (direction.dx < 0) {
-          eyeX1 = centerX - eyeOffset * 0.5;
-          eyeY1 = centerY - eyeOffset * 0.5;
-          eyeX2 = centerX - eyeOffset * 0.5;
-          eyeY2 = centerY + eyeOffset * 0.5;
-        } else if (direction.dy > 0) {
-          eyeX1 = centerX - eyeOffset * 0.5;
-          eyeY1 = centerY + eyeOffset * 0.5;
-          eyeX2 = centerX + eyeOffset * 0.5;
-          eyeY2 = centerY + eyeOffset * 0.5;
-        } else {
-        eyeX1 = centerX - eyeOffset * 0.5;
-        eyeY1 = centerY - eyeOffset * 0.5;
-        eyeX2 = centerX + eyeOffset * 0.5;
-        eyeY2 = centerY - eyeOffset * 0.5;
-      }
-      
-      // Рисуем глаза
-      gameCtx.shadowColor = 'rgba(255, 255, 255, 0.5)';
-      gameCtx.shadowBlur = 3;
-      gameCtx.fillStyle = '#ffffff';
-      gameCtx.beginPath();
-      gameCtx.arc(eyeX1, eyeY1, eyeSize, 0, Math.PI * 2);
-      gameCtx.fill();
-      gameCtx.beginPath();
-      gameCtx.arc(eyeX2, eyeY2, eyeSize, 0, Math.PI * 2);
-      gameCtx.fill();
-    } else if (index === 1) {
-      // Первая секция (шея) - сглаживание только здесь, соединяет голову и тело
-      gameCtx.fillStyle = gradient;
-      gameCtx.beginPath();
-      gameCtx.roundRect(x + offset + 1, y + offset + 1, size - 2, size - 2, radius);
-      gameCtx.fill();
-    } else {
-      // Остальное тело - упрощенная отрисовка без теней для производительности
-      // Отключаем сглаживание для хвоста - жесткие координаты
-      if (isLongSnake && index > 5) {
-        // Для длинных змеек: упрощенная отрисовка без теней
-        gameCtx.shadowBlur = 0;
-        gameCtx.shadowColor = 'transparent';
-      }
-      gameCtx.fillStyle = gradient;
-      gameCtx.beginPath();
-      gameCtx.roundRect(x + offset + 1, y + offset + 1, size - 2, size - 2, radius);
-      gameCtx.fill();
-    }
-  });
-    
-  // ОПТИМИЗАЦИЯ: сбрасываем shadow эффекты один раз после цикла
-    gameCtx.shadowBlur = 0;
-    gameCtx.shadowColor = 'transparent';
-}
+// УДАЛЕНО: Старая функция drawSnake с градиентами (addColorStop) заменена на новую версию без градиентов (строка 2949)
 
 /**
  * Отображение preview игры на указанном canvas
