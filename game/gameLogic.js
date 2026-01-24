@@ -148,24 +148,33 @@ function checkCollisions(game) {
     }
   }
   
+  // ОПТИМИЗАЦИЯ: Используем Set для быстрой проверки коллизий O(1) вместо O(n)
   // Проверка столкновения с собственным телом
   if (game.snake1.alive) {
     const head1 = game.snake1.body[0];
+    // Создаем Set координат тела (кроме головы) для O(1) проверки
+    const bodyCoords = new Set();
     for (let i = 1; i < game.snake1.body.length; i++) {
-      if (game.snake1.body[i].x === head1.x && game.snake1.body[i].y === head1.y) {
-        game.snake1.alive = false;
-        break;
-      }
+      const seg = game.snake1.body[i];
+      bodyCoords.add(`${seg.x},${seg.y}`);
+    }
+    // Проверка столкновения головы с телом - O(1) вместо O(n)
+    if (bodyCoords.has(`${head1.x},${head1.y}`)) {
+      game.snake1.alive = false;
     }
   }
   
   if (game.snake2.alive) {
     const head2 = game.snake2.body[0];
+    // Создаем Set координат тела (кроме головы) для O(1) проверки
+    const bodyCoords = new Set();
     for (let i = 1; i < game.snake2.body.length; i++) {
-      if (game.snake2.body[i].x === head2.x && game.snake2.body[i].y === head2.y) {
-        game.snake2.alive = false;
-        break;
-      }
+      const seg = game.snake2.body[i];
+      bodyCoords.add(`${seg.x},${seg.y}`);
+    }
+    // Проверка столкновения головы с телом - O(1) вместо O(n)
+    if (bodyCoords.has(`${head2.x},${head2.y}`)) {
+      game.snake2.alive = false;
     }
   }
   
@@ -181,19 +190,28 @@ function checkCollisions(game) {
       return; // Ничья
     }
     
-    // Проверка столкновения головы одной змейки с телом другой
+    // ОПТИМИЗАЦИЯ: Используем Set для проверки столкновения головы с телом противника
+    // Создаем Set координат тела противника для O(1) проверки
+    const snake2BodyCoords = new Set();
     for (let i = 1; i < game.snake2.body.length; i++) {
-      if (game.snake2.body[i].x === head1.x && game.snake2.body[i].y === head1.y) {
-        game.snake1.alive = false;
-        break;
-      }
+      const seg = game.snake2.body[i];
+      snake2BodyCoords.add(`${seg.x},${seg.y}`);
     }
     
+    const snake1BodyCoords = new Set();
     for (let i = 1; i < game.snake1.body.length; i++) {
-      if (game.snake1.body[i].x === head2.x && game.snake1.body[i].y === head2.y) {
-        game.snake2.alive = false;
-        break;
-      }
+      const seg = game.snake1.body[i];
+      snake1BodyCoords.add(`${seg.x},${seg.y}`);
+    }
+    
+    // Проверка столкновения головы snake1 с телом snake2 - O(1) вместо O(n)
+    if (snake2BodyCoords.has(`${head1.x},${head1.y}`)) {
+      game.snake1.alive = false;
+    }
+    
+    // Проверка столкновения головы snake2 с телом snake1 - O(1) вместо O(n)
+    if (snake1BodyCoords.has(`${head2.x},${head2.y}`)) {
+      game.snake2.alive = false;
     }
   }
 }

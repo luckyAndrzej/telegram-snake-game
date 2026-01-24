@@ -7,6 +7,8 @@ const gameLogic = require('./gameLogic');
 
 let gameLoopInterval = null;
 let tickInterval = null; // Интервал между тиками в миллисекундах
+// Кэш последних отправленных состояний для дебаунсинга (gameId -> last state hash)
+const lastSentStateCache = new Map();
 
 /**
  * Запустить игровой цикл
@@ -78,6 +80,27 @@ function start(io, activeGames, config, endGameCallback) {
  * Broadcast состояния игры всем игрокам (максимально оптимизировано - только координаты x,y)
  */
 function broadcastGameState(io, game, gameId) {
+  // ОПТИМИЗАЦИЯ: Дебаунсинг - отправляем только если состояние реально изменилось
+  // Создаем простой хеш состояния (координаты голов + тик + статусы)
+  const head1 = game.snake1.body[0];
+  const head2 = game.snake2.body[0];
+  const stateHash = `${head1.x},${head1.y},${head2.x},${head2.y},${game.tick_number},${game.snake1.alive ? 1 : 0},${game.snake2.alive ? 1 : 0},${game.finished ? 1 : 0}`;
+  
+  // Проверяем, изменилось ли состояние
+  const lastHash = lastSentStateCache.get(gameId);
+  if (lastHash === stateHash) {
+    // Состояние не изменилось - пропускаем отправку (экономия трафика и CPU)
+    return;
+  }
+  
+  // Состояние изменилось - обновляем кэш и отправляем
+  lastSentStateCache.set(gameId, stateHash);
+  
+  // Очищаем кэш для завершенных игр
+  if (game.finished) {
+    lastSentStateCache.delete(gameId);
+  }
+  
   // Оптимизация: отправляем только координаты x,y в виде массивов [x, y] для каждого сегмента
   // Это значительно уменьшает размер пакета по сравнению с объектами {x, y}
   const optimizeBody = (body) => {
@@ -156,6 +179,8 @@ function stop() {
   if (gameLoopInterval) {
     clearInterval(gameLoopInterval);
     gameLoopInterval = null;
+    // Очищаем кэш состояний при остановке
+    lastSentStateCache.clear();
     console.log('⏹ Игровой цикл остановлен');
   }
 }
