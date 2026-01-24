@@ -48,11 +48,11 @@ let packetQueue = []; // Очередь пакетов game_state
 // Фиксированный шаг тика сервера (увеличено до 120мс для компенсации сетевых задержек)
 const TICK_DURATION = 120; // мс (длительность одного тика на сервере)
 
-// ГЛОБАЛЬНЫЙ ОБЪЕКТ: В самом верху app.js
+// ГЛОБАЛЬНЫЙ БЛОК: В самом верху файла, вне всех функций
 window.gameEngine = {
   buffer: [],
-  renderTimeOffset: 120,
-  initialized: true
+  initialized: true,
+  renderTimeOffset: 120
 };
 
 // ИНИЦИАЛИЗАЦИЯ: Предотвращаем повторную инициализацию при перезагрузке
@@ -732,13 +732,14 @@ function initSocket() {
       }
     }
     
-    // ИСПРАВЛЕНИЕ ОБРАБОТЧИКА: Заменен весь обработчик
-    if (window.gameEngine && window.gameEngine.buffer) {
+    // СОБЫТИЕ game_state: Заменен код
+    if (window.gameEngine) {
+      if (!window.gameEngine.buffer) window.gameEngine.buffer = [];
       window.gameEngine.buffer.push({ 
         state: deepClone(data), 
         ts: performance.now() 
       });
-      if (window.gameEngine.buffer.length > 15) window.gameEngine.buffer.shift();
+      while (window.gameEngine.buffer.length > 15) window.gameEngine.buffer.shift();
     }
     
     // Обновляем window.appState для обратной совместимости
@@ -2739,13 +2740,12 @@ function startAnimationLoop() {
       return;
     }
     
-    // ЕДИНАЯ ФУНКЦИЯ ОЧИСТКИ И МАСШТАБА: СТРОГО такой порядок
-    // ПОЛНЫЙ сброс всех scale/translate
+    // ИСПРАВЛЕНИЕ animationLoop: В самом начале цикла ОБЯЗАТЕЛЬНО
     gameCtx.setTransform(1, 0, 0, 1, 0, 0);
     gameCtx.clearRect(0, 0, gameCanvas.width, gameCanvas.height);
     
-    // Только ТЕПЕРЬ применяем масштаб для центрирования, если он нужен ОДИН раз за кадр
-    // Применяем DPR масштаб один раз (если canvasDPR был установлен при инициализации)
+    // МАСШТАБ ПОЛЯ (Anti-Matryoshka): Эти вызовы СТРОГО после clearRect и только ОДИН раз за кадр
+    // Никогда не вызываем ctx.scale() без предварительного ctx.setTransform(1,0,0,1,0,0)
     if (canvasDPR && canvasDPR !== 1) {
       gameCtx.setTransform(canvasDPR, 0, 0, canvasDPR, 0, 0);
     }
@@ -2759,7 +2759,7 @@ function startAnimationLoop() {
       gameCtx.drawImage(gridCanvas, 0, 0);
     }
     
-    // ЛОГИКА ОТОБРАЖЕНИЯ: Если буфер пуст, вызываем отрисовку initial_state
+    // ЛОГИКА ОТОБРАЖЕНИЯ: Если window.gameEngine.buffer пуст, рисуем window.appState.game.initial_state
     let frameData = null;
     const buffer = window.gameEngine.buffer || [];
     
@@ -2777,7 +2777,7 @@ function startAnimationLoop() {
         };
       }
     } else {
-      // Если в буфере есть данные, используем интерполяцию
+      // Если данные есть, интерполируем только X и Y
       const renderTime = performance.now() - window.gameEngine.renderTimeOffset;
       let stateA = null;
       let stateB = null;
@@ -2795,7 +2795,7 @@ function startAnimationLoop() {
       }
       
       if (stateA && stateB && stateA.state && stateB.state) {
-        // Вычисляем коэффициент t и интерполируем координаты
+        // Вычисляем коэффициент t и интерполируем только X и Y
         const timeA = stateA.ts || 0;
         const timeB = stateB.ts || 0;
         const timeDiff = timeB - timeA;
@@ -2942,9 +2942,8 @@ function interpolateSnake(snakeA, snakeB, t) {
  * Это в разы быстрее и красивее, чем рисование отдельных квадратов
  */
 /**
- * ИСПРАВЛЕНИЕ drawSnake: Ошибки 's is not defined'
- * Функция принимает (snake, color) и внутри работает только с этими аргументами
- * Используется полное слово 'segment' во всех циклах
+ * ИСПРАВЛЕНИЕ drawSnake: Удалено использование CanvasGradient
+ * Используется простая заливка и цикл for...of для исключения ошибки 's is not defined'
  */
 function drawSnake(snake, color) {
   if (!gameCtx || !snake) return;
@@ -2955,33 +2954,35 @@ function drawSnake(snake, color) {
   
   const tileSize = canvasLogicalSize / GRID_SIZE;
   
-  // Определяем цвета: основной цвет и цвет тела (темнее)
-  const color1 = color; // Цвет головы
-  const color2 = color; // Цвет тела (можно сделать темнее, но пока используем тот же)
+  // Определяем цвет: простая заливка без градиентов
+  const isMySnake = color === '#00FF41' || color === '#00FF00' || color === '#00FF41';
+  const fillColor = color || (isMySnake ? '#00FF00' : '#FF0000');
   
   // ОПТИМИЗАЦИЯ: Используем плавные линии для тела змейки
   gameCtx.save();
   gameCtx.beginPath();
-  gameCtx.strokeStyle = color2;
+  gameCtx.strokeStyle = fillColor;
   gameCtx.lineWidth = tileSize * 0.9;
   gameCtx.lineCap = 'round';
   gameCtx.lineJoin = 'round';
   gameCtx.shadowBlur = 15;
-  gameCtx.shadowColor = color2;
+  gameCtx.shadowColor = fillColor;
   
-  // Рисуем путь через все сегменты - используем полное слово 'segment'
-  segments.forEach((segment, index) => {
+  // Рисуем путь через все сегменты - используем for...of для исключения ошибки 's is not defined'
+  let isFirst = true;
+  for (const segment of segments) {
     if (segment && segment.x !== undefined && segment.y !== undefined) {
       const x = segment.x * tileSize + tileSize / 2;
       const y = segment.y * tileSize + tileSize / 2;
       
-      if (index === 0) {
+      if (isFirst) {
         gameCtx.moveTo(x, y);
+        isFirst = false;
       } else {
         gameCtx.lineTo(x, y);
       }
     }
-  });
+  }
   
   gameCtx.stroke();
   gameCtx.restore();
@@ -2994,8 +2995,8 @@ function drawSnake(snake, color) {
     
     gameCtx.save();
     gameCtx.shadowBlur = 20;
-    gameCtx.shadowColor = color1;
-    gameCtx.fillStyle = color1;
+    gameCtx.shadowColor = fillColor;
+    gameCtx.fillStyle = fillColor;
     gameCtx.beginPath();
     gameCtx.arc(headX, headY, tileSize / 2.5, 0, Math.PI * 2);
     gameCtx.fill();
