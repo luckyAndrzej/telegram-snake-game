@@ -1332,9 +1332,18 @@ function initEventListeners() {
     console.log('Opening Tonkeeper URL:', tonkeeperUrl);
     
     // Пытаемся открыть Tonkeeper
+    // ВАЖНО: tg.openLink() НЕ поддерживает протокол ton:// в Telegram WebApp
+    // Используем window.open() или window.location.href напрямую
     try {
-      tg.openLink(tonkeeperUrl);
-      console.log('Clicked Tonkeeper link');
+      // Пробуем window.open() сначала (может работать лучше в некоторых случаях)
+      const opened = window.open(tonkeeperUrl, '_blank');
+      if (opened) {
+        console.log('Opened Tonkeeper via window.open()');
+      } else {
+        // Если window.open() заблокирован, используем window.location.href
+        window.location.href = tonkeeperUrl;
+        console.log('Opened Tonkeeper via window.location.href');
+      }
       
       // Начинаем polling баланса для депозита
       const initialWinnings = localUserState.winnings_ton || 0;
@@ -1381,6 +1390,23 @@ function initEventListeners() {
           console.error('❌ Error polling deposit balance:', error);
         }
       }, 10000); // Проверяем каждые 10 секунд
+      
+      // Очищаем polling при закрытии модалки
+      const depositModal = document.getElementById('deposit-modal');
+      if (depositModal) {
+        const observer = new MutationObserver((mutations) => {
+          mutations.forEach((mutation) => {
+            if (!depositModal.classList.contains('modal-visible')) {
+              clearInterval(pollDeposit);
+              if (pollingStatusEl) {
+                pollingStatusEl.style.display = 'none';
+              }
+              observer.disconnect();
+            }
+          });
+        });
+        observer.observe(depositModal, { attributes: true, attributeFilter: ['class'] });
+      }
     } catch (error) {
       console.error('Error opening Tonkeeper:', error);
       const statusEl = document.getElementById('deposit-status');
