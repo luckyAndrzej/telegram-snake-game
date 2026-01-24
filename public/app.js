@@ -48,13 +48,11 @@ let packetQueue = []; // Очередь пакетов game_state
 // Фиксированный шаг тика сервера (увеличено до 120мс для компенсации сетевых задержек)
 const TICK_DURATION = 120; // мс (длительность одного тика на сервере)
 
-// ИНИЦИАЛИЗАЦИЯ: Глобальный объект движка (в самом верху файла, сразу после констант)
-// Должен быть доступен ВСЕГДА
+// ГЛОБАЛЬНАЯ ИНИЦИАЛИЗАЦИЯ: Глобальный объект движка (в самом верху файла)
 window.gameEngine = {
   buffer: [],
-  lastRenderTime: 0,
-  isStarted: false,
-  renderLoopId: null
+  lastState: null,
+  isLoopRunning: false
 };
 
 // ИНИЦИАЛИЗАЦИЯ: Предотвращаем повторную инициализацию при перезагрузке
@@ -304,11 +302,9 @@ function initSocket() {
   
   // Screen 3: Opponent found (Match Found) - immediately switch to game-screen
   socket.on('match_found', (data) => {
-    // ЖЕСТКАЯ ОЧИСТКА (Anti-Ghosting): Очищаем буфер и текущий кадр перед новой игрой
-    if (window.gameEngine) {
-      window.gameEngine.buffer = [];
-      window.gameEngine.currentFrame = null;
-    }
+    // ЖЕСТКИЙ СБРОС: ОБНУЛЯЕМ window.gameEngine.buffer при получении 'opponent_found'
+    window.gameEngine.buffer = [];
+    window.gameEngine.lastState = null;
     
     // Очищаем window.appState.game
     if (window.appState && window.appState.game) {
@@ -736,9 +732,9 @@ function initSocket() {
       }
     }
     
-    // ИСПРАВЛЕНИЕ ОБРАБОТЧИКА СОКЕТОВ: Добавляем пакет в буфер с проверкой
+    // ОБРАБОТЧИК СОБЫТИЙ: Добавляем данные в буфер с защитой
     if (data) {
-      // Проверка перед push
+      // Перед добавлением данных проверяем наличие массива
       if (!window.gameEngine.buffer) window.gameEngine.buffer = [];
       window.gameEngine.buffer.push({ 
         state: deepClone(data), 
@@ -755,7 +751,7 @@ function initSocket() {
         const segments = data.my_snake.segments ? [...data.my_snake.segments] : (data.my_snake.body ? [...data.my_snake.body] : []);
         if (segments.length > 0) {
           window.appState.game.my_snake = {
-            segments: segments.map(s => ({ x: Number(s.x), y: Number(s.y) })),
+            segments: segments.map(segment => ({ x: Number(segment.x), y: Number(segment.y) })),
             direction: data.my_snake.direction || { dx: 1, dy: 0 },
             alive: data.my_snake.alive !== undefined ? data.my_snake.alive : true
           };
@@ -766,7 +762,7 @@ function initSocket() {
         const segments = data.opponent_snake.segments ? [...data.opponent_snake.segments] : (data.opponent_snake.body ? [...data.opponent_snake.body] : []);
         if (segments.length > 0) {
           window.appState.game.opponent_snake = {
-            segments: segments.map(s => ({ x: Number(s.x), y: Number(s.y) })),
+            segments: segments.map(segment => ({ x: Number(segment.x), y: Number(segment.y) })),
             direction: data.opponent_snake.direction || { dx: -1, dy: 0 },
             alive: data.opponent_snake.alive !== undefined ? data.opponent_snake.alive : true
           };
@@ -2771,11 +2767,11 @@ function startAnimationLoop() {
   
   function animationLoop(now) {
     if (!gameCtx || !gameCanvas) {
-      window.gameEngine.renderLoopId = requestAnimationFrame(animationLoop);
+      window.gameEngine.isLoopRunning = false;
       return;
     }
     
-    // ЕДИНЫЙ ЦИКЛ ОТРИСОВКИ: ВСЕГДА вызываем setTransform и clearRect в начале
+    // ЕДИНЫЙ ЦИКЛ ОБРАБОТКИ: В начале функции ВСЕГДА
     gameCtx.setTransform(1, 0, 0, 1, 0, 0);
     gameCtx.clearRect(0, 0, gameCanvas.width, gameCanvas.height);
     
@@ -2788,56 +2784,72 @@ function startAnimationLoop() {
       gameCtx.drawImage(gridCanvas, 0, 0);
     }
     
-    // Используем задержку интерполяции 150мс
-    const renderTime = performance.now() - 150;
-    const buffer = window.gameEngine.buffer || [];
-    
-    // Ищем две точки в buffer (A и B)
-    let stateA = null;
-    let stateB = null;
-    
-    for (let i = buffer.length - 1; i >= 0; i--) {
-      const ts = buffer[i].ts || 0;
-      if (ts <= renderTime) {
-        stateA = buffer[i];
-        if (i + 1 < buffer.length) {
-          stateB = buffer[i + 1];
-        }
-        break;
-      }
+    // Защита: проверяем наличие buffer
+    if (!window.gameEngine.buffer) {
+      window.gameEngine.buffer = [];
     }
     
-    // Если точки найдены, вычисляем коэффициент t и интерполируем координаты
+    // Используем интерполяцию с задержкой 100ms
+    const renderTime = performance.now() - 100;
+    const buffer = window.gameEngine.buffer;
+    
+    // Если буфер пуст, рисуем window.appState.game.initial_state
     let frameData = null;
     
-    if (stateA && stateB && stateA.state && stateB.state) {
-      const timeA = stateA.ts || 0;
-      const timeB = stateB.ts || 0;
-      const timeDiff = timeB - timeA;
-      const t = timeDiff > 0 ? Math.min(Math.max((renderTime - timeA) / timeDiff, 0), 1) : 0;
+    if (buffer.length === 0) {
+      // Если буфер пуст, рисуем initial_state
+      if (window.appState?.game?.initial_state) {
+        frameData = {
+          my_snake: window.appState.game.initial_state.my_snake,
+          opponent_snake: window.appState.game.initial_state.opponent_snake
+        };
+      } else if (window.appState?.game) {
+        frameData = {
+          my_snake: window.appState.game.my_snake,
+          opponent_snake: window.appState.game.opponent_snake
+        };
+      }
+    } else {
+      // Если в буфере есть данные, используем интерполяцию
+      let stateA = null;
+      let stateB = null;
       
-      frameData = {
-        my_snake: interpolateSnake(stateA.state.my_snake, stateB.state.my_snake, t),
-        opponent_snake: interpolateSnake(stateA.state.opponent_snake, stateB.state.opponent_snake, t)
-      };
-    } else if (stateA && stateA.state) {
-      // Если нашли только A, рисуем состояние A (статично)
-      frameData = {
-        my_snake: stateA.state.my_snake,
-        opponent_snake: stateA.state.opponent_snake
-      };
-    } else if (window.appState?.game?.initial_state) {
-      // Если точек нет, рисуем window.appState.game.initial_state
-      frameData = {
-        my_snake: window.appState.game.initial_state.my_snake,
-        opponent_snake: window.appState.game.initial_state.opponent_snake
-      };
-    } else if (window.appState?.game) {
-      // Fallback
-      frameData = {
-        my_snake: window.appState.game.my_snake,
-        opponent_snake: window.appState.game.opponent_snake
-      };
+      // Ищем две точки в buffer (A и B)
+      for (let i = buffer.length - 1; i >= 0; i--) {
+        const ts = buffer[i].ts || 0;
+        if (ts <= renderTime) {
+          stateA = buffer[i];
+          if (i + 1 < buffer.length) {
+            stateB = buffer[i + 1];
+          }
+          break;
+        }
+      }
+      
+      if (stateA && stateB && stateA.state && stateB.state) {
+        // Вычисляем коэффициент t и интерполируем координаты
+        const timeA = stateA.ts || 0;
+        const timeB = stateB.ts || 0;
+        const timeDiff = timeB - timeA;
+        const t = timeDiff > 0 ? Math.min(Math.max((renderTime - timeA) / timeDiff, 0), 1) : 0;
+        
+        frameData = {
+          my_snake: interpolateSnake(stateA.state.my_snake, stateB.state.my_snake, t),
+          opponent_snake: interpolateSnake(stateA.state.opponent_snake, stateB.state.opponent_snake, t)
+        };
+      } else if (stateA && stateA.state) {
+        // Если нашли только A, рисуем состояние A (статично)
+        frameData = {
+          my_snake: stateA.state.my_snake,
+          opponent_snake: stateA.state.opponent_snake
+        };
+      } else if (window.appState?.game?.initial_state) {
+        // Fallback на initial_state
+        frameData = {
+          my_snake: window.appState.game.initial_state.my_snake,
+          opponent_snake: window.appState.game.initial_state.opponent_snake
+        };
+      }
     }
     
     // Отрисовка змеек
@@ -2846,8 +2858,8 @@ function startAnimationLoop() {
         drawSnake(frameData.my_snake, '#00FF41', '#008F11');
         
         // ВИЗУАЛЬНЫЙ ИНДИКАТОР: Рисуем текст "YOU"
-        const headSeg = frameData.my_snake.segments?.[0] || frameData.my_snake.body?.[0];
-        if (headSeg) {
+        const headSegment = frameData.my_snake.segments?.[0] || frameData.my_snake.body?.[0];
+        if (headSegment) {
           gameCtx.save();
           gameCtx.font = "bold 14px Inter, Arial, sans-serif";
           gameCtx.fillStyle = "#00FF41";
@@ -2856,8 +2868,8 @@ function startAnimationLoop() {
           gameCtx.shadowBlur = 5;
           gameCtx.shadowColor = "#00FF41";
           const tileSize = canvasLogicalSize / GRID_SIZE;
-          const headX = headSeg.x * tileSize;
-          const headY = headSeg.y * tileSize;
+          const headX = headSegment.x * tileSize;
+          const headY = headSegment.y * tileSize;
           gameCtx.fillText("YOU", headX + tileSize / 2, headY - 5);
           gameCtx.restore();
         }
@@ -2894,10 +2906,12 @@ function startAnimationLoop() {
     }
     
     // Цикл продолжается
-    window.gameEngine.renderLoopId = requestAnimationFrame(animationLoop);
+    window.gameEngine.isLoopRunning = true;
+    requestAnimationFrame(animationLoop);
   }
   
-  window.gameEngine.renderLoopId = requestAnimationFrame(animationLoop);
+  window.gameEngine.isLoopRunning = true;
+  requestAnimationFrame(animationLoop);
 }
 
 /**
@@ -2957,9 +2971,14 @@ function interpolateSnake(snakeA, snakeB, t) {
  * ОПТИМИЗАЦИЯ: Отрисовка змейки плавными линиями (ctx.beginPath, ctx.lineCap = 'round')
  * Это в разы быстрее и красивее, чем рисование отдельных квадратов
  */
+/**
+ * ФУНКЦИЯ drawSnake: Исправление ошибки 's is not defined'
+ * Полностью переписана с четкими именами переменных
+ */
 function drawSnake(snake, color1, color2) {
   if (!gameCtx || !snake) return;
   
+  // Получаем сегменты змейки
   const segments = snake.segments || snake.body || [];
   if (segments.length === 0) return;
   
@@ -2975,26 +2994,28 @@ function drawSnake(snake, color1, color2) {
   gameCtx.shadowBlur = 15;
   gameCtx.shadowColor = color2;
   
-  // Рисуем путь через все сегменты
-  const firstSeg = segments[0];
-  if (firstSeg) {
-    gameCtx.moveTo(firstSeg.x * tileSize + tileSize / 2, firstSeg.y * tileSize + tileSize / 2);
-  }
-  
-  for (let i = 1; i < segments.length; i++) {
-    const seg = segments[i];
-    if (seg && seg.x !== undefined && seg.y !== undefined) {
-      gameCtx.lineTo(seg.x * tileSize + tileSize / 2, seg.y * tileSize + tileSize / 2);
+  // Рисуем путь через все сегменты - используем ЧЕТКОЕ имя переменной 'segment'
+  segments.forEach((segment, index) => {
+    if (segment && segment.x !== undefined && segment.y !== undefined) {
+      const x = segment.x * tileSize + tileSize / 2;
+      const y = segment.y * tileSize + tileSize / 2;
+      
+      if (index === 0) {
+        gameCtx.moveTo(x, y);
+      } else {
+        gameCtx.lineTo(x, y);
+      }
     }
-  }
+  });
   
   gameCtx.stroke();
   gameCtx.restore();
   
-  // Рисуем голову (яркий круг)
+  // Рисуем голову (яркий круг) - используем первый segment
   if (segments[0]) {
-    const headX = segments[0].x * tileSize + tileSize / 2;
-    const headY = segments[0].y * tileSize + tileSize / 2;
+    const headSegment = segments[0];
+    const headX = headSegment.x * tileSize + tileSize / 2;
+    const headY = headSegment.y * tileSize + tileSize / 2;
     
     gameCtx.save();
     gameCtx.shadowBlur = 20;
