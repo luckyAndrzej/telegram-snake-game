@@ -1028,8 +1028,8 @@ body::before {
     /* ИСПРАВЛЕНИЕ: Flex-структура для правильного расположения контента и кнопок */
     display: flex !important;
     flex-direction: column !important;
-    /* ИСПРАВЛЕНИЕ: overflow: hidden обрезает все внутренние элементы по границе border-radius */
-    overflow: hidden !important;
+    /* ИСПРАВЛЕНИЕ: overflow: visible для кнопок, но скролл внутри #deposit-info */
+    overflow: visible !important; /* ИСПРАВЛЕНИЕ: Позволяем кнопкам быть видимыми */
     z-index: 10001 !important;
     padding: 0 !important; /* ИСПРАВЛЕНИЕ: Убираем padding, чтобы добавить его к внутренним элементам */
 }
@@ -1095,12 +1095,13 @@ body::before {
     margin: 0 !important; /* ИСПРАВЛЕНИЕ: Убираем margin */
     padding: 0 25px 15px 25px !important; /* ИСПРАВЛЕНИЕ: Padding слева, справа и снизу */
     /* ИСПРАВЛЕНИЕ: Скроллируемая область контента */
-    flex: 1 1 auto !important; /* ИСПРАВЛЕНИЕ: Занимает доступное пространство */
+    flex: 1 1 auto !important; /* ИСПРАВЛЕНИЕ: Занимает доступное пространство, но может сжиматься */
     overflow-y: auto !important; /* ИСПРАВЛЕНИЕ: Включает внутреннюю прокрутку */
     -webkit-overflow-scrolling: touch !important; /* ИСПРАВЛЕНИЕ: Плавный скролл на iOS */
     min-height: 0 !important; /* ИСПРАВЛЕНИЕ: Позволяет flex-элементу сжиматься */
-    /* ИСПРАВЛЕНИЕ: Ограничение высоты, чтобы кнопки всегда были видны */
-    max-height: calc(90vh - 180px) !important; /* Заголовок (~70px) + статусы (~50px) + кнопки (~80px) + отступы */
+    /* ИСПРАВЛЕНИЕ: Ограничение высоты, чтобы кнопки всегда были видны - используем более точный расчет */
+    max-height: calc(90vh - 200px) !important; /* Заголовок (~70px) + статусы (~50px) + кнопки (~80px) + отступы */
+    overflow-x: hidden !important; /* ИСПРАВЛЕНИЕ: Скрываем горизонтальный скролл */
 }
 
 .deposit-label {
@@ -1293,10 +1294,12 @@ body::before {
     gap: 12px;
     justify-content: center;
     flex-wrap: wrap;
-    flex-shrink: 0 !important; /* ИСПРАВЛЕНИЕ: Кнопки не сжимаются */
-    /* ИСПРАВЛЕНИЕ: Кнопки всегда внизу, не sticky, так как контент скроллится внутри #deposit-info */
+    flex-shrink: 0 !important; /* ИСПРАВЛЕНИЕ: Кнопки не сжимаются - КРИТИЧНО для видимости */
+    /* ИСПРАВЛЕНИЕ: Кнопки всегда внизу модального окна */
     background: #0a0a1a !important; /* ИСПРАВЛЕНИЕ: Фон для кнопок */
     border-top: 1px solid rgba(0, 245, 255, 0.1); /* ИСПРАВЛЕНИЕ: Визуальное разделение */
+    position: relative !important; /* ИСПРАВЛЕНИЕ: Убеждаемся, что кнопки позиционированы правильно */
+    z-index: 10002 !important; /* ИСПРАВЛЕНИЕ: Кнопки поверх контента */
 }
 
 #payment-status,
@@ -1575,6 +1578,7 @@ body::before {
     .payment-modal-content {
         padding: 0 !important; /* ИСПРАВЛЕНИЕ: Padding убран, добавляется к внутренним элементам */
         max-height: 90vh !important;
+        overflow: visible !important; /* ИСПРАВЛЕНИЕ: Позволяем кнопкам быть видимыми */
     }
     
     .payment-modal-content h3 {
@@ -1585,11 +1589,15 @@ body::before {
     
     #deposit-info {
         padding: 0 20px 15px 20px !important; /* ИСПРАВЛЕНИЕ: Padding для контента */
-        max-height: calc(90vh - 180px) !important; /* ИСПРАВЛЕНИЕ: Ограничение высоты с учетом заголовка, статусов и кнопок */
+        max-height: calc(90vh - 200px) !important; /* ИСПРАВЛЕНИЕ: Ограничение высоты с учетом заголовка, статусов и кнопок */
+        overflow-y: auto !important; /* ИСПРАВЛЕНИЕ: Скролл контента */
+        overflow-x: hidden !important; /* ИСПРАВЛЕНИЕ: Скрываем горизонтальный скролл */
     }
     
     .deposit-buttons {
         padding: 15px 20px 20px 20px !important; /* ИСПРАВЛЕНИЕ: Padding для кнопок */
+        flex-shrink: 0 !important; /* ИСПРАВЛЕНИЕ: Кнопки не сжимаются */
+        z-index: 10002 !important; /* ИСПРАВЛЕНИЕ: Кнопки поверх контента */
     }
     
     #deposit-status,
@@ -1671,7 +1679,18 @@ body::before {
         display: flex !important;
         flex-direction: column !important;
         border-radius: 20px !important; /* ИСПРАВЛЕНИЕ: border-radius: 20px */
-        overflow: hidden !important;
+        overflow: visible !important; /* ИСПРАВЛЕНИЕ: Позволяем кнопкам быть видимыми */
+    }
+    
+    #deposit-info {
+        overflow-y: auto !important; /* ИСПРАВЛЕНИЕ: Скролл контента */
+        overflow-x: hidden !important; /* ИСПРАВЛЕНИЕ: Скрываем горизонтальный скролл */
+        max-height: calc(90vh - 200px) !important; /* ИСПРАВЛЕНИЕ: Ограничение высоты */
+    }
+    
+    .deposit-buttons {
+        flex-shrink: 0 !important; /* ИСПРАВЛЕНИЕ: Кнопки не сжимаются */
+        z-index: 10002 !important; /* ИСПРАВЛЕНИЕ: Кнопки поверх контента */
     }
     
     .btn {
@@ -1700,8 +1719,19 @@ body::before {
         display: flex !important;
         flex-direction: column !important;
         border-radius: 20px !important;
-        overflow: hidden !important;
+        overflow: visible !important; /* ИСПРАВЛЕНИЕ: Позволяем кнопкам быть видимыми */
         padding: 0 !important; /* ИСПРАВЛЕНИЕ: Padding убран, добавляется к внутренним элементам */
+    }
+    
+    #deposit-info {
+        overflow-y: auto !important; /* ИСПРАВЛЕНИЕ: Скролл контента */
+        overflow-x: hidden !important; /* ИСПРАВЛЕНИЕ: Скрываем горизонтальный скролл */
+        max-height: calc(90vh - 200px) !important; /* ИСПРАВЛЕНИЕ: Ограничение высоты */
+    }
+    
+    .deposit-buttons {
+        flex-shrink: 0 !important; /* ИСПРАВЛЕНИЕ: Кнопки не сжимаются - КРИТИЧНО */
+        z-index: 10002 !important; /* ИСПРАВЛЕНИЕ: Кнопки поверх контента */
     }
     
     .payment-modal-content h3 {
@@ -1710,26 +1740,25 @@ body::before {
     
     #deposit-info {
         padding: 0 15px 15px 15px !important;
-        max-height: calc(90vh - 180px) !important; /* ИСПРАВЛЕНИЕ: Ограничение высоты с учетом заголовка, статусов и кнопок */
+        max-height: calc(90vh - 200px) !important; /* ИСПРАВЛЕНИЕ: Ограничение высоты с учетом заголовка, статусов и кнопок */
+        overflow-y: auto !important; /* ИСПРАВЛЕНИЕ: Скролл контента */
+        overflow-x: hidden !important; /* ИСПРАВЛЕНИЕ: Скрываем горизонтальный скролл */
     }
     
     .deposit-buttons {
-        position: sticky !important;
-        bottom: 0 !important;
+        flex-shrink: 0 !important; /* ИСПРАВЛЕНИЕ: Кнопки не сжимаются - КРИТИЧНО */
         background: #0a0a1a !important; /* ИСПРАВЛЕНИЕ: Фон для кнопок */
         padding: 15px 15px 20px 15px !important;
         margin: 0 !important;
-        z-index: 10002 !important;
+        z-index: 10002 !important; /* ИСПРАВЛЕНИЕ: Кнопки поверх контента */
+        position: relative !important; /* ИСПРАВЛЕНИЕ: Убираем sticky, используем обычное позиционирование */
     }
     
-    /* ИСПРАВЛЕНИЕ: Статусы также зафиксированы внизу вместе с кнопками */
+    /* ИСПРАВЛЕНИЕ: Статусы не sticky, они просто перед кнопками */
     #deposit-status,
     #deposit-polling-status {
-        position: sticky !important;
-        bottom: 0 !important;
-        background: #0a0a1a !important;
         margin: 0 15px 10px 15px !important;
-        z-index: 10001 !important;
+        flex-shrink: 0 !important; /* ИСПРАВЛЕНИЕ: Статусы не сжимаются */
     }
     
     .deposit-value-large {
