@@ -541,7 +541,10 @@ io.on('connection', async (socket) => {
         });
         return;
       }
-      console.log('2. Кошелек найден:', userWallet.substring(0, 10) + '...');
+      console.log('2. Кошелек найден:', userWallet);
+      console.log('   Источник адреса:', address ? 'из запроса' : (user.wallet ? 'из БД (wallet)' : 'из БД (wallet_address)'));
+      console.log('   Длина адреса:', userWallet.length);
+      console.log('   Формат адреса:', userWallet.includes('_') ? 'url-safe (с подчеркиваниями)' : 'standard (без подчеркиваний)');
       
       // Обновляем время последнего запроса
       lastWithdrawRequest.set(userId, now);
@@ -714,14 +717,32 @@ io.on('connection', async (socket) => {
               console.log(`✅ [Withdrawal] Seqno получен: ${String(seqno)}`);
               
               // Конвертируем адрес получателя
-              console.log(`📝 [Withdrawal] Парсинг адреса получателя: ${userWallet.substring(0, 20)}...`);
+              console.log(`📝 [Withdrawal] Парсинг адреса получателя: ${userWallet}`);
+              console.log(`📝 [Withdrawal] Длина адреса: ${userWallet.length}, формат: ${userWallet.includes('_') ? 'url-safe' : 'standard'}`);
               let recipientAddress;
               try {
                 recipientAddress = Address.parse(userWallet);
-                console.log(`✅ [Withdrawal] Адрес получателя распарсен`);
+                const recipientAddrStr = recipientAddress.toString({ 
+                  testOnly: isTestnet, 
+                  bounceable: false, 
+                  urlSafe: true 
+                });
+                console.log(`✅ [Withdrawal] Адрес получателя распарсен успешно`);
+                console.log(`📝 [Withdrawal] Нормализованный адрес получателя: ${recipientAddrStr}`);
+                console.log(`📝 [Withdrawal] Workchain получателя: ${recipientAddress.workChain}`);
+                
+                // Проверяем, что адрес получателя не совпадает с адресом отправителя (защита от ошибок)
+                if (recipientAddress.equals(wallet.address)) {
+                  console.warn(`⚠️ [Withdrawal] Адрес получателя совпадает с адресом отправителя!`);
+                  errorDetails = 'Адрес получателя не может совпадать с адресом администратора';
+                  throw new Error(errorDetails);
+                }
               } catch (parseError) {
-                console.error(`❌ [Withdrawal] Ошибка парсинга адреса:`, parseError.message);
-                throw new Error(`Некорректный адрес кошелька: ${parseError.message}`);
+                console.error(`❌ [Withdrawal] Ошибка парсинга адреса получателя:`, parseError.message);
+                console.error(`❌ [Withdrawal] Полный адрес: ${userWallet}`);
+                console.error(`❌ [Withdrawal] Stack:`, parseError.stack);
+                errorDetails = `Некорректный адрес кошелька получателя: ${parseError.message}. Убедитесь, что адрес указан правильно и соответствует сети (${isTestnet ? 'testnet' : 'mainnet'}).`;
+                throw new Error(errorDetails);
               }
               
               const amountInNano = toNano(amountInTon.toFixed(9));
