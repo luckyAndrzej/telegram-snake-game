@@ -707,8 +707,23 @@ body::before {
         font-size: 16px !important;
     }
     
+    .deposit-value-large {
+        font-size: 36px !important;
+        padding: 20px !important;
+    }
+    
     #deposit-amount-input {
-        font-size: 20px !important;
+        font-size: 24px !important;
+        padding: 20px 22px !important;
+    }
+    
+    .deposit-label {
+        font-size: 14px !important;
+    }
+    
+    .deposit-address-box,
+    .deposit-comment-box {
+        font-size: 14px !important;
         padding: 16px 18px !important;
     }
 }
@@ -1048,23 +1063,42 @@ body::before {
     background-clip: text;
 }
 
+/* Стили для модального окна депозита - улучшенная структура */
+#deposit-info {
+    margin-bottom: 25px;
+}
+
+.deposit-label {
+    margin-bottom: 10px !important;
+    margin-top: 0 !important;
+    font-size: 13px !important;
+    text-transform: uppercase;
+    letter-spacing: 1px;
+}
+
+.deposit-label strong {
+    color: var(--neon-cyan) !important;
+    font-weight: 700 !important;
+}
+
 /* Стили для input в модальном окне депозита */
 #deposit-amount-input {
     width: 100% !important;
-    padding: 14px 16px !important;
+    padding: 16px 18px !important;
     border-radius: 12px !important;
     border: 2px solid rgba(0, 245, 255, 0.4) !important;
-    background: rgba(10, 10, 26, 0.8) !important;
+    background: rgba(10, 10, 26, 0.9) !important;
     color: #e0e0ff !important;
-    font-size: 18px !important;
-    font-weight: 600 !important;
-    margin-bottom: 20px !important;
+    font-size: 20px !important;
+    font-weight: 700 !important;
+    margin-bottom: 0 !important;
     -webkit-appearance: none !important;
     appearance: none !important;
     transition: all 0.3s ease !important;
     box-shadow: 
         0 0 20px rgba(0, 245, 255, 0.15),
         inset 0 0 15px rgba(0, 245, 255, 0.05) !important;
+    text-align: center;
 }
 
 #deposit-amount-input:focus {
@@ -1081,30 +1115,56 @@ body::before {
     color: rgba(224, 224, 255, 0.4) !important;
 }
 
-/* Стили для суммы депозита */
-#deposit-amount-ton {
+/* Секция с деталями депозита */
+#deposit-details-section {
+    margin-top: 25px;
+    padding-top: 25px;
+    border-top: 1px solid rgba(0, 245, 255, 0.2);
+}
+
+.deposit-detail-item {
+    margin-bottom: 20px;
+}
+
+.deposit-detail-item:last-of-type {
+    margin-bottom: 0;
+}
+
+.deposit-value-large {
+    font-size: 28px !important;
+    font-weight: 900 !important;
     color: var(--neon-cyan) !important;
-    font-weight: 800 !important;
-    font-size: 20px !important;
-    text-shadow: 0 0 15px rgba(0, 245, 255, 0.8) !important;
+    text-align: center;
+    padding: 15px;
+    background: rgba(0, 245, 255, 0.1);
+    border: 2px solid rgba(0, 245, 255, 0.3);
+    border-radius: 12px;
+    margin-top: 8px;
+    box-shadow: 
+        0 0 25px rgba(0, 245, 255, 0.2),
+        inset 0 0 20px rgba(0, 245, 255, 0.05);
     background: linear-gradient(135deg, var(--neon-cyan) 0%, var(--neon-blue) 100%);
     -webkit-background-clip: text;
     -webkit-text-fill-color: transparent;
     background-clip: text;
 }
 
+.deposit-value-large span {
+    display: inline-block;
+}
+
 #payment-address,
-#deposit-address {
-    background: rgba(10, 10, 26, 0.7);
+.deposit-address-box {
+    background: rgba(10, 10, 26, 0.8);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
-    border: 1px solid rgba(0, 245, 255, 0.3);
+    border: 2px solid rgba(0, 245, 255, 0.3);
     padding: 14px 16px;
     border-radius: 12px;
     font-family: 'Courier New', monospace;
     word-break: break-all;
-    margin: 12px 0;
-    color: rgba(224, 224, 255, 0.9);
+    margin: 8px 0 0 0;
+    color: rgba(224, 224, 255, 0.95);
     font-weight: 500;
     font-size: 13px;
     box-shadow: 
@@ -1115,12 +1175,15 @@ body::before {
     line-height: 1.6;
     transition: all 0.3s ease;
     position: relative;
+    min-height: 50px;
+    display: flex;
+    align-items: center;
 }
 
 #payment-address:hover,
-#deposit-address:hover {
+.deposit-address-box:hover {
     border-color: rgba(0, 245, 255, 0.5);
-    background: rgba(10, 10, 26, 0.85);
+    background: rgba(10, 10, 26, 0.9);
     box-shadow: 
         0 4px 20px rgba(0, 0, 0, 0.4),
         inset 0 0 30px rgba(0, 245, 255, 0.1),
@@ -1145,6 +1208,51 @@ body::before {
     box-shadow: 
         0 0 20px rgba(176, 38, 255, 0.2),
         inset 0 0 15px rgba(176, 38, 255, 0.05);
+}
+
+/* Предупреждение в модальном окне депозита */
+.deposit-warning {
+    margin-top: 20px;
+    padding: 15px;
+    background: rgba(255, 193, 7, 0.1);
+    border: 1px solid rgba(255, 193, 7, 0.3);
+    border-radius: 12px;
+    display: flex;
+    align-items: flex-start;
+    gap: 12px;
+    box-shadow: 
+        0 0 20px rgba(255, 193, 7, 0.15),
+        inset 0 0 15px rgba(255, 193, 7, 0.05);
+}
+
+.warning-icon {
+    font-size: 24px;
+    flex-shrink: 0;
+    margin-top: 2px;
+}
+
+.warning-text {
+    margin: 0 !important;
+    color: rgba(255, 255, 255, 0.95) !important;
+    font-size: 13px !important;
+    line-height: 1.6 !important;
+    flex: 1;
+}
+
+.warning-text strong {
+    color: #ffc107 !important;
+    text-shadow: 0 0 10px rgba(255, 193, 7, 0.8) !important;
+    background: none !important;
+    -webkit-text-fill-color: #ffc107 !important;
+}
+
+/* Кнопки в модальном окне депозита */
+.deposit-buttons {
+    margin-top: 25px;
+    display: flex;
+    gap: 12px;
+    justify-content: center;
+    flex-wrap: wrap;
 }
 
 #payment-status,
@@ -1380,6 +1488,40 @@ body::before {
         height: 60px;
         font-size: 24px;
     }
+    
+    /* Модальное окно депозита для маленьких экранов */
+    .payment-modal-content {
+        padding: 25px 20px !important;
+    }
+    
+    .payment-modal-content h3 {
+        font-size: 24px !important;
+        margin-bottom: 20px !important;
+    }
+    
+    .deposit-value-large {
+        font-size: 24px !important;
+        padding: 12px !important;
+    }
+    
+    #deposit-amount-input {
+        font-size: 18px !important;
+        padding: 14px 16px !important;
+    }
+    
+    .deposit-address-box,
+    .deposit-comment-box {
+        font-size: 12px !important;
+        padding: 12px 14px !important;
+    }
+    
+    .deposit-buttons {
+        flex-direction: column;
+    }
+    
+    .deposit-buttons .btn {
+        width: 100%;
+    }
 }
 
 @media (max-width: 360px) {
@@ -1442,19 +1584,26 @@ body::before {
         max-width: calc(100% - 40px) !important;
         max-height: 90vh !important;
         z-index: 10001 !important;
-        display: flex !important;
-        flex-direction: column !important;
+        padding: 25px 20px !important;
     }
     
-    /* Кнопки в модальном окне всегда видны */
-    .payment-modal-content > div:last-child,
-    .payment-modal-content > div[style*="margin-top: 20px"] {
-        margin-top: auto !important;
-        padding-top: 15px !important;
+    .deposit-buttons {
         position: sticky !important;
         bottom: 0 !important;
-        background: #0a0a1a !important;
+        background: linear-gradient(135deg, #0a0a1a 0%, #1a0a2e 50%, #0a1a2e 100%) !important;
+        padding-top: 15px !important;
+        margin-top: 20px !important;
         z-index: 10002 !important;
+    }
+    
+    .deposit-value-large {
+        font-size: 24px !important;
+        padding: 12px !important;
+    }
+    
+    #deposit-amount-input {
+        font-size: 18px !important;
+        padding: 14px 16px !important;
     }
     
     .payment-modal-content h3 {

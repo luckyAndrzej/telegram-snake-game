@@ -858,6 +858,14 @@ function initSocket() {
     const payBtn = document.getElementById('pay-deposit-tonkeeper-btn');
     
     if (depositModal && addressEl && amountTonEl && commentEl) {
+      // Показываем детали депозита, скрываем поле ввода суммы
+      const amountSection = document.getElementById('deposit-amount-section');
+      const detailsSection = document.getElementById('deposit-details-section');
+      
+      if (amountSection) amountSection.style.display = 'none';
+      if (detailsSection) detailsSection.style.display = 'block';
+      
+      // Заполняем данные
       addressEl.textContent = data.walletAddress;
       amountTonEl.textContent = data.amountTon;
       commentEl.textContent = data.comment;
@@ -867,8 +875,8 @@ function initSocket() {
       if (payBtn) payBtn.style.display = 'block';
       
       if (statusEl) {
-        statusEl.textContent = 'Waiting for payment...';
-        statusEl.style.color = '#00f5ff';
+        statusEl.textContent = '';
+        statusEl.style.color = '';
       }
       
       // Сохраняем данные для оплаты
@@ -1239,6 +1247,21 @@ function initEventListeners() {
     if (statusEl) {
       statusEl.textContent = '';
     }
+    const pollingStatusEl = document.getElementById('deposit-polling-status');
+    if (pollingStatusEl) {
+      pollingStatusEl.style.display = 'none';
+      pollingStatusEl.textContent = '';
+    }
+    // Показываем секцию ввода суммы, скрываем детали
+    const amountSection = document.getElementById('deposit-amount-section');
+    const detailsSection = document.getElementById('deposit-details-section');
+    const confirmBtn = document.getElementById('confirm-deposit-btn');
+    const payBtn = document.getElementById('pay-deposit-tonkeeper-btn');
+    
+    if (amountSection) amountSection.style.display = 'block';
+    if (detailsSection) detailsSection.style.display = 'none';
+    if (confirmBtn) confirmBtn.style.display = 'block';
+    if (payBtn) payBtn.style.display = 'none';
   });
   
   // Confirm deposit amount button
@@ -1271,6 +1294,20 @@ function initEventListeners() {
   // Close deposit modal
   document.getElementById('close-deposit-btn')?.addEventListener('click', () => {
     toggleModal('deposit-modal', false);
+    // Сбрасываем форму при закрытии
+    const amountInput = document.getElementById('deposit-amount-input');
+    if (amountInput) {
+      amountInput.value = '';
+    }
+    const amountSection = document.getElementById('deposit-amount-section');
+    const detailsSection = document.getElementById('deposit-details-section');
+    const confirmBtn = document.getElementById('confirm-deposit-btn');
+    const payBtn = document.getElementById('pay-deposit-tonkeeper-btn');
+    
+    if (amountSection) amountSection.style.display = 'block';
+    if (detailsSection) detailsSection.style.display = 'none';
+    if (confirmBtn) confirmBtn.style.display = 'block';
+    if (payBtn) payBtn.style.display = 'none';
   });
   
   // Old buy buttons (removed, but keeping for compatibility)
