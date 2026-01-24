@@ -1058,38 +1058,6 @@ body::before {
     overflow: visible !important; /* ИСПРАВЛЕНИЕ: Позволяем кнопке закрытия быть видимой */
 }
 
-/* ИСПРАВЛЕНИЕ: Кнопка закрытия в заголовке для мобильных */
-.close-header-btn {
-    display: none !important; /* По умолчанию скрыта */
-    float: right !important;
-    background: rgba(0, 245, 255, 0.1) !important;
-    border: 2px solid rgba(0, 245, 255, 0.3) !important;
-    color: var(--neon-cyan) !important;
-    font-size: 28px !important;
-    cursor: pointer !important;
-    padding: 0 !important;
-    width: 36px !important;
-    height: 36px !important;
-    line-height: 32px !important;
-    text-align: center !important;
-    border-radius: 50% !important;
-    transition: all 0.3s ease !important;
-    position: absolute !important;
-    right: 15px !important;
-    top: 50% !important;
-    transform: translateY(-50%) !important;
-    z-index: 10002 !important;
-}
-
-.close-header-btn:hover {
-    background: rgba(0, 245, 255, 0.2) !important;
-    border-color: var(--neon-cyan) !important;
-    box-shadow: 0 0 15px rgba(0, 245, 255, 0.5) !important;
-}
-
-.close-header-btn:active {
-    transform: translateY(-50%) scale(0.95) !important;
-}
 
 .payment-modal-content h3::after {
     content: '';
@@ -1125,13 +1093,14 @@ body::before {
 /* Стили для модального окна депозита - улучшенная структура */
 #deposit-info {
     margin: 0 !important; /* ИСПРАВЛЕНИЕ: Убираем margin */
-    padding: 0 25px !important; /* ИСПРАВЛЕНИЕ: Padding слева и справа */
+    padding: 0 25px 15px 25px !important; /* ИСПРАВЛЕНИЕ: Padding слева, справа и снизу */
     /* ИСПРАВЛЕНИЕ: Скроллируемая область контента */
     flex: 1 1 auto !important; /* ИСПРАВЛЕНИЕ: Занимает доступное пространство */
     overflow-y: auto !important; /* ИСПРАВЛЕНИЕ: Включает внутреннюю прокрутку */
     -webkit-overflow-scrolling: touch !important; /* ИСПРАВЛЕНИЕ: Плавный скролл на iOS */
     min-height: 0 !important; /* ИСПРАВЛЕНИЕ: Позволяет flex-элементу сжиматься */
-    max-height: calc(90vh - 220px) !important; /* ИСПРАВЛЕНИЕ: Ограничение высоты с учетом заголовка, статусов и кнопок */
+    /* ИСПРАВЛЕНИЕ: Ограничение высоты, чтобы кнопки всегда были видны */
+    max-height: calc(90vh - 180px) !important; /* Заголовок (~70px) + статусы (~50px) + кнопки (~80px) + отступы */
 }
 
 .deposit-label {
@@ -1325,11 +1294,8 @@ body::before {
     justify-content: center;
     flex-wrap: wrap;
     flex-shrink: 0 !important; /* ИСПРАВЛЕНИЕ: Кнопки не сжимаются */
-    /* ИСПРАВЛЕНИЕ: Фиксация кнопок внизу - они всегда видны */
-    position: sticky !important; /* ИСПРАВЛЕНИЕ: Всегда sticky на всех экранах */
-    bottom: 0 !important;
-    background: #0a0a1a !important; /* ИСПРАВЛЕНИЕ: Фон для кнопок, чтобы они не прозрачные при скролле */
-    z-index: 10 !important; /* ИСПРАВЛЕНИЕ: Кнопки поверх контента при скролле */
+    /* ИСПРАВЛЕНИЕ: Кнопки всегда внизу, не sticky, так как контент скроллится внутри #deposit-info */
+    background: #0a0a1a !important; /* ИСПРАВЛЕНИЕ: Фон для кнопок */
     border-top: 1px solid rgba(0, 245, 255, 0.1); /* ИСПРАВЛЕНИЕ: Визуальное разделение */
 }
 
@@ -1339,7 +1305,7 @@ body::before {
     padding: 12px !important;
     text-align: center;
     font-weight: 700;
-    min-height: 28px;
+    min-height: 0 !important; /* ИСПРАВЛЕНИЕ: Убираем min-height, чтобы пустой статус не занимал место */
     font-size: 16px;
     border-radius: 10px;
     background: rgba(0, 245, 255, 0.1);
@@ -1347,6 +1313,13 @@ body::before {
     box-shadow: 0 0 15px rgba(0, 245, 255, 0.1);
     overflow: hidden; /* ИСПРАВЛЕНИЕ: Обрезаем внутренние элементы по границе скругления */
     flex-shrink: 0 !important; /* ИСПРАВЛЕНИЕ: Статус не сжимается */
+    display: none !important; /* ИСПРАВЛЕНИЕ: Скрыт по умолчанию */
+}
+
+/* ИСПРАВЛЕНИЕ: Показываем статус только когда есть содержимое */
+#deposit-status:not(:empty) {
+    display: block !important;
+    min-height: 28px !important;
 }
 
 #deposit-polling-status {
@@ -1358,6 +1331,13 @@ body::before {
     flex-shrink: 0 !important; /* ИСПРАВЛЕНИЕ: Статус не сжимается */
     animation: pulse 2s ease-in-out infinite;
     overflow: hidden; /* ИСПРАВЛЕНИЕ: Обрезаем внутренние элементы по границе скругления */
+    display: none !important; /* ИСПРАВЛЕНИЕ: Скрыт по умолчанию */
+}
+
+/* ИСПРАВЛЕНИЕ: Показываем polling статус только когда он видим */
+#deposit-polling-status[style*="display: block"],
+#deposit-polling-status:not([style*="display: none"]) {
+    display: block !important;
 }
 
 @keyframes pulse {
@@ -1599,18 +1579,13 @@ body::before {
     
     .payment-modal-content h3 {
         font-size: 24px !important;
-        padding: 20px 60px 15px 20px !important; /* ИСПРАВЛЕНИЕ: Padding для заголовка с учетом кнопки закрытия */
+        padding: 20px 20px 15px 20px !important; /* ИСПРАВЛЕНИЕ: Padding для заголовка */
         margin: 0 !important;
     }
     
-    /* ИСПРАВЛЕНИЕ: Показываем кнопку закрытия в заголовке на мобильных */
-    .close-header-btn {
-        display: block !important;
-    }
-    
     #deposit-info {
-        padding: 0 20px !important; /* ИСПРАВЛЕНИЕ: Padding для контента */
-        max-height: calc(90vh - 200px) !important; /* ИСПРАВЛЕНИЕ: Ограничение высоты с учетом заголовка и кнопок */
+        padding: 0 20px 15px 20px !important; /* ИСПРАВЛЕНИЕ: Padding для контента */
+        max-height: calc(90vh - 180px) !important; /* ИСПРАВЛЕНИЕ: Ограничение высоты с учетом заголовка, статусов и кнопок */
     }
     
     .deposit-buttons {
@@ -1730,22 +1705,12 @@ body::before {
     }
     
     .payment-modal-content h3 {
-        padding: 20px 55px 15px 15px !important; /* ИСПРАВЛЕНИЕ: Padding для заголовка с учетом кнопки закрытия */
-    }
-    
-    /* ИСПРАВЛЕНИЕ: Показываем кнопку закрытия в заголовке на очень маленьких экранах */
-    .close-header-btn {
-        display: block !important;
-        right: 10px !important;
-        width: 32px !important;
-        height: 32px !important;
-        font-size: 24px !important;
-        line-height: 28px !important;
+        padding: 20px 15px 15px 15px !important; /* ИСПРАВЛЕНИЕ: Padding для заголовка */
     }
     
     #deposit-info {
-        padding: 0 15px !important;
-        max-height: calc(90vh - 180px) !important; /* ИСПРАВЛЕНИЕ: Ограничение высоты с учетом заголовка и кнопок */
+        padding: 0 15px 15px 15px !important;
+        max-height: calc(90vh - 180px) !important; /* ИСПРАВЛЕНИЕ: Ограничение высоты с учетом заголовка, статусов и кнопок */
     }
     
     .deposit-buttons {
