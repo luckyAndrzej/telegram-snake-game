@@ -409,27 +409,31 @@ function initSocket() {
         const mySnakeSegs = fixedMySnakeSegments || mySnakeSegments || [];
         const oppSnakeSegs = fixedOpponentSnakeSegments || opponentSnakeSegments || [];
         
+        // ГЛУБОКОЕ КОПИРОВАНИЕ: Используем JSON для гарантированного копирования
+        const mySnakeSegsCopy = JSON.parse(JSON.stringify(mySnakeSegs));
+        const oppSnakeSegsCopy = JSON.parse(JSON.stringify(oppSnakeSegs));
+        
         window.appState.game.my_snake = {
-          segments: mySnakeSegs,
+          segments: mySnakeSegsCopy,
           direction: { dx: 1, dy: 0 }, // Горизонтально вправо
           alive: true
         };
         window.appState.game.opponent_snake = {
-          segments: oppSnakeSegs,
+          segments: oppSnakeSegsCopy,
           direction: { dx: -1, dy: 0 }, // Горизонтально влево
           alive: true
         };
         
-        // Инициализация состояния интерполяции из initial_state
+        // Инициализация состояния интерполяции из initial_state с глубоким копированием
         const initTime = performance.now();
-        snakeInterpolationState.my_snake.oldPos = mySnakeSegs.map(s => ({ x: s.x, y: s.y }));
-        snakeInterpolationState.my_snake.targetPos = mySnakeSegs.map(s => ({ x: s.x, y: s.y }));
+        snakeInterpolationState.my_snake.oldPos = mySnakeSegsCopy.map(s => ({ x: Number(s.x), y: Number(s.y) }));
+        snakeInterpolationState.my_snake.targetPos = mySnakeSegsCopy.map(s => ({ x: Number(s.x), y: Number(s.y) }));
         snakeInterpolationState.my_snake.lastUpdate = initTime;
         snakeInterpolationState.my_snake.direction = { dx: 1, dy: 0 };
         snakeInterpolationState.my_snake.alive = true;
         
-        snakeInterpolationState.opponent_snake.oldPos = oppSnakeSegs.map(s => ({ x: s.x, y: s.y }));
-        snakeInterpolationState.opponent_snake.targetPos = oppSnakeSegs.map(s => ({ x: s.x, y: s.y }));
+        snakeInterpolationState.opponent_snake.oldPos = oppSnakeSegsCopy.map(s => ({ x: Number(s.x), y: Number(s.y) }));
+        snakeInterpolationState.opponent_snake.targetPos = oppSnakeSegsCopy.map(s => ({ x: Number(s.x), y: Number(s.y) }));
         snakeInterpolationState.opponent_snake.lastUpdate = initTime;
         snakeInterpolationState.opponent_snake.direction = { dx: -1, dy: 0 };
         snakeInterpolationState.opponent_snake.alive = true;
@@ -726,25 +730,15 @@ function initSocket() {
       gameState: gameState
     });
     
-    // СИНХРОНИЗАЦИЯ GAMEID: Проверяем gameId, но не блокируем если ID немного отличается
-    // Если игра началась, клиент должен принимать пакеты game_state даже если ID незначительно отличается
-    if (data && data.gameId && currentGame && currentGame.gameId) {
-      if (data.gameId !== currentGame.gameId) {
-        // Проверяем, не является ли это просто другой формат того же ID (например, ...8q vs ...79)
-        const currentIdStr = String(currentGame.gameId);
-        const dataIdStr = String(data.gameId);
-        // Если ID отличаются только последними символами, считаем это допустимым
-        if (currentIdStr.slice(0, -2) !== dataIdStr.slice(0, -2)) {
-          console.warn(`⚠️ GameID mismatch: current=${currentGame.gameId}, received=${data.gameId}, но продолжаем обработку`);
-        } else {
-          console.log(`ℹ️ GameID немного отличается (${currentGame.gameId} vs ${data.gameId}), но продолжаем обработку`);
-        }
-        // Обновляем gameId на новый, чтобы синхронизироваться с сервером
+    // СИНХРОНИЗАЦИЯ GAMEID: Всегда синхронизируем с сервером
+    if (data && data.gameId) {
+      if (!currentGame) {
+        currentGame = { gameId: data.gameId };
+      } else if (data.gameId !== currentGame.gameId) {
+        // Просто обновляем gameId на полученный от сервера
+        console.log(`🔄 GameID синхронизирован: ${currentGame.gameId} -> ${data.gameId}`);
         currentGame.gameId = data.gameId;
       }
-    } else if (data && data.gameId && !currentGame) {
-      // Если currentGame не существует, создаем его
-      currentGame = { gameId: data.gameId };
     }
     
     // ЛОГИКА ОТРИСОВКИ: Обновляем window.appState.game данными из game_state всегда, если gameState === 'playing'
@@ -755,72 +749,97 @@ function initSocket() {
       window.appState.game.status = 'playing';
       window.appState.game.tick_number = data.tick_number || 0;
       
-      // МАСЛЯНАЯ ПЛАВНОСТЬ: Сохраняем oldPos и targetPos для интерполяции
-      // ИСПРАВЛЕНИЕ ДОСТУПА К КООРДИНАТАМ: Сервер присылает segments, а не body
-      // ИСПРАВЛЕНИЕ: Гарантируем, что my_snake и opponent_snake всегда обновляются, даже если один из них null
+      // ЖИДКАЯ ПЛАВНОСТЬ: LERP интерполяция с правильной инициализацией
+      // ГЛУБОКОЕ КОПИРОВАНИЕ: Используем JSON для гарантированного копирования
       if (data.my_snake) {
-        const segments = data.my_snake.segments ? [...data.my_snake.segments] : (data.my_snake.body ? [...data.my_snake.body] : []);
+        // Глубокое копирование сегментов
+        const segments = data.my_snake.segments ? 
+          JSON.parse(JSON.stringify(data.my_snake.segments)) : 
+          (data.my_snake.body ? JSON.parse(JSON.stringify(data.my_snake.body)) : []);
         
         if (segments.length > 0) {
-          // ИСПРАВЛЕНИЕ: При первом обновлении сохраняем текущие targetPos как oldPos
-          if (snakeInterpolationState.my_snake.targetPos && snakeInterpolationState.my_snake.targetPos.length > 0) {
-            // Сохраняем текущие координаты как oldPos перед обновлением
-            snakeInterpolationState.my_snake.oldPos = snakeInterpolationState.my_snake.targetPos.map(s => ({ x: s.x, y: s.y }));
-          } else {
-            // При первом обновлении инициализируем oldPos и targetPos одинаковыми значениями
-            const segsCopy = segments.map(s => ({ x: s.x, y: s.y }));
+          // ИНИЦИАЛИЗАЦИЯ: Если состояние интерполяции отсутствует, создаем его
+          if (!snakeInterpolationState.my_snake.targetPos || snakeInterpolationState.my_snake.targetPos.length === 0) {
+            // Первый пакет - инициализируем oldPos и targetPos одинаковыми значениями
+            const segsCopy = segments.map(s => ({ x: Number(s.x), y: Number(s.y) }));
             snakeInterpolationState.my_snake.oldPos = segsCopy;
+            snakeInterpolationState.my_snake.targetPos = segsCopy;
+            snakeInterpolationState.my_snake.lastUpdate = updateTime;
+            console.log('🔄 my_snake interpolation state инициализирован:', segsCopy.length, 'сегментов');
+          } else {
+            // Последующие пакеты: старые targetPos становятся oldPos, новые координаты - targetPos
+            snakeInterpolationState.my_snake.oldPos = snakeInterpolationState.my_snake.targetPos.map(s => ({ x: Number(s.x), y: Number(s.y) }));
+            snakeInterpolationState.my_snake.targetPos = segments.map(s => ({ x: Number(s.x), y: Number(s.y) }));
+            snakeInterpolationState.my_snake.lastUpdate = updateTime;
           }
           
-          // Всегда обновляем targetPos новыми координатами
-          snakeInterpolationState.my_snake.targetPos = segments.map(s => ({ x: s.x, y: s.y }));
-          snakeInterpolationState.my_snake.lastUpdate = updateTime;
           snakeInterpolationState.my_snake.direction = data.my_snake.direction ? { ...data.my_snake.direction } : { dx: 1, dy: 0 };
           snakeInterpolationState.my_snake.alive = data.my_snake.alive !== undefined ? data.my_snake.alive : true;
+          
+          // Обновляем window.appState с глубоким копированием
+          window.appState.game.my_snake = {
+            segments: JSON.parse(JSON.stringify(segments)),
+            direction: { ...snakeInterpolationState.my_snake.direction },
+            alive: snakeInterpolationState.my_snake.alive
+          };
         }
-        
-        window.appState.game.my_snake = {
-          segments: segments,
-          direction: snakeInterpolationState.my_snake.direction,
-          alive: snakeInterpolationState.my_snake.alive
-        };
       } else {
         // Если my_snake не пришла, сохраняем предыдущее состояние
         if (!window.appState.game.my_snake) {
-          window.appState.game.my_snake = currentGameState?.my_snake || currentGame?.initialState?.my_snake || null;
+          const fallback = currentGameState?.my_snake || currentGame?.initialState?.my_snake;
+          if (fallback) {
+            window.appState.game.my_snake = {
+              segments: JSON.parse(JSON.stringify(fallback.segments || fallback.body || [])),
+              direction: fallback.direction ? { ...fallback.direction } : { dx: 1, dy: 0 },
+              alive: fallback.alive !== undefined ? fallback.alive : true
+            };
+          }
         }
       }
       
       if (data.opponent_snake) {
-        const segments = data.opponent_snake.segments ? [...data.opponent_snake.segments] : (data.opponent_snake.body ? [...data.opponent_snake.body] : []);
+        // Глубокое копирование сегментов
+        const segments = data.opponent_snake.segments ? 
+          JSON.parse(JSON.stringify(data.opponent_snake.segments)) : 
+          (data.opponent_snake.body ? JSON.parse(JSON.stringify(data.opponent_snake.body)) : []);
         
         if (segments.length > 0) {
-          // ИСПРАВЛЕНИЕ: При первом обновлении сохраняем текущие targetPos как oldPos
-          if (snakeInterpolationState.opponent_snake.targetPos && snakeInterpolationState.opponent_snake.targetPos.length > 0) {
-            // Сохраняем текущие координаты как oldPos перед обновлением
-            snakeInterpolationState.opponent_snake.oldPos = snakeInterpolationState.opponent_snake.targetPos.map(s => ({ x: s.x, y: s.y }));
-          } else {
-            // При первом обновлении инициализируем oldPos и targetPos одинаковыми значениями
-            const segsCopy = segments.map(s => ({ x: s.x, y: s.y }));
+          // ИНИЦИАЛИЗАЦИЯ: Если состояние интерполяции отсутствует, создаем его
+          if (!snakeInterpolationState.opponent_snake.targetPos || snakeInterpolationState.opponent_snake.targetPos.length === 0) {
+            // Первый пакет - инициализируем oldPos и targetPos одинаковыми значениями
+            const segsCopy = segments.map(s => ({ x: Number(s.x), y: Number(s.y) }));
             snakeInterpolationState.opponent_snake.oldPos = segsCopy;
+            snakeInterpolationState.opponent_snake.targetPos = segsCopy;
+            snakeInterpolationState.opponent_snake.lastUpdate = updateTime;
+            console.log('🔄 opponent_snake interpolation state инициализирован:', segsCopy.length, 'сегментов');
+          } else {
+            // Последующие пакеты: старые targetPos становятся oldPos, новые координаты - targetPos
+            snakeInterpolationState.opponent_snake.oldPos = snakeInterpolationState.opponent_snake.targetPos.map(s => ({ x: Number(s.x), y: Number(s.y) }));
+            snakeInterpolationState.opponent_snake.targetPos = segments.map(s => ({ x: Number(s.x), y: Number(s.y) }));
+            snakeInterpolationState.opponent_snake.lastUpdate = updateTime;
           }
           
-          // Всегда обновляем targetPos новыми координатами
-          snakeInterpolationState.opponent_snake.targetPos = segments.map(s => ({ x: s.x, y: s.y }));
-          snakeInterpolationState.opponent_snake.lastUpdate = updateTime;
           snakeInterpolationState.opponent_snake.direction = data.opponent_snake.direction ? { ...data.opponent_snake.direction } : { dx: -1, dy: 0 };
           snakeInterpolationState.opponent_snake.alive = data.opponent_snake.alive !== undefined ? data.opponent_snake.alive : true;
+          
+          // Обновляем window.appState с глубоким копированием
+          window.appState.game.opponent_snake = {
+            segments: JSON.parse(JSON.stringify(segments)),
+            direction: { ...snakeInterpolationState.opponent_snake.direction },
+            alive: snakeInterpolationState.opponent_snake.alive
+          };
         }
-        
-        window.appState.game.opponent_snake = {
-          segments: segments,
-          direction: snakeInterpolationState.opponent_snake.direction,
-          alive: snakeInterpolationState.opponent_snake.alive
-        };
       } else {
         // Если opponent_snake не пришла, сохраняем предыдущее состояние
         if (!window.appState.game.opponent_snake) {
-          window.appState.game.opponent_snake = currentGameState?.opponent_snake || currentGame?.initialState?.opponent_snake || null;
+          const fallback = currentGameState?.opponent_snake || currentGame?.initialState?.opponent_snake;
+          if (fallback) {
+            window.appState.game.opponent_snake = {
+              segments: JSON.parse(JSON.stringify(fallback.segments || fallback.body || [])),
+              direction: fallback.direction ? { ...fallback.direction } : { dx: -1, dy: 0 },
+              alive: fallback.alive !== undefined ? fallback.alive : true
+            };
+          }
         }
       }
       
@@ -2901,11 +2920,11 @@ function startRenderLoop() {
       }
     }
     
-    // ВЫЧИСЛЕНИЕ КОЭФФИЦИЕНТА ИНТЕРПОЛЯЦИИ (alpha) для каждой змейки
-    const TICK_RATE = TICK_DURATION; // 120ms - интервал сервера
+    // ЖИДКАЯ ПЛАВНОСТЬ: LERP (Linear Interpolation) для абсолютной плавности
+    const TICK_RATE = TICK_DURATION || 200; // Интервал между тиками сервера в мс (200ms по умолчанию)
     const currentTime = performance.now();
     
-    // Функция для вычисления alpha с обработкой телепортации
+    // Функция для вычисления alpha с использованием LERP
     function calculateAlpha(snakeState) {
       if (!snakeState || !snakeState.targetPos || !Array.isArray(snakeState.targetPos) || snakeState.targetPos.length === 0) {
         return 1; // Нет данных для интерполяции
@@ -2921,6 +2940,7 @@ function startRenderLoop() {
         return 1; // Некорректное время
       }
       
+      // LERP формула: alpha = elapsed / TICK_RATE
       let alpha = elapsed / TICK_RATE;
       
       // ОБРАБОТКА ТЕЛЕПОРТАЦИИ: Если расстояние между oldPos и targetPos > 1,
@@ -2938,42 +2958,38 @@ function startRenderLoop() {
         }
       }
       
-      // Ограничиваем alpha до [0, 1.2] (разрешаем небольшую экстраполяцию)
-      alpha = Math.min(Math.max(alpha, 0), 1.2);
+      // Ограничиваем alpha от 0 до 1 для чистой интерполяции (без экстраполяции)
+      // Это гарантирует, что змея не улетит в космос при задержках
+      alpha = Math.min(Math.max(alpha, 0), 1);
       
       // Проверяем на NaN
       if (isNaN(alpha)) {
         return 1;
       }
       
-      // Применяем smoothstep для максимальной плавности
-      if (alpha <= 1.0) {
-        return alpha * alpha * (3 - 2 * alpha); // Smoothstep
-      } else {
-        // Экстраполяция: консервативный подход
-        const extrapolation = alpha - 1.0;
-        return 1.0 + extrapolation * 0.2; // Ограничиваем до 20%
-      }
+      return alpha; // Чистый LERP без smoothstep для максимальной плавности
     }
     
     // Вычисляем alpha для каждой змейки (гарантируем, что это всегда число)
     const mySnakeAlpha = calculateAlpha(snakeInterpolationState.my_snake);
     const oppSnakeAlpha = calculateAlpha(snakeInterpolationState.opponent_snake);
     
-    // Отладочные логи для диагностики
+    // Отладочные логи для диагностики (только при отсутствии состояния)
     if (gameState === 'playing' && (!snakeInterpolationState.my_snake.targetPos || !snakeInterpolationState.opponent_snake.targetPos)) {
-      console.warn('⚠️ Snake interpolation state missing:', {
+      console.warn('⚠️ Snake interpolation state missing - будет использован fallback:', {
         my_snake: {
           hasTargetPos: !!snakeInterpolationState.my_snake.targetPos,
           targetPosLength: snakeInterpolationState.my_snake.targetPos?.length || 0,
           hasOldPos: !!snakeInterpolationState.my_snake.oldPos,
-          oldPosLength: snakeInterpolationState.my_snake.oldPos?.length || 0
+          oldPosLength: snakeInterpolationState.my_snake.oldPos?.length || 0,
+          lastUpdate: snakeInterpolationState.my_snake.lastUpdate
         },
         opponent_snake: {
           hasTargetPos: !!snakeInterpolationState.opponent_snake.targetPos,
           targetPosLength: snakeInterpolationState.opponent_snake.targetPos?.length || 0,
           hasOldPos: !!snakeInterpolationState.opponent_snake.oldPos,
-          oldPosLength: snakeInterpolationState.opponent_snake.oldPos?.length || 0
+          oldPosLength: snakeInterpolationState.opponent_snake.oldPos?.length || 0,
+          lastUpdate: snakeInterpolationState.opponent_snake.lastUpdate
         }
       });
     }
@@ -3015,13 +3031,13 @@ function startRenderLoop() {
     let mySnake = null;
     const mySnakeState = snakeInterpolationState.my_snake;
     
-    // ИСПРАВЛЕНИЕ: Сначала проверяем targetPos, затем oldPos, затем fallback
+    // ЖИДКАЯ ПЛАВНОСТЬ: LERP интерполяция для каждого сегмента
     // Приоритет: интерполяция > targetPos напрямую > window.appState > currentGameState > initialState
     if (mySnakeState && mySnakeState.targetPos && Array.isArray(mySnakeState.targetPos) && mySnakeState.targetPos.length > 0) {
       // Если есть targetPos, используем интерполяцию
       if (mySnakeState.oldPos && Array.isArray(mySnakeState.oldPos) && mySnakeState.oldPos.length > 0 && 
-          typeof mySnakeAlpha === 'number' && !isNaN(mySnakeAlpha) && mySnakeAlpha >= 0 && mySnakeAlpha <= 2) {
-        // Интерполируем каждый сегмент: drawX = oldX + (targetX - oldX) * alpha
+          typeof mySnakeAlpha === 'number' && !isNaN(mySnakeAlpha) && mySnakeAlpha >= 0 && mySnakeAlpha <= 1) {
+        // LERP формула: visualX = prevX + (targetX - prevX) * alpha
         try {
           const interpolatedSegments = mySnakeState.oldPos.map((oldSeg, i) => {
             const targetSeg = mySnakeState.targetPos[i] || oldSeg;
@@ -3040,7 +3056,7 @@ function startRenderLoop() {
           console.error('❌ Error interpolating my_snake:', error);
           // Fallback на targetPos
           mySnake = {
-            segments: mySnakeState.targetPos.map(s => ({ x: s.x, y: s.y })),
+            segments: mySnakeState.targetPos.map(s => ({ x: Number(s.x), y: Number(s.y) })),
             direction: mySnakeState.direction || { dx: 1, dy: 0 },
             alive: mySnakeState.alive !== undefined ? mySnakeState.alive : true
           };
@@ -3048,7 +3064,7 @@ function startRenderLoop() {
       } else {
         // Если oldPos пустой или alpha невалиден, используем targetPos напрямую (без интерполяции)
         mySnake = {
-          segments: mySnakeState.targetPos.map(s => ({ x: s.x, y: s.y })),
+          segments: mySnakeState.targetPos.map(s => ({ x: Number(s.x), y: Number(s.y) })),
           direction: mySnakeState.direction || { dx: 1, dy: 0 },
           alive: mySnakeState.alive !== undefined ? mySnakeState.alive : true
         };
@@ -3135,13 +3151,13 @@ function startRenderLoop() {
     let oppSnake = null;
     const oppSnakeState = snakeInterpolationState.opponent_snake;
     
-    // ИСПРАВЛЕНИЕ: Сначала проверяем targetPos, затем oldPos, затем fallback
+    // ЖИДКАЯ ПЛАВНОСТЬ: LERP интерполяция для каждого сегмента
     // Приоритет: интерполяция > targetPos напрямую > window.appState > currentGameState > initialState
     if (oppSnakeState && oppSnakeState.targetPos && Array.isArray(oppSnakeState.targetPos) && oppSnakeState.targetPos.length > 0) {
       // Если есть targetPos, используем интерполяцию
       if (oppSnakeState.oldPos && Array.isArray(oppSnakeState.oldPos) && oppSnakeState.oldPos.length > 0 && 
-          typeof oppSnakeAlpha === 'number' && !isNaN(oppSnakeAlpha) && oppSnakeAlpha >= 0 && oppSnakeAlpha <= 2) {
-        // Интерполируем каждый сегмент: drawX = oldX + (targetX - oldX) * alpha
+          typeof oppSnakeAlpha === 'number' && !isNaN(oppSnakeAlpha) && oppSnakeAlpha >= 0 && oppSnakeAlpha <= 1) {
+        // LERP формула: visualX = prevX + (targetX - prevX) * alpha
         try {
           const interpolatedSegments = oppSnakeState.oldPos.map((oldSeg, i) => {
             const targetSeg = oppSnakeState.targetPos[i] || oldSeg;
@@ -3160,7 +3176,7 @@ function startRenderLoop() {
           console.error('❌ Error interpolating opponent_snake:', error);
           // Fallback на targetPos
           oppSnake = {
-            segments: oppSnakeState.targetPos.map(s => ({ x: s.x, y: s.y })),
+            segments: oppSnakeState.targetPos.map(s => ({ x: Number(s.x), y: Number(s.y) })),
             direction: oppSnakeState.direction || { dx: -1, dy: 0 },
             alive: oppSnakeState.alive !== undefined ? oppSnakeState.alive : true
           };
@@ -3168,7 +3184,7 @@ function startRenderLoop() {
       } else {
         // Если oldPos пустой или alpha невалиден, используем targetPos напрямую (без интерполяции)
         oppSnake = {
-          segments: oppSnakeState.targetPos.map(s => ({ x: s.x, y: s.y })),
+          segments: oppSnakeState.targetPos.map(s => ({ x: Number(s.x), y: Number(s.y) })),
           direction: oppSnakeState.direction || { dx: -1, dy: 0 },
           alive: oppSnakeState.alive !== undefined ? oppSnakeState.alive : true
         };
