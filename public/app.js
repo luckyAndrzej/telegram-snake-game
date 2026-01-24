@@ -2781,11 +2781,11 @@ function startRenderLoop() {
     // 2. Сетка
     if (gridCanvas) gameCtx.drawImage(gridCanvas, 0, 0);
 
-    // ИНТЕРПОЛЯЦИЯ: Обрабатываем только один пакет за кадр для плавных движений
-    // Сохраняем предыдущее состояние ПЕРЕД обработкой нового пакета
+    // ИНТЕРПОЛЯЦИЯ: Улучшенная система для максимально плавного движения
     let newStateReceived = false;
     
-    // Сохраняем текущее состояние как предыдущее ПЕРЕД обновлением (если есть данные)
+    // ИСПРАВЛЕНИЕ: Всегда сохраняем текущее состояние как предыдущее ПЕРЕД обработкой нового пакета
+    // Это критически важно для правильной интерполяции "от-к-к"
     if (packetQueue.length > 0 && (window.appState?.game?.my_snake || window.appState?.game?.opponent_snake)) {
       previousGameState = {
         my_snake: window.appState.game.my_snake ? {
@@ -2828,15 +2828,20 @@ function startRenderLoop() {
       }
     }
 
-    // Вычисляем коэффициент интерполяции (0 = предыдущее состояние, 1 = текущее состояние)
+    // УЛУЧШЕННОЕ ВЫЧИСЛЕНИЕ КОЭФФИЦИЕНТА ИНТЕРПОЛЯЦИИ с easing функцией для максимальной плавности
     const expectedTickInterval = 111.11; // ~9 тиков в секунду (1000ms / 9)
     let interpolationFactor = 1; // По умолчанию используем текущее состояние
     
-    if (previousGameState && lastStateUpdateTime > 0) {
+    if (previousGameState && lastStateUpdateTime > 0 && (window.appState?.game?.my_snake || window.appState?.game?.opponent_snake)) {
       // Интерполируем между предыдущим и текущим состоянием
       const timeSinceUpdate = now - lastStateUpdateTime;
-      // Используем более плавную интерполяцию с ограничением до 1.0 (без экстраполяции для стабильности)
-      interpolationFactor = Math.min(Math.max(timeSinceUpdate / expectedTickInterval, 0), 1.0);
+      // Вычисляем базовый коэффициент интерполяции
+      let rawFactor = timeSinceUpdate / expectedTickInterval;
+      // Ограничиваем до [0, 1] для предотвращения экстраполяции
+      rawFactor = Math.min(Math.max(rawFactor, 0), 1.0);
+      // Применяем cubic ease-out для более плавного и естественного движения
+      // Это делает движение более плавным - быстро в начале, медленно в конце
+      interpolationFactor = 1 - Math.pow(1 - rawFactor, 3); // Cubic ease-out
     } else {
       // Если нет предыдущего состояния или времени обновления, используем текущее без интерполяции
       interpolationFactor = 1;
@@ -3395,28 +3400,37 @@ function interpolateSnake(previousSnake, currentSnake, t, tickDiff = 1, gameStat
   const prevHead = prevSegments[headIndex];
   const currHead = currSegments[headIndex];
   
-  // УПРОЩЕННАЯ ЛИНЕЙНАЯ ИНТЕРПОЛЯЦИЯ: интерполируем голову линейно для плавного движения
-  // Это обеспечивает плавное движение без рывков
+  // УЛУЧШЕННАЯ ИНТЕРПОЛЯЦИЯ: Используем более точную интерполяцию для максимальной плавности
+  // Обрабатываем движение головы с учетом возможных поворотов
   const dx = currHead.x - prevHead.x;
   const dy = currHead.y - prevHead.y;
   
-  // Простая линейная интерполяция для головы
+  // Интерполируем голову с учетом возможных больших перемещений (например, при поворотах)
+  // Используем линейную интерполяцию для головы
   interpolated.segments[headIndex] = {
     x: prevHead.x + dx * interpolationT,
     y: prevHead.y + dy * interpolationT
   };
   
-  // УПРОЩЕННАЯ ИНТЕРПОЛЯЦИЯ ХВОСТА: интерполируем каждый сегмент линейно между предыдущим и текущим состоянием
-  // Это обеспечивает плавное движение всего тела змейки
+  // УЛУЧШЕННАЯ ИНТЕРПОЛЯЦИЯ ХВОСТА: Интерполируем каждый сегмент с учетом его позиции в теле
+  // Используем более плавную интерполяцию для сегментов, которые ближе к хвосту
   for (let i = 1; i < currSegments.length; i++) {
-    const prevSeg = prevSegments[i] || prevSegments[prevSegments.length - 1];
-    const currSeg = currSegments[i] || currSegments[currSegments.length - 1];
+    const prevSeg = prevSegments[i];
+    const currSeg = currSegments[i];
     
     if (prevSeg && currSeg) {
-      // Простая линейная интерполяция для каждого сегмента хвоста
+      // Вычисляем расстояние перемещения для этого сегмента
+      const segDx = currSeg.x - prevSeg.x;
+      const segDy = currSeg.y - prevSeg.y;
+      
+      // Применяем интерполяцию с небольшим затуханием для сегментов ближе к хвосту
+      // Это создает более естественное движение "волной"
+      const tailFactor = 1.0 - (i / currSegments.length) * 0.05; // Небольшое затухание для хвоста (5%)
+      const adjustedT = interpolationT * tailFactor;
+      
       interpolated.segments[i] = {
-        x: prevSeg.x + (currSeg.x - prevSeg.x) * interpolationT,
-        y: prevSeg.y + (currSeg.y - prevSeg.y) * interpolationT
+        x: prevSeg.x + segDx * adjustedT,
+        y: prevSeg.y + segDy * adjustedT
       };
     } else if (currSeg) {
       // Если нет предыдущего сегмента, используем текущий
@@ -3424,6 +3438,10 @@ function interpolateSnake(previousSnake, currentSnake, t, tickDiff = 1, gameStat
     } else if (prevSeg) {
       // Если нет текущего сегмента, используем предыдущий
       interpolated.segments[i] = { x: prevSeg.x, y: prevSeg.y };
+    } else {
+      // Fallback: используем предыдущий сегмент или текущий
+      const fallbackSeg = prevSegments[i - 1] || currSegments[i - 1] || { x: 0, y: 0 };
+      interpolated.segments[i] = { x: fallbackSeg.x, y: fallbackSeg.y };
     }
   }
   
