@@ -612,8 +612,16 @@ io.on('connection', async (socket) => {
               console.log(`⏭️ [Withdrawal] Продолжаем выполнение после fallback...`);
             }
               
+            // API-ключ TonCenter увеличивает лимит запросов (снижает вероятность 429)
+            const apiKey = process.env.TONCENTER_API_KEY || process.env.TON_API_KEY || '';
+            if (apiKey) {
+              console.log(`🔑 [Withdrawal] Используется TonCenter API Key (увеличенный rate limit)`);
+            } else {
+              console.log(`⚠️ [Withdrawal] TonCenter API Key не задан — возможны ограничения (429). Получить ключ: @toncenter в Telegram или https://docs.ton.org/ecosystem/api/toncenter/get-api-key`);
+            }
+            
             console.log(`🔧 [Withdrawal] Создание TonClient с endpoint: ${endpoint}`);
-            const client = new TonClient({ endpoint });
+            const client = new TonClient({ endpoint, apiKey: apiKey || undefined });
             console.log(`✅ [Withdrawal] TonClient создан успешно`);
             
             // Создаем кошелек из seed-фразы
