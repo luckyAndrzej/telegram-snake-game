@@ -1068,13 +1068,13 @@ body::before {
     transform: translateY(-50%) !important;
     width: 36px !important;
     height: 36px !important;
-    background: rgba(0, 245, 255, 0.1) !important;
-    border: 2px solid rgba(0, 245, 255, 0.3) !important;
+    background: rgba(0, 0, 0, 0.3) !important;
+    border: 2px solid rgba(255, 68, 68, 0.5) !important;
     border-radius: 50% !important;
-    color: var(--neon-cyan) !important;
-    font-size: 28px !important;
-    font-weight: 300 !important;
-    line-height: 32px !important;
+    color: #ff4444 !important;
+    font-size: 22px !important;
+    font-weight: 700 !important;
+    line-height: 1 !important;
     text-align: center !important;
     cursor: pointer !important;
     padding: 0 !important;
@@ -1085,18 +1085,22 @@ body::before {
     align-items: center !important;
     justify-content: center !important;
     box-sizing: border-box !important;
+    text-shadow: 0 0 8px rgba(255, 68, 68, 0.6) !important;
 }
 
 .modal-close-btn:hover {
-    background: rgba(0, 245, 255, 0.2) !important;
-    border-color: var(--neon-cyan) !important;
-    box-shadow: 0 0 15px rgba(0, 245, 255, 0.5) !important;
+    background: rgba(255, 68, 68, 0.2) !important;
+    border-color: #ff4444 !important;
+    color: #ff6666 !important;
+    box-shadow: 0 0 15px rgba(255, 68, 68, 0.5) !important;
     transform: translateY(-50%) scale(1.1) !important;
+    text-shadow: 0 0 12px rgba(255, 68, 68, 0.8) !important;
 }
 
 .modal-close-btn:active {
     transform: translateY(-50%) scale(0.95) !important;
-    background: rgba(0, 245, 255, 0.3) !important;
+    background: rgba(255, 68, 68, 0.3) !important;
+    color: #ff2222 !important;
 }
 
 
@@ -1633,9 +1637,11 @@ body::before {
     .modal-close-btn {
         width: 32px !important;
         height: 32px !important;
-        font-size: 24px !important;
-        line-height: 28px !important;
+        font-size: 20px !important;
+        line-height: 1 !important;
         right: 10px !important;
+        color: #ff4444 !important;
+        border-color: rgba(255, 68, 68, 0.5) !important;
     }
     
     #deposit-info {
@@ -1801,9 +1807,11 @@ body::before {
     .modal-close-btn {
         width: 30px !important;
         height: 30px !important;
-        font-size: 22px !important;
-        line-height: 26px !important;
+        font-size: 18px !important;
+        line-height: 1 !important;
         right: 8px !important;
+        color: #ff4444 !important;
+        border-color: rgba(255, 68, 68, 0.5) !important;
     }
     
     #deposit-info {
