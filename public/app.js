@@ -1316,18 +1316,36 @@ function initEventListeners() {
     }
     
     const address = deposit.walletAddress;
-    const amount = deposit.amount; // в нанотонах
+    // ИСПРАВЛЕНИЕ БАГА: Используем amountTon для получения суммы в TON, затем конвертируем в нанотоны
+    // Если amountTon не указан, используем amount напрямую (уже в нанотонах)
+    let amountInNanoTon;
+    if (deposit.amountTon) {
+      // Конвертируем TON в нанотоны (1 TON = 1,000,000,000 нанотонов)
+      amountInNanoTon = Math.round(parseFloat(deposit.amountTon) * 1000000000).toString();
+    } else if (deposit.amount) {
+      // Если amountTon не указан, используем amount напрямую
+      amountInNanoTon = deposit.amount.toString();
+    } else {
+      tg.showAlert('Deposit amount is missing. Please try again.');
+      return;
+    }
+    
     const comment = deposit.comment;
     
-    if (!address || !amount || !comment) {
+    if (!address || !amountInNanoTon || !comment) {
       tg.showAlert('Deposit data is incomplete. Please try again.');
       return;
     }
     
-    console.log('Pay deposit with Tonkeeper clicked:', { address, amount, comment });
+    console.log('Pay deposit with Tonkeeper clicked:', { 
+      address, 
+      amountTon: deposit.amountTon, 
+      amountInNanoTon, 
+      comment 
+    });
     
     // Создаем deep link для Tonkeeper
-    const tonkeeperUrl = `ton://transfer/${address}?amount=${amount}&text=${encodeURIComponent(comment)}`;
+    const tonkeeperUrl = `ton://transfer/${address}?amount=${amountInNanoTon}&text=${encodeURIComponent(comment)}`;
     
     console.log('Opening Tonkeeper URL:', tonkeeperUrl);
     

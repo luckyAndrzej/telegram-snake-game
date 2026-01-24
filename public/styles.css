@@ -652,6 +652,20 @@ body::before {
         height: 90px;
         font-size: 36px;
     }
+    
+    /* Улучшенное модальное окно для больших экранов */
+    .payment-modal-content {
+        max-width: 480px !important;
+        padding: 35px !important;
+    }
+    
+    .payment-modal-content h3 {
+        font-size: 32px !important;
+    }
+    
+    .payment-modal-content p {
+        font-size: 15px !important;
+    }
 }
 
 @media (min-width: 1920px) {
@@ -677,6 +691,25 @@ body::before {
         width: 110px;
         height: 110px;
         font-size: 44px;
+    }
+    
+    /* Улучшенное модальное окно для очень больших экранов */
+    .payment-modal-content {
+        max-width: 520px !important;
+        padding: 40px !important;
+    }
+    
+    .payment-modal-content h3 {
+        font-size: 36px !important;
+    }
+    
+    .payment-modal-content p {
+        font-size: 16px !important;
+    }
+    
+    #deposit-amount-input {
+        font-size: 20px !important;
+        padding: 16px 18px !important;
     }
 }
 
@@ -969,19 +1002,38 @@ body::before {
 }
 
 .payment-modal-content h3 {
-    margin-bottom: 20px;
-    color: var(--neon-cyan);
+    margin-bottom: 25px;
+    background: linear-gradient(135deg, var(--neon-cyan) 0%, var(--neon-purple) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
     text-align: center;
-    font-size: 24px;
-    font-weight: 800;
-    text-shadow: 0 0 20px rgba(0, 245, 255, 0.8);
+    font-size: 28px;
+    font-weight: 900;
+    text-shadow: 0 0 30px rgba(0, 245, 255, 0.8);
     line-height: 1.3;
+    letter-spacing: 1px;
+    position: relative;
+    padding-bottom: 15px;
+}
+
+.payment-modal-content h3::after {
+    content: '';
+    position: absolute;
+    bottom: 0;
+    left: 50%;
+    transform: translateX(-50%);
+    width: 60px;
+    height: 3px;
+    background: linear-gradient(90deg, transparent, var(--neon-cyan), transparent);
+    border-radius: 2px;
+    box-shadow: 0 0 10px rgba(0, 245, 255, 0.6);
 }
 
 .payment-modal-content p {
-    margin: 10px 0;
-    line-height: 1.6;
-    color: rgba(255, 255, 255, 0.95);
+    margin: 12px 0;
+    line-height: 1.7;
+    color: rgba(224, 224, 255, 0.9);
     font-weight: 500;
     font-size: 14px;
 }
@@ -990,52 +1042,142 @@ body::before {
     color: var(--neon-cyan);
     text-shadow: 0 0 10px rgba(0, 245, 255, 0.8);
     font-weight: 700;
+    background: linear-gradient(135deg, var(--neon-cyan) 0%, var(--neon-blue) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
 }
 
-#payment-address {
-    background: rgba(10, 10, 26, 0.6);
+/* Стили для input в модальном окне депозита */
+#deposit-amount-input {
+    width: 100% !important;
+    padding: 14px 16px !important;
+    border-radius: 12px !important;
+    border: 2px solid rgba(0, 245, 255, 0.4) !important;
+    background: rgba(10, 10, 26, 0.8) !important;
+    color: #e0e0ff !important;
+    font-size: 18px !important;
+    font-weight: 600 !important;
+    margin-bottom: 20px !important;
+    -webkit-appearance: none !important;
+    appearance: none !important;
+    transition: all 0.3s ease !important;
+    box-shadow: 
+        0 0 20px rgba(0, 245, 255, 0.15),
+        inset 0 0 15px rgba(0, 245, 255, 0.05) !important;
+}
+
+#deposit-amount-input:focus {
+    outline: none !important;
+    border-color: var(--neon-cyan) !important;
+    box-shadow: 
+        0 0 30px rgba(0, 245, 255, 0.3),
+        inset 0 0 20px rgba(0, 245, 255, 0.1),
+        0 0 40px rgba(0, 245, 255, 0.2) !important;
+    transform: translateY(-1px) !important;
+}
+
+#deposit-amount-input::placeholder {
+    color: rgba(224, 224, 255, 0.4) !important;
+}
+
+/* Стили для суммы депозита */
+#deposit-amount-ton {
+    color: var(--neon-cyan) !important;
+    font-weight: 800 !important;
+    font-size: 20px !important;
+    text-shadow: 0 0 15px rgba(0, 245, 255, 0.8) !important;
+    background: linear-gradient(135deg, var(--neon-cyan) 0%, var(--neon-blue) 100%);
+    -webkit-background-clip: text;
+    -webkit-text-fill-color: transparent;
+    background-clip: text;
+}
+
+#payment-address,
+#deposit-address {
+    background: rgba(10, 10, 26, 0.7);
     backdrop-filter: blur(10px);
     -webkit-backdrop-filter: blur(10px);
-    border: 1px solid rgba(0, 245, 255, 0.15);
-    padding: 12px 15px;
+    border: 1px solid rgba(0, 245, 255, 0.3);
+    padding: 14px 16px;
     border-radius: 12px;
     font-family: 'Courier New', monospace;
     word-break: break-all;
     margin: 12px 0;
-    color: rgba(224, 224, 255, 0.85);
+    color: rgba(224, 224, 255, 0.9);
     font-weight: 500;
     font-size: 13px;
     box-shadow: 
-        0 2px 10px rgba(0, 0, 0, 0.2),
-        inset 0 0 20px rgba(0, 0, 0, 0.1);
-    letter-spacing: 0.3px;
-    line-height: 1.5;
-    transition: all 0.3s ease;
-}
-
-#payment-address:hover {
-    border-color: rgba(0, 245, 255, 0.25);
-    background: rgba(10, 10, 26, 0.7);
-    box-shadow: 
         0 2px 15px rgba(0, 0, 0, 0.3),
-        inset 0 0 25px rgba(0, 0, 0, 0.15);
+        inset 0 0 25px rgba(0, 245, 255, 0.05),
+        0 0 20px rgba(0, 245, 255, 0.1);
+    letter-spacing: 0.5px;
+    line-height: 1.6;
+    transition: all 0.3s ease;
+    position: relative;
 }
 
-#payment-comment {
+#payment-address:hover,
+#deposit-address:hover {
+    border-color: rgba(0, 245, 255, 0.5);
+    background: rgba(10, 10, 26, 0.85);
+    box-shadow: 
+        0 4px 20px rgba(0, 0, 0, 0.4),
+        inset 0 0 30px rgba(0, 245, 255, 0.1),
+        0 0 30px rgba(0, 245, 255, 0.2);
+    transform: translateY(-1px);
+}
+
+#payment-comment,
+#deposit-comment {
     font-family: 'Courier New', monospace;
     font-weight: 700;
     color: var(--neon-purple);
-    font-size: 20px;
-    letter-spacing: 3px;
+    font-size: 18px;
+    letter-spacing: 2px;
     text-shadow: 0 0 15px rgba(176, 38, 255, 0.8);
+    background: rgba(176, 38, 255, 0.1);
+    padding: 10px 14px;
+    border-radius: 10px;
+    border: 1px solid rgba(176, 38, 255, 0.3);
+    display: inline-block;
+    margin-top: 5px;
+    box-shadow: 
+        0 0 20px rgba(176, 38, 255, 0.2),
+        inset 0 0 15px rgba(176, 38, 255, 0.05);
 }
 
-#payment-status {
+#payment-status,
+#deposit-status {
     margin-top: 20px;
     text-align: center;
     font-weight: 700;
     min-height: 28px;
     font-size: 16px;
+    padding: 12px;
+    border-radius: 10px;
+    background: rgba(0, 245, 255, 0.1);
+    border: 1px solid rgba(0, 245, 255, 0.2);
+    box-shadow: 0 0 15px rgba(0, 245, 255, 0.1);
+}
+
+#deposit-polling-status {
+    padding: 10px;
+    border-radius: 8px;
+    background: rgba(0, 245, 255, 0.08);
+    border: 1px solid rgba(0, 245, 255, 0.15);
+    animation: pulse 2s ease-in-out infinite;
+}
+
+@keyframes pulse {
+    0%, 100% {
+        opacity: 1;
+        box-shadow: 0 0 15px rgba(0, 245, 255, 0.1);
+    }
+    50% {
+        opacity: 0.8;
+        box-shadow: 0 0 25px rgba(0, 245, 255, 0.2);
+    }
 }
 
 /* Buy Games Buttons - Neon */
