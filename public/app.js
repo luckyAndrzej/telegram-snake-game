@@ -50,8 +50,13 @@ const TICK_DURATION = 120; // мс (длительность одного тик
 
 // БУФЕР СОСТОЯНИЙ: Система буферизации для устранения микро-рывков
 let gameStateBuffer = []; // Массив состояний: { state: {...}, receiveTime: number, tick: number }
-const RENDER_DELAY = 150; // Визуальная задержка в мс (страховка для сглаживания пропусков тиков)
+const RENDER_DELAY = 120; // Визуальная задержка в мс
 const MAX_BUFFER_SIZE = 10; // Максимальный размер буфера
+
+// ВНЕДРЕНИЕ БУФЕРА: Создаем глобальный буфер в window для надежности
+if (!window.gameBuffer) {
+  window.gameBuffer = [];
+}
 
 // Функция глубокого клонирования
 function deepClone(obj) {
@@ -352,6 +357,9 @@ function initSocket() {
     
     // Очищаем буфер состояний
     gameStateBuffer = [];
+    if (window.gameBuffer) {
+      window.gameBuffer = [];
+    }
     
     // Очищаем очереди и историю
     packetQueue = [];
@@ -777,17 +785,32 @@ function initSocket() {
     
     // БУФЕР СОСТОЯНИЙ: Добавляем новое состояние в буфер
     if (data && (gameState === 'playing' || gameState === 'countdown')) {
-      const receiveTime = performance.now();
+      const clientReceiveTime = performance.now();
+      const serverTime = data.timestamp || Date.now();
       const tick = data.tick_number || 0;
       
-      // Добавляем состояние в буфер с глубоким клонированием
+      // ИСПРАВЛЕНИЕ ОШИБКИ: Определяем updateTime (время получения пакета)
+      const updateTime = clientReceiveTime;
+      
+      // ВНЕДРЕНИЕ БУФЕРА: Добавляем состояние в window.gameBuffer
+      window.gameBuffer.push({
+        state: deepClone(data),
+        serverTime: serverTime,
+        clientReceiveTime: clientReceiveTime
+      });
+      
+      // Если в буфере больше 10 элементов, удаляем самый старый
+      if (window.gameBuffer.length > 10) {
+        window.gameBuffer.shift();
+      }
+      
+      // Также добавляем в локальный буфер для обратной совместимости
       gameStateBuffer.push({
         state: deepClone(data),
-        receiveTime: receiveTime,
+        receiveTime: clientReceiveTime,
         tick: tick
       });
       
-      // Если в буфере больше MAX_BUFFER_SIZE элементов, удаляем самый старый
       if (gameStateBuffer.length > MAX_BUFFER_SIZE) {
         gameStateBuffer.shift();
       }
@@ -803,11 +826,10 @@ function initSocket() {
           const newSegments = segments.map(s => ({ x: Number(s.x), y: Number(s.y) }));
           
           // Вычисляем динамический TICK_RATE на основе разницы в tick_number
-          if (interpolationState.my_snake.lastTickNumber > 0 && tickNumber > interpolationState.my_snake.lastTickNumber) {
-            const tickDiff = tickNumber - interpolationState.my_snake.lastTickNumber;
+          if (interpolationState.my_snake.lastTickNumber > 0 && tick > interpolationState.my_snake.lastTickNumber) {
+            const tickDiff = tick - interpolationState.my_snake.lastTickNumber;
             const timeDiff = updateTime - interpolationState.my_snake.startTime;
             if (timeDiff > 0 && tickDiff > 0) {
-              // Если между кадрами разница в 2 тика, duration должен учитывать это
               interpolationState.my_snake.duration = timeDiff / tickDiff;
             }
           }
@@ -827,7 +849,7 @@ function initSocket() {
           interpolationState.my_snake.direction = data.my_snake.direction ? { ...data.my_snake.direction } : { dx: 1, dy: 0 };
           interpolationState.my_snake.alive = data.my_snake.alive !== undefined ? data.my_snake.alive : true;
           interpolationState.my_snake.gameId = data.gameId;
-          interpolationState.my_snake.lastTickNumber = tickNumber;
+          interpolationState.my_snake.lastTickNumber = tick;
           
           // Обновляем window.appState
           window.appState.game.my_snake = {
@@ -850,8 +872,8 @@ function initSocket() {
           const newSegments = segments.map(s => ({ x: Number(s.x), y: Number(s.y) }));
           
           // Вычисляем динамический TICK_RATE на основе разницы в tick_number
-          if (interpolationState.opponent_snake.lastTickNumber > 0 && tickNumber > interpolationState.opponent_snake.lastTickNumber) {
-            const tickDiff = tickNumber - interpolationState.opponent_snake.lastTickNumber;
+          if (interpolationState.opponent_snake.lastTickNumber > 0 && tick > interpolationState.opponent_snake.lastTickNumber) {
+            const tickDiff = tick - interpolationState.opponent_snake.lastTickNumber;
             const timeDiff = updateTime - interpolationState.opponent_snake.startTime;
             if (timeDiff > 0 && tickDiff > 0) {
               interpolationState.opponent_snake.duration = timeDiff / tickDiff;
@@ -873,7 +895,7 @@ function initSocket() {
           interpolationState.opponent_snake.direction = data.opponent_snake.direction ? { ...data.opponent_snake.direction } : { dx: -1, dy: 0 };
           interpolationState.opponent_snake.alive = data.opponent_snake.alive !== undefined ? data.opponent_snake.alive : true;
           interpolationState.opponent_snake.gameId = data.gameId;
-          interpolationState.opponent_snake.lastTickNumber = tickNumber;
+          interpolationState.opponent_snake.lastTickNumber = tick;
           
           // Обновляем window.appState
           window.appState.game.opponent_snake = {
@@ -2982,46 +3004,59 @@ function startRenderLoop() {
     }
     
     // 4. РАЗНЫЕ ЦВЕТА ЗМЕЕК: Рисуем Змейку Игрока (Зеленая/Неоновая)
-    // ЗАДЕРЖКА ПРЕДСТАВЛЕНИЯ: Определяем renderTime с задержкой 150мс
+    // ОБНОВЛЕНИЕ РЕНДЕРА: Рисуем состояние, которое было RENDER_DELAY назад
     let mySnake = null;
     const renderTime = now - RENDER_DELAY;
     
-    // ПОИСК ТОЧЕК ДЛЯ ИНТЕРПОЛЯЦИИ: Ищем два состояния в буфере
-    // Состояние A: последний пакет, где receiveTime < renderTime
-    // Состояние B: первый пакет, где receiveTime > renderTime
+    // БЕЗОПАСНОСТЬ: Если буфер пуст, используем initial_state
+    if (window.gameBuffer.length === 0 && gameStateBuffer.length === 0) {
+      const fallback = currentGame?.initialState?.my_snake || window.appState?.game?.my_snake;
+      if (fallback) {
+        mySnake = fallback;
+      }
+    }
+    
+    // ПОИСК ТОЧЕК ДЛЯ ИНТЕРПОЛЯЦИИ: Ищем два состояния в window.gameBuffer
+    // Состояние A: последний пакет, где clientReceiveTime < renderTime
+    // Состояние B: первый пакет, где clientReceiveTime > renderTime
     let stateA = null;
     let stateB = null;
     
-    for (let i = gameStateBuffer.length - 1; i >= 0; i--) {
-      if (gameStateBuffer[i].receiveTime <= renderTime) {
-        stateA = gameStateBuffer[i];
+    // Используем window.gameBuffer как основной источник
+    const buffer = window.gameBuffer.length > 0 ? window.gameBuffer : gameStateBuffer;
+    const timeKey = window.gameBuffer.length > 0 ? 'clientReceiveTime' : 'receiveTime';
+    
+    for (let i = buffer.length - 1; i >= 0; i--) {
+      if (buffer[i][timeKey] <= renderTime) {
+        stateA = buffer[i];
         // Ищем состояние B после stateA
-        if (i + 1 < gameStateBuffer.length) {
-          stateB = gameStateBuffer[i + 1];
+        if (i + 1 < buffer.length) {
+          stateB = buffer[i + 1];
         }
         break;
       }
     }
     
     // Если не нашли stateA, берем первое состояние
-    if (!stateA && gameStateBuffer.length > 0) {
-      stateA = gameStateBuffer[0];
-      if (gameStateBuffer.length > 1) {
-        stateB = gameStateBuffer[1];
+    if (!stateA && buffer.length > 0) {
+      stateA = buffer[0];
+      if (buffer.length > 1) {
+        stateB = buffer[1];
       }
     }
     
     // Если не нашли два состояния, используем последнее состояние из буфера или interpolationState
     if (!stateA || !stateB) {
-      if (gameStateBuffer.length > 0) {
-        const lastState = gameStateBuffer[gameStateBuffer.length - 1];
-        if (lastState.state && lastState.state.my_snake) {
-          const segments = lastState.state.my_snake.segments || lastState.state.my_snake.body || [];
+      if (buffer.length > 0) {
+        const lastState = buffer[buffer.length - 1];
+        const stateData = lastState.state || lastState;
+        if (stateData && stateData.my_snake) {
+          const segments = stateData.my_snake.segments || stateData.my_snake.body || [];
           if (segments.length > 0) {
             mySnake = {
               segments: segments.map(s => ({ x: Number(s.x), y: Number(s.y) })),
-              direction: lastState.state.my_snake.direction || { dx: 1, dy: 0 },
-              alive: lastState.state.my_snake.alive !== undefined ? lastState.state.my_snake.alive : true
+              direction: stateData.my_snake.direction || { dx: 1, dy: 0 },
+              alive: stateData.my_snake.alive !== undefined ? stateData.my_snake.alive : true
             };
           }
         }
@@ -3059,9 +3094,9 @@ function startRenderLoop() {
       }
     } else if (stateA && stateB) {
       // ИНТЕРПОЛЯЦИЯ МЕЖДУ ТИКАМИ: Интерполируем между состояниями A и B
-      const timeA = stateA.receiveTime;
-      const timeB = stateB.receiveTime;
-      const tickDiff = stateB.tick - stateA.tick;
+      const timeA = stateA[timeKey] || stateA.receiveTime;
+      const timeB = stateB[timeKey] || stateB.receiveTime;
+      const tickDiff = (stateB.tick || stateB.state?.tick_number || 0) - (stateA.tick || stateA.state?.tick_number || 0);
       
       // СГЛАЖИВАНИЕ СКОРОСТИ: Если между тиками разница больше 1, растягиваем интерполяцию
       let alpha = 0;
@@ -3074,8 +3109,10 @@ function startRenderLoop() {
       }
       const clampedAlpha = Math.min(Math.max(alpha, 0), 1);
       
-      const segsA = stateA.state.my_snake?.segments || stateA.state.my_snake?.body || [];
-      const segsB = stateB.state.my_snake?.segments || stateB.state.my_snake?.body || [];
+      const stateDataA = stateA.state || stateA;
+      const stateDataB = stateB.state || stateB;
+      const segsA = stateDataA.my_snake?.segments || stateDataA.my_snake?.body || [];
+      const segsB = stateDataB.my_snake?.segments || stateDataB.my_snake?.body || [];
       
       if (segsA.length > 0 && segsB.length > 0) {
         const maxLen = Math.max(segsA.length, segsB.length);
@@ -3104,18 +3141,19 @@ function startRenderLoop() {
         
         mySnake = {
           segments: interpolatedSegments,
-          direction: stateB.state.my_snake?.direction || { dx: 1, dy: 0 },
-          alive: stateB.state.my_snake?.alive !== undefined ? stateB.state.my_snake.alive : true
+          direction: stateDataB.my_snake?.direction || { dx: 1, dy: 0 },
+          alive: stateDataB.my_snake?.alive !== undefined ? stateDataB.my_snake.alive : true
         };
       }
     } else if (stateA) {
       // Если только одно состояние, плавно двигаем змейку к нему
-      const segsA = stateA.state.my_snake?.segments || stateA.state.my_snake?.body || [];
+      const stateDataA = stateA.state || stateA;
+      const segsA = stateDataA.my_snake?.segments || stateDataA.my_snake?.body || [];
       if (segsA.length > 0) {
         mySnake = {
           segments: segsA.map(s => ({ x: Number(s.x), y: Number(s.y) })),
-          direction: stateA.state.my_snake?.direction || { dx: 1, dy: 0 },
-          alive: stateA.state.my_snake?.alive !== undefined ? stateA.state.my_snake.alive : true
+          direction: stateDataA.my_snake?.direction || { dx: 1, dy: 0 },
+          alive: stateDataA.my_snake?.alive !== undefined ? stateDataA.my_snake.alive : true
         };
       }
     }
@@ -3163,15 +3201,16 @@ function startRenderLoop() {
     
     // Если не нашли два состояния, используем последнее состояние из буфера или interpolationState
     if (!oppStateA || !oppStateB) {
-      if (gameStateBuffer.length > 0) {
-        const lastState = gameStateBuffer[gameStateBuffer.length - 1];
-        if (lastState.state && lastState.state.opponent_snake) {
-          const segments = lastState.state.opponent_snake.segments || lastState.state.opponent_snake.body || [];
+      if (buffer.length > 0) {
+        const lastState = buffer[buffer.length - 1];
+        const stateData = lastState.state || lastState;
+        if (stateData && stateData.opponent_snake) {
+          const segments = stateData.opponent_snake.segments || stateData.opponent_snake.body || [];
           if (segments.length > 0) {
             oppSnake = {
               segments: segments.map(s => ({ x: Number(s.x), y: Number(s.y) })),
-              direction: lastState.state.opponent_snake.direction || { dx: -1, dy: 0 },
-              alive: lastState.state.opponent_snake.alive !== undefined ? lastState.state.opponent_snake.alive : true
+              direction: stateData.opponent_snake.direction || { dx: -1, dy: 0 },
+              alive: stateData.opponent_snake.alive !== undefined ? stateData.opponent_snake.alive : true
             };
           }
         }
@@ -3209,9 +3248,9 @@ function startRenderLoop() {
       }
     } else if (oppStateA && oppStateB) {
       // ИНТЕРПОЛЯЦИЯ МЕЖДУ ТИКАМИ: Интерполируем между состояниями A и B
-      const timeA = oppStateA.receiveTime;
-      const timeB = oppStateB.receiveTime;
-      const tickDiff = oppStateB.tick - oppStateA.tick;
+      const timeA = oppStateA[timeKey] || oppStateA.receiveTime;
+      const timeB = oppStateB[timeKey] || oppStateB.receiveTime;
+      const tickDiff = (oppStateB.tick || oppStateB.state?.tick_number || 0) - (oppStateA.tick || oppStateA.state?.tick_number || 0);
       
       // СГЛАЖИВАНИЕ СКОРОСТИ: Если между тиками разница больше 1, растягиваем интерполяцию
       let alpha = 0;
@@ -3224,8 +3263,10 @@ function startRenderLoop() {
       }
       const clampedAlpha = Math.min(Math.max(alpha, 0), 1);
       
-      const segsA = oppStateA.state.opponent_snake?.segments || oppStateA.state.opponent_snake?.body || [];
-      const segsB = oppStateB.state.opponent_snake?.segments || oppStateB.state.opponent_snake?.body || [];
+      const oppStateDataA = oppStateA.state || oppStateA;
+      const oppStateDataB = oppStateB.state || oppStateB;
+      const segsA = oppStateDataA.opponent_snake?.segments || oppStateDataA.opponent_snake?.body || [];
+      const segsB = oppStateDataB.opponent_snake?.segments || oppStateDataB.opponent_snake?.body || [];
       
       if (segsA.length > 0 && segsB.length > 0) {
         const maxLen = Math.max(segsA.length, segsB.length);
@@ -3254,18 +3295,19 @@ function startRenderLoop() {
         
         oppSnake = {
           segments: interpolatedSegments,
-          direction: oppStateB.state.opponent_snake?.direction || { dx: -1, dy: 0 },
-          alive: oppStateB.state.opponent_snake?.alive !== undefined ? oppStateB.state.opponent_snake.alive : true
+          direction: oppStateDataB.opponent_snake?.direction || { dx: -1, dy: 0 },
+          alive: oppStateDataB.opponent_snake?.alive !== undefined ? oppStateDataB.opponent_snake.alive : true
         };
       }
     } else if (oppStateA) {
       // Если только одно состояние, плавно двигаем змейку к нему
-      const segsA = oppStateA.state.opponent_snake?.segments || oppStateA.state.opponent_snake?.body || [];
+      const oppStateDataA = oppStateA.state || oppStateA;
+      const segsA = oppStateDataA.opponent_snake?.segments || oppStateDataA.opponent_snake?.body || [];
       if (segsA.length > 0) {
         oppSnake = {
           segments: segsA.map(s => ({ x: Number(s.x), y: Number(s.y) })),
-          direction: oppStateA.state.opponent_snake?.direction || { dx: -1, dy: 0 },
-          alive: oppStateA.state.opponent_snake?.alive !== undefined ? oppStateA.state.opponent_snake.alive : true
+          direction: oppStateDataA.opponent_snake?.direction || { dx: -1, dy: 0 },
+          alive: oppStateDataA.opponent_snake?.alive !== undefined ? oppStateDataA.opponent_snake.alive : true
         };
       }
     }
