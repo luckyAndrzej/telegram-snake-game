@@ -729,7 +729,7 @@ io.on('connection', async (socket) => {
               console.log(`✅ [Withdrawal] Provider создан`);
               
               // Функция для получения seqno с retry при ошибке 429
-              const getSeqnoWithRetry = async (maxRetries = 3, delayMs = 2000) => {
+              const getSeqnoWithRetry = async (maxRetries = 5, initialDelayMs = 3000) => {
                 for (let attempt = 1; attempt <= maxRetries; attempt++) {
                   try {
                     const seqno = await wallet.getSeqno(provider);
@@ -743,8 +743,9 @@ io.on('connection', async (socket) => {
                     );
                     
                     if (isRateLimit && attempt < maxRetries) {
-                      const waitTime = delayMs * attempt; // Экспоненциальная задержка
-                      console.log(`⚠️ [Withdrawal] Rate limit (429) при получении seqno, попытка ${attempt}/${maxRetries}. Ждём ${waitTime}ms...`);
+                      // Экспоненциальная задержка: 3s, 6s, 12s, 24s
+                      const waitTime = initialDelayMs * Math.pow(2, attempt - 1);
+                      console.log(`⚠️ [Withdrawal] Rate limit (429) при получении seqno, попытка ${attempt}/${maxRetries}. Ждём ${waitTime}ms (${(waitTime/1000).toFixed(1)}s)...`);
                       await new Promise(resolve => setTimeout(resolve, waitTime));
                       continue;
                     }
@@ -790,7 +791,7 @@ io.on('connection', async (socket) => {
               console.log(`🚀 [Withdrawal] Отправка транзакции: seqno=${String(seqno)}, сумма=${amountInTon} TON, получатель=${recipientAddress.toString()}`);
               
               // Функция для отправки транзакции с retry при ошибке 429
-              const sendTransferWithRetry = async (currentSeqno, maxRetries = 3, delayMs = 2000) => {
+              const sendTransferWithRetry = async (currentSeqno, maxRetries = 5, initialDelayMs = 3000) => {
                 let attemptSeqno = currentSeqno;
                 for (let attempt = 1; attempt <= maxRetries; attempt++) {
                   try {
@@ -816,12 +817,17 @@ io.on('connection', async (socket) => {
                     );
                     
                     if (isRateLimit && attempt < maxRetries) {
-                      const waitTime = delayMs * attempt; // Экспоненциальная задержка
-                      console.log(`⚠️ [Withdrawal] Rate limit (429) при отправке транзакции, попытка ${attempt}/${maxRetries}. Ждём ${waitTime}ms...`);
+                      // Экспоненциальная задержка: 3s, 6s, 12s, 24s
+                      const waitTime = initialDelayMs * Math.pow(2, attempt - 1);
+                      console.log(`⚠️ [Withdrawal] Rate limit (429) при отправке транзакции, попытка ${attempt}/${maxRetries}. Ждём ${waitTime}ms (${(waitTime/1000).toFixed(1)}s)...`);
                       await new Promise(resolve => setTimeout(resolve, waitTime));
-                      // Обновляем seqno перед повторной попыткой
-                      attemptSeqno = await getSeqnoWithRetry();
-                      console.log(`🔄 [Withdrawal] Seqno обновлён для повторной попытки: ${String(attemptSeqno)}`);
+                      // Обновляем seqno перед повторной попыткой (с меньшим количеством retry, чтобы не усугублять проблему)
+                      try {
+                        attemptSeqno = await getSeqnoWithRetry(3, 2000);
+                        console.log(`🔄 [Withdrawal] Seqno обновлён для повторной попытки: ${String(attemptSeqno)}`);
+                      } catch (seqnoError) {
+                        console.warn(`⚠️ [Withdrawal] Не удалось обновить seqno, используем предыдущий: ${String(attemptSeqno)}`);
+                      }
                       continue;
                     }
                     throw error;
@@ -841,7 +847,20 @@ io.on('connection', async (socket) => {
               transactionSuccess = false;
               txHash = `withdraw_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
               withdrawalStatus = 'failed';
-              errorDetails = `Ошибка отправки транзакции: ${e.message}`;
+              
+              // Проверяем, является ли это ошибкой rate limit
+              const isRateLimit = e.message && (
+                e.message.includes('429') || 
+                e.message.includes('Too Many Requests') ||
+                e.status === 429 ||
+                e.response?.status === 429
+              );
+              
+              if (isRateLimit) {
+                errorDetails = 'Сеть TON временно перегружена (rate limit). Все попытки отправки исчерпаны. Пожалуйста, попробуйте через несколько минут. Баланс не списан.';
+              } else {
+                errorDetails = `Ошибка отправки транзакции: ${e.message}`;
+              }
             }
           } catch (tonError) {
             console.error('❌ [Withdrawal] Ошибка TON SDK:', tonError.message);
@@ -903,6 +922,8 @@ io.on('connection', async (socket) => {
             userMessage = 'Некорректный адрес кошелька. Проверьте адрес и попробуйте снова.';
           } else if (errorDetails.includes('подключиться к TON сети')) {
             userMessage = 'Ошибка подключения к сети TON. Попробуйте позже.';
+          } else if (errorDetails.includes('rate limit') || errorDetails.includes('перегружена')) {
+            userMessage = 'Сеть TON временно перегружена. Пожалуйста, попробуйте через несколько минут. Баланс не списан.';
           } else {
             userMessage = `Ошибка: ${errorDetails}`;
           }
