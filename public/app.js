@@ -48,17 +48,23 @@ let packetQueue = []; // Очередь пакетов game_state
 // Фиксированный шаг тика сервера (увеличено до 120мс для компенсации сетевых задержек)
 const TICK_DURATION = 120; // мс (длительность одного тика на сервере)
 
-// БУФЕР СОСТОЯНИЙ: Система буферизации для устранения микро-рывков
-let gameStateBuffer = []; // Массив состояний: { state: {...}, receiveTime: number, tick: number }
-const RENDER_DELAY = 120; // Визуальная задержка в мс
-const MAX_BUFFER_SIZE = 10; // Максимальный размер буфера
-
-// ИНТЕРПОЛЯЦИОННЫЙ БУФЕР: Создаем глобальный буфер в window
-if (!window.gameBuffer) {
-  window.gameBuffer = [];
+// ИНИЦИАЛИЗАЦИЯ: Предотвращаем повторную инициализацию при перезагрузке
+if (!window.scriptInitialized) {
+  window.scriptInitialized = true;
+  
+  // БУФЕР СОСТОЯНИЙ: Система буферизации для устранения микро-рывков
+  window.gameStateBuffer = window.gameStateBuffer || []; // Массив состояний: { state: {...}, receiveTime: number, tick: number }
+  window.gameBuffer = window.gameBuffer || []; // Интерполяционный буфер: { state: {...}, clientTime: number }
+  
+  // КОНСТАНТЫ: Задержка и размер буфера
+  window.RENDER_DELAY = 120; // Визуальная задержка в мс (компенсация пропусков тиков 1, 3, 5)
+  window.MAX_BUFFER_SIZE = 15; // Максимальный размер буфера
 }
-const INTERPOLATION_DELAY = 150; // Задержка воспроизведения в мс
-const MAX_BUFFER_SIZE = 15; // Максимальный размер буфера
+
+// Локальные ссылки для обратной совместимости
+let gameStateBuffer = window.gameStateBuffer || [];
+const RENDER_DELAY = window.RENDER_DELAY || 120;
+const MAX_BUFFER_SIZE = window.MAX_BUFFER_SIZE || 15;
 
 // Функция глубокого клонирования
 function deepClone(obj) {
@@ -328,6 +334,9 @@ function initSocket() {
     lastStateUpdateTime = 0;
     
     // Очищаем интерполяционный буфер для новой игры
+    if (window.gameStateBuffer) {
+      window.gameStateBuffer = [];
+    }
     if (window.gameBuffer) {
       window.gameBuffer = [];
     }
@@ -437,12 +446,25 @@ function initSocket() {
         // Добавляем initial_state в буфер для интерполяции
         const initTime = performance.now();
         if (initialState) {
+          const initState = {
+            ...initialState,
+            my_snake: { ...initialState.my_snake, segments: mySegsCopy },
+            opponent_snake: { ...initialState.opponent_snake, segments: oppSegsCopy }
+          };
+          
+          // Добавляем в gameStateBuffer
+          if (!window.gameStateBuffer) {
+            window.gameStateBuffer = [];
+          }
+          window.gameStateBuffer.push({
+            state: deepClone(initState),
+            receiveTime: initTime,
+            tick: 0
+          });
+          
+          // Для обратной совместимости также в window.gameBuffer
           window.gameBuffer.push({
-            state: deepClone({
-              ...initialState,
-              my_snake: { ...initialState.my_snake, segments: mySegsCopy },
-              opponent_snake: { ...initialState.opponent_snake, segments: oppSegsCopy }
-            }),
+            state: deepClone(initState),
             clientTime: initTime
           });
         }
@@ -615,6 +637,18 @@ function initSocket() {
       // Добавляем initial_state в буфер при game_start
       if (data.initial_state) {
         const initTime = performance.now();
+        
+        // Добавляем в gameStateBuffer
+        if (!window.gameStateBuffer) {
+          window.gameStateBuffer = [];
+        }
+        window.gameStateBuffer.push({
+          state: deepClone(data.initial_state),
+          receiveTime: initTime,
+          tick: 0
+        });
+        
+        // Для обратной совместимости также в window.gameBuffer
         window.gameBuffer.push({
           state: deepClone(data.initial_state),
           clientTime: initTime
@@ -747,15 +781,35 @@ function initSocket() {
     
     // СОЗДАНИЕ БУФЕРА: Добавляем каждый входящий пакет в буфер
     if (data && (gameState === 'playing' || gameState === 'countdown')) {
-      const clientTime = performance.now();
+      const receiveTime = performance.now();
+      const tick = data.tick_number || 0;
       
-      // Добавляем состояние в интерполяционный буфер
+      // ИСПРАВЛЕНИЕ БУФЕРА: Добавляем состояние в gameStateBuffer
+      const bufferEntry = {
+        state: deepClone(data),
+        receiveTime: receiveTime,
+        tick: tick
+      };
+      
+      // Используем window.gameStateBuffer для надежности
+      if (!window.gameStateBuffer) {
+        window.gameStateBuffer = [];
+      }
+      window.gameStateBuffer.push(bufferEntry);
+      
+      // Также обновляем локальную ссылку
+      gameStateBuffer = window.gameStateBuffer;
+      
+      // Ограничиваем размер буфера
+      if (window.gameStateBuffer.length > MAX_BUFFER_SIZE) {
+        window.gameStateBuffer.shift();
+      }
+      
+      // Для обратной совместимости также добавляем в window.gameBuffer
       window.gameBuffer.push({
         state: deepClone(data),
-        clientTime: clientTime
+        clientTime: receiveTime
       });
-      
-      // Ограничиваем размер буфера 10-15 элементами
       if (window.gameBuffer.length > MAX_BUFFER_SIZE) {
         window.gameBuffer.shift();
       }
@@ -813,7 +867,6 @@ function initSocket() {
         finished: data.finished === true || data.game_finished === true,
         game_finished: data.game_finished === true || data.finished === true
       };
-      console.log('✅ gameStateJSON обновлен (in-memory):', gameStateJSON);
     }
     
     // Обновляем состояние игры только если игра активна (после countdown)
@@ -2786,15 +2839,7 @@ function updateGameState(data) {
   if (opponentSnakeSegments && opponentSnakeSegments[0]) {
     const head = opponentSnakeSegments[0];
     if (head.x < 0 || head.x >= GRID_SIZE || head.y < 0 || head.y >= GRID_SIZE) {
-      if (isFinished) {
-        console.warn(`⚠️ opponent_snake head out of bounds (game finished): x=${head.x}, y=${head.y}, tick=${cloned.tick_number}`);
-        // ЛОГИРОВАНИЕ НАПРАВЛЕНИЯ ПЕРЕД СМЕРТЬЮ
-        if (cloned.opponent_snake.direction) {
-          console.log(`📊 opponent_snake direction before death: dx=${cloned.opponent_snake.direction.dx}, dy=${cloned.opponent_snake.direction.dy}`);
-        }
-      } else {
-        console.error(`❌ CRITICAL: opponent_snake head out of bounds: x=${head.x}, y=${head.y}, tick=${cloned.tick_number}`);
-      }
+      // Координаты невалидны, но не логируем для производительности
     }
   }
   
@@ -2880,36 +2925,41 @@ function startRenderLoop() {
     }
     
     // 4. РАЗНЫЕ ЦВЕТА ЗМЕЕК: Рисуем Змейку Игрока (Зеленая/Неоновая)
-    // ЛОГИКА РЕНДЕРА (Delayed Playback): Ищем два состояния в буфере
-    const renderTime = now - INTERPOLATION_DELAY;
+    // ПЛАВНОСТЬ (Interpolation): Используем интерполяцию между двумя последними состояниями из gameStateBuffer
+    const renderTime = now - RENDER_DELAY;
     
-    // Ищем два состояния: A (clientTime < renderTime) и B (clientTime > renderTime)
+    // Ищем два состояния: A (receiveTime < renderTime) и B (receiveTime > renderTime)
     let stateA = null;
     let stateB = null;
     
-    for (let i = window.gameBuffer.length - 1; i >= 0; i--) {
-      if (window.gameBuffer[i].clientTime <= renderTime) {
-        stateA = window.gameBuffer[i];
-        if (i + 1 < window.gameBuffer.length) {
-          stateB = window.gameBuffer[i + 1];
+    // Используем gameStateBuffer (window.gameStateBuffer) для интерполяции
+    const buffer = window.gameStateBuffer || gameStateBuffer || [];
+    
+    for (let i = buffer.length - 1; i >= 0; i--) {
+      const receiveTime = buffer[i].receiveTime || buffer[i].clientTime || 0;
+      if (receiveTime <= renderTime) {
+        stateA = buffer[i];
+        if (i + 1 < buffer.length) {
+          stateB = buffer[i + 1];
         }
         break;
       }
     }
     
-    // Если не нашли stateA, берем первое состояние
-    if (!stateA && window.gameBuffer.length > 0) {
-      stateA = window.gameBuffer[0];
-      if (window.gameBuffer.length > 1) {
-        stateB = window.gameBuffer[1];
+    // Если не нашли stateA, берем последние два состояния из буфера
+    if (!stateA && buffer.length > 0) {
+      stateA = buffer[buffer.length - 1];
+      if (buffer.length > 1) {
+        stateB = buffer[buffer.length - 2];
       }
     }
     
     // ВЫЧИСЛЕНИЕ ПОЗИЦИИ: Интерполируем между состояниями A и B
     if (stateA && stateB && stateA.state && stateB.state) {
-      const timeA = stateA.clientTime;
-      const timeB = stateB.clientTime;
-      const factor = (renderTime - timeA) / (timeB - timeA);
+      const timeA = stateA.receiveTime || stateA.clientTime || 0;
+      const timeB = stateB.receiveTime || stateB.clientTime || 0;
+      const timeDiff = timeB - timeA;
+      const factor = timeDiff > 0 ? (renderTime - timeA) / timeDiff : 0;
       const clampedFactor = Math.min(Math.max(factor, 0), 1);
       
       const segsA = stateA.state.my_snake?.segments || stateA.state.my_snake?.body || [];
@@ -2985,11 +3035,12 @@ function startRenderLoop() {
     }
 
     // 5. РАЗНЫЕ ЦВЕТА ЗМЕЕК: Рисуем Змейку Оппонента (Красная/Розовая)
-    // ЛОГИКА РЕНДЕРА (Delayed Playback): Используем те же stateA и stateB
+    // ПЛАВНОСТЬ (Interpolation): Используем те же stateA и stateB
     if (stateA && stateB && stateA.state && stateB.state) {
-      const timeA = stateA.clientTime;
-      const timeB = stateB.clientTime;
-      const factor = (renderTime - timeA) / (timeB - timeA);
+      const timeA = stateA.receiveTime || stateA.clientTime || 0;
+      const timeB = stateB.receiveTime || stateB.clientTime || 0;
+      const timeDiff = timeB - timeA;
+      const factor = timeDiff > 0 ? (renderTime - timeA) / timeDiff : 0;
       const clampedFactor = Math.min(Math.max(factor, 0), 1);
       
       const segsA = stateA.state.opponent_snake?.segments || stateA.state.opponent_snake?.body || [];
