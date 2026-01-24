@@ -371,7 +371,7 @@ body::before {
     text-align: left;
     border: 1px solid rgba(0, 245, 255, 0.2);
     border-radius: 20px;
-    overflow: visible;
+    overflow: hidden; /* ИСПРАВЛЕНИЕ: Убираем квадратные углы - скрываем содержимое за пределами border-radius */
     background: rgba(0, 0, 0, 0.3);
     backdrop-filter: blur(10px);
     position: relative;
@@ -386,6 +386,7 @@ body::before {
     padding: 15px 20px;
     background: transparent;
     border: none;
+    border-radius: 20px; /* ИСПРАВЛЕНИЕ: Добавляем border-radius для кнопки */
     cursor: pointer;
     text-align: left;
     transition: all 0.3s ease;
@@ -395,6 +396,7 @@ body::before {
 
 .rules-toggle:hover {
     background: rgba(0, 245, 255, 0.1);
+    border-radius: 20px; /* ИСПРАВЛЕНИЕ: border-radius для состояния :hover */
     box-shadow: none !important;
 }
 
@@ -409,6 +411,8 @@ body::before {
 
 .rules-toggle:active,
 .rules-toggle:focus {
+    background: rgba(0, 245, 255, 0.15);
+    border-radius: 20px; /* ИСПРАВЛЕНИЕ: border-radius для активных состояний */
     box-shadow: none !important;
     outline: none !important;
 }
@@ -436,7 +440,7 @@ body::before {
 .rules-content {
     padding: 0 20px 20px 20px;
     animation: slideDown 0.3s ease-out;
-    overflow: visible;
+    overflow: hidden; /* ИСПРАВЛЕНИЕ: Убираем квадратные углы - скрываем содержимое за пределами border-radius */
     border-radius: 0 0 20px 20px;
 }
 

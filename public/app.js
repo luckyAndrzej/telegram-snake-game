@@ -55,6 +55,10 @@ window.gameEngine = {
   renderTimeOffset: 120
 };
 
+// ИСПРАВЛЕНИЕ: Инициализация флагов для предотвращения двойного запуска игры
+window.gameStarted = false;
+window.countdownInterval = null;
+
 // ИНИЦИАЛИЗАЦИЯ: Предотвращаем повторную инициализацию при перезагрузке
 if (!window.scriptInitialized) {
   window.scriptInitialized = true;
@@ -302,6 +306,19 @@ function initSocket() {
   
   // Screen 3: Opponent found (Match Found) - immediately switch to game-screen
   socket.on('match_found', (data) => {
+    // ИСПРАВЛЕНИЕ: Предотвращаем двойной запуск игры
+    if (window.gameStarted) {
+      console.log('Game already started, ignoring duplicate match_found event');
+      return;
+    }
+    window.gameStarted = true;
+    
+    // ИСПРАВЛЕНИЕ: Очищаем любые существующие интервалы отсчета
+    if (window.countdownInterval) {
+      clearInterval(window.countdownInterval);
+      window.countdownInterval = null;
+    }
+    
     // ЖЕСТКИЙ СБРОС: ОБНУЛЯЕМ window.gameEngine.buffer при получении 'opponent_found'
     window.gameEngine.buffer = [];
     window.gameEngine.lastState = null;
@@ -1232,6 +1249,12 @@ function initEventListeners() {
     if (socket && socket.connected) {
       console.log('❌ Cancelling search...');
       socket.emit('cancel_search');
+      // ИСПРАВЛЕНИЕ: Сбрасываем флаг запуска игры при отмене поиска
+      window.gameStarted = false;
+      if (window.countdownInterval) {
+        clearInterval(window.countdownInterval);
+        window.countdownInterval = null;
+      }
       // Сразу переключаемся на меню (сервер ответит search_cancelled)
       showScreen('menu');
       currentGame = null;
@@ -1859,6 +1882,9 @@ function initEventListeners() {
       resultScreen.classList.remove('active');
     }
     
+    // ИСПРАВЛЕНИЕ: Сбрасываем флаг запуска игры для предотвращения двойного отсчета
+    window.gameStarted = false;
+    
     // Check if user has winnings balance (1 TON required)
     const winnings = window.appState?.user?.winnings_ton || 0;
     if (winnings < 1) {
@@ -1882,6 +1908,9 @@ function initEventListeners() {
   // "Menu" button - return to main menu (shows first screen on entry)
   document.getElementById('menu-btn')?.addEventListener('click', () => {
     console.log('🔄 Returning to main menu');
+    
+    // ИСПРАВЛЕНИЕ: Сбрасываем флаг запуска игры для предотвращения двойного отсчета
+    window.gameStarted = false;
     
     // Полная очистка состояния: сбрасываем Socket.io состояние
     currentGame = null;
@@ -2876,6 +2905,28 @@ function startAnimationLoop() {
     // ОТРИСОВКА ОТСЧЕТА (COUNTDOWN)
     const isCountdown = gameState === 'countdown' || window.appState?.game?.status === 'countdown';
     if (isCountdown) {
+      // ИСПРАВЛЕНИЕ: Полностью очищаем canvas перед отрисовкой countdown для устранения двойного отсчета
+      gameCtx.clearRect(0, 0, gameCanvas.width, gameCanvas.height);
+      
+      // Рисуем фон и сетку заново после очистки
+      gameCtx.fillStyle = '#0a0e27';
+      gameCtx.fillRect(0, 0, canvasLogicalSize, canvasLogicalSize);
+      if (gridCanvas) {
+        gameCtx.drawImage(gridCanvas, 0, 0);
+      }
+      
+      // Перерисовываем змейки после очистки
+      if (frameData) {
+        if (frameData.my_snake && (frameData.my_snake.segments?.length > 0 || frameData.my_snake.body?.length > 0)) {
+          const playerColor = '#00FF41';
+          drawSnake(frameData.my_snake, playerColor);
+        }
+        if (frameData.opponent_snake && (frameData.opponent_snake.segments?.length > 0 || frameData.opponent_snake.body?.length > 0)) {
+          const opponentColor = '#FF3131';
+          drawSnake(frameData.opponent_snake, opponentColor);
+        }
+      }
+      
       const countdownNumber = document.getElementById('countdown-number');
       const countdownVal = window.appState?.game?.countdownValue || 
                           countdownNumber?.textContent || 
@@ -3331,6 +3382,15 @@ function renderGamePreviewOnCanvas(gameState, canvas, ctx) {
 function endGame(data) {
   console.log('🎯 endGame called, data:', data);
   console.log('Attempting to show results screen...');
+  
+  // ИСПРАВЛЕНИЕ: Сбрасываем флаг запуска игры для предотвращения двойного отсчета
+  window.gameStarted = false;
+  
+  // ИСПРАВЛЕНИЕ: Очищаем интервал отсчета если он существует
+  if (window.countdownInterval) {
+    clearInterval(window.countdownInterval);
+    window.countdownInterval = null;
+  }
   
   // ИСПРАВЛЕНИЕ: Останавливаем рендеринг при завершении игры
   isRendering = false;
