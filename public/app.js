@@ -48,11 +48,11 @@ let packetQueue = []; // Очередь пакетов game_state
 // Фиксированный шаг тика сервера (увеличено до 120мс для компенсации сетевых задержек)
 const TICK_DURATION = 120; // мс (длительность одного тика на сервере)
 
-// ГЛОБАЛЬНАЯ ИНИЦИАЛИЗАЦИЯ: Глобальный объект движка (в самом верху файла)
+// ГЛОБАЛЬНЫЙ ОБЪЕКТ: В самом верху app.js
 window.gameEngine = {
   buffer: [],
-  lastState: null,
-  isLoopRunning: false
+  renderTimeOffset: 120,
+  initialized: true
 };
 
 // ИНИЦИАЛИЗАЦИЯ: Предотвращаем повторную инициализацию при перезагрузке
@@ -732,17 +732,17 @@ function initSocket() {
       }
     }
     
-    // ОБРАБОТЧИК СОБЫТИЙ: Добавляем данные в буфер с защитой
-    if (data) {
-      // Перед добавлением данных проверяем наличие массива
-      if (!window.gameEngine.buffer) window.gameEngine.buffer = [];
+    // ИСПРАВЛЕНИЕ ОБРАБОТЧИКА: Заменен весь обработчик
+    if (window.gameEngine && window.gameEngine.buffer) {
       window.gameEngine.buffer.push({ 
         state: deepClone(data), 
         ts: performance.now() 
       });
-      if (window.gameEngine.buffer.length > 20) window.gameEngine.buffer.shift();
-      
-      // Обновляем window.appState для обратной совместимости
+      if (window.gameEngine.buffer.length > 15) window.gameEngine.buffer.shift();
+    }
+    
+    // Обновляем window.appState для обратной совместимости
+    if (data) {
       window.appState.game.status = 'playing';
       window.appState.game.tick_number = data.tick_number || 0;
       window.appState.game.finished = data.finished === true || data.game_finished === true;
@@ -769,48 +769,15 @@ function initSocket() {
         }
       }
       
-      window.appState.game.snakes = [window.appState.game.my_snake, window.appState.game.opponent_snake].filter(s => s !== null);
+      window.appState.game.snakes = [window.appState.game.my_snake, window.appState.game.opponent_snake].filter(snake => snake !== null);
     }
     
-    // CURRENT GAME STATE: Синхронизируем currentGameState с appState
-    if (data && (gameState === 'playing' || gameState === 'countdown')) {
-      currentGameState.status = 'playing';
-      currentGameState.my_snake = window.appState.game.my_snake;
-      currentGameState.opponent_snake = window.appState.game.opponent_snake;
-      currentGameState.snakes = window.appState.game.snakes;
-    }
-    
-    // IN-MEMORY STATE: Обновляем JSON-объект состояния игры в памяти
-    // Это состояние используется только для плавной отрисовки и не записывается в БД
-    if (data && (gameState === 'playing' || gameState === 'countdown')) {
-      gameStateJSON = {
-        tick_number: data.tick_number || 0,
-        my_snake: window.appState.game.my_snake,
-        opponent_snake: window.appState.game.opponent_snake,
-        finished: data.finished === true || data.game_finished === true,
-        game_finished: data.game_finished === true || data.finished === true
-      };
-    }
-    
-    // Обновляем состояние игры только если игра активна (после countdown)
-    // Проверяем и 'playing' и 'countdown', чтобы не пропустить первые обновления
-    // ИСПРАВЛЕНИЕ: Принимаем пакеты даже если currentGame отсутствует (для совместимости)
-    if (gameState === 'playing' || gameState === 'countdown') {
-      // Если пришло game_state, значит игра уже началась - переключаем на playing
-      if (gameState === 'countdown') {
-        gameState = 'playing';
-        
-        // УДАЛЕНИЕ ОВЕРЛЕЕВ: Принудительно очищаем все overlay при первом game_state (первый кадр)
-        const countdownOverlay = document.getElementById('countdown-overlay');
-        if (countdownOverlay) {
-          countdownOverlay.style.display = 'none';
-          countdownOverlay.classList.remove('active');
-        }
-        const lobbyScreen = document.getElementById('lobby-screen');
-        if (lobbyScreen) {
-          lobbyScreen.classList.remove('active');
-          lobbyScreen.style.display = 'none';
-        }
+    // Переключаем на playing при первом game_state
+    if (gameState === 'countdown' && data) {
+      gameState = 'playing';
+      const countdownOverlay = document.getElementById('countdown-overlay');
+      if (countdownOverlay) {
+        countdownOverlay.style.display = 'none';
       }
     }
   });
@@ -818,17 +785,18 @@ function initSocket() {
   socket.on('game_end', (data) => {
     endGame(data);
     
-    // ЛОГИКА БАЛАНСА: Запрашиваем актуальный баланс из БД (текущий + выигрыш)
-    // Удалены все промежуточные "мгновенные" обновления
+    // БАЛАНС: Убедись, что после endGame() переменная winnings_ton в UI обновляется из данных сервера
     fetch(`/api/user/${userId}`)
       .then(response => response.json())
       .then(userData => {
-        // Используем только значение из БД (уже включает prize)
-        updateBalance(0, userData.winnings_ton);
+        // Обновляем баланс из данных сервера (не обнуляется)
+        if (userData.winnings_ton !== undefined) {
+          updateBalance(0, userData.winnings_ton);
+        }
       })
       .catch(error => {
-        // Fallback только при ошибке запроса
-        if (data.winnings_ton !== undefined) {
+        // Fallback: используем данные из game_end, если они есть
+        if (data && data.winnings_ton !== undefined) {
           updateBalance(0, data.winnings_ton);
         }
       });
@@ -2767,13 +2735,20 @@ function startAnimationLoop() {
   
   function animationLoop(now) {
     if (!gameCtx || !gameCanvas) {
-      window.gameEngine.isLoopRunning = false;
+      requestAnimationFrame(animationLoop);
       return;
     }
     
-    // ЕДИНЫЙ ЦИКЛ ОБРАБОТКИ: В начале функции ВСЕГДА
+    // ЕДИНАЯ ФУНКЦИЯ ОЧИСТКИ И МАСШТАБА: СТРОГО такой порядок
+    // ПОЛНЫЙ сброс всех scale/translate
     gameCtx.setTransform(1, 0, 0, 1, 0, 0);
     gameCtx.clearRect(0, 0, gameCanvas.width, gameCanvas.height);
+    
+    // Только ТЕПЕРЬ применяем масштаб для центрирования, если он нужен ОДИН раз за кадр
+    // Применяем DPR масштаб один раз (если canvasDPR был установлен при инициализации)
+    if (canvasDPR && canvasDPR !== 1) {
+      gameCtx.setTransform(canvasDPR, 0, 0, canvasDPR, 0, 0);
+    }
     
     // Фон
     gameCtx.fillStyle = '#0a0e27';
@@ -2784,20 +2759,12 @@ function startAnimationLoop() {
       gameCtx.drawImage(gridCanvas, 0, 0);
     }
     
-    // Защита: проверяем наличие buffer
-    if (!window.gameEngine.buffer) {
-      window.gameEngine.buffer = [];
-    }
-    
-    // Используем интерполяцию с задержкой 100ms
-    const renderTime = performance.now() - 100;
-    const buffer = window.gameEngine.buffer;
-    
-    // Если буфер пуст, рисуем window.appState.game.initial_state
+    // ЛОГИКА ОТОБРАЖЕНИЯ: Если буфер пуст, вызываем отрисовку initial_state
     let frameData = null;
+    const buffer = window.gameEngine.buffer || [];
     
     if (buffer.length === 0) {
-      // Если буфер пуст, рисуем initial_state
+      // Если буфер пуст, рисуем window.appState.game.initial_state
       if (window.appState?.game?.initial_state) {
         frameData = {
           my_snake: window.appState.game.initial_state.my_snake,
@@ -2811,6 +2778,7 @@ function startAnimationLoop() {
       }
     } else {
       // Если в буфере есть данные, используем интерполяцию
+      const renderTime = performance.now() - window.gameEngine.renderTimeOffset;
       let stateA = null;
       let stateB = null;
       
@@ -2855,7 +2823,9 @@ function startAnimationLoop() {
     // Отрисовка змеек
     if (frameData) {
       if (frameData.my_snake && (frameData.my_snake.segments?.length > 0 || frameData.my_snake.body?.length > 0)) {
-        drawSnake(frameData.my_snake, '#00FF41', '#008F11');
+        // Определяем цвет для змейки игрока
+        const playerColor = '#00FF41';
+        drawSnake(frameData.my_snake, playerColor);
         
         // ВИЗУАЛЬНЫЙ ИНДИКАТОР: Рисуем текст "YOU"
         const headSegment = frameData.my_snake.segments?.[0] || frameData.my_snake.body?.[0];
@@ -2876,7 +2846,9 @@ function startAnimationLoop() {
       }
       
       if (frameData.opponent_snake && (frameData.opponent_snake.segments?.length > 0 || frameData.opponent_snake.body?.length > 0)) {
-        drawSnake(frameData.opponent_snake, '#FF3131', '#8B0000');
+        // Определяем цвет для змейки оппонента
+        const opponentColor = '#FF3131';
+        drawSnake(frameData.opponent_snake, opponentColor);
       }
     }
     
@@ -2906,11 +2878,9 @@ function startAnimationLoop() {
     }
     
     // Цикл продолжается
-    window.gameEngine.isLoopRunning = true;
     requestAnimationFrame(animationLoop);
   }
   
-  window.gameEngine.isLoopRunning = true;
   requestAnimationFrame(animationLoop);
 }
 
@@ -2972,10 +2942,11 @@ function interpolateSnake(snakeA, snakeB, t) {
  * Это в разы быстрее и красивее, чем рисование отдельных квадратов
  */
 /**
- * ФУНКЦИЯ drawSnake: Исправление ошибки 's is not defined'
- * Полностью переписана с четкими именами переменных
+ * ИСПРАВЛЕНИЕ drawSnake: Ошибки 's is not defined'
+ * Функция принимает (snake, color) и внутри работает только с этими аргументами
+ * Используется полное слово 'segment' во всех циклах
  */
-function drawSnake(snake, color1, color2) {
+function drawSnake(snake, color) {
   if (!gameCtx || !snake) return;
   
   // Получаем сегменты змейки
@@ -2983,6 +2954,10 @@ function drawSnake(snake, color1, color2) {
   if (segments.length === 0) return;
   
   const tileSize = canvasLogicalSize / GRID_SIZE;
+  
+  // Определяем цвета: основной цвет и цвет тела (темнее)
+  const color1 = color; // Цвет головы
+  const color2 = color; // Цвет тела (можно сделать темнее, но пока используем тот же)
   
   // ОПТИМИЗАЦИЯ: Используем плавные линии для тела змейки
   gameCtx.save();
@@ -2994,7 +2969,7 @@ function drawSnake(snake, color1, color2) {
   gameCtx.shadowBlur = 15;
   gameCtx.shadowColor = color2;
   
-  // Рисуем путь через все сегменты - используем ЧЕТКОЕ имя переменной 'segment'
+  // Рисуем путь через все сегменты - используем полное слово 'segment'
   segments.forEach((segment, index) => {
     if (segment && segment.x !== undefined && segment.y !== undefined) {
       const x = segment.x * tileSize + tileSize / 2;
