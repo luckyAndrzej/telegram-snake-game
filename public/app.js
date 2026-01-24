@@ -571,20 +571,23 @@ function initSocket() {
   
   // Обновление countdown (сервер отправляет числа: 5, 4, 3, 2, 1) - overlay поверх game-canvas
   socket.on('countdown', (data) => {
-    
-    // ИСПРАВЛЕНИЕ: Очищаем старые значения перед установкой нового
-    countdownValue = ""; // Очищаем глобальную переменную
-    if (window.appState && window.appState.game) {
-      window.appState.game.countdownValue = ""; // Очищаем в appState
+    // ИСПРАВЛЕНИЕ: Предотвращаем обработку дублирующих событий countdown
+    const newCountdownValue = String(data.number);
+    if (window.appState?.game?.countdownValue === newCountdownValue && countdownValue === newCountdownValue) {
+      // Значение уже установлено, игнорируем дублирующее событие
+      return;
     }
     
     // ИСПРАВЛЕНИЕ: Обновляем countdownValue в window.appState.game
     if (window.appState && window.appState.game) {
-      window.appState.game.countdownValue = String(data.number);
+      window.appState.game.countdownValue = newCountdownValue;
       window.appState.game.status = 'countdown';
     }
     // Также обновляем глобальную переменную для совместимости
-    countdownValue = String(data.number);
+    countdownValue = newCountdownValue;
+    
+    // Сбрасываем последнее отрисованное значение для принудительной перерисовки
+    window.lastDrawnCountdown = null;
     
     // Устанавливаем gameState в 'countdown' для отрисовки
     gameState = 'countdown';
@@ -624,14 +627,21 @@ function initSocket() {
       countdownOverlay.classList.add('active');
     }
     
+    // ИСПРАВЛЕНИЕ: Обновляем DOM элемент countdown только если значение изменилось
     const countdownNumber = document.getElementById('countdown-number');
     if (countdownNumber) {
-      // ИСПРАВЛЕНИЕ: Сбрасываем значение перед установкой нового (предотвращает показ старых значений)
-      countdownNumber.textContent = '';
-      // Используем requestAnimationFrame для плавного обновления
-      requestAnimationFrame(() => {
-        countdownNumber.textContent = data.number;
-      });
+      const currentDisplayValue = countdownNumber.textContent.trim();
+      const newValue = String(data.number);
+      
+      // Обновляем только если значение действительно изменилось
+      if (currentDisplayValue !== newValue) {
+        // Сбрасываем значение перед установкой нового (предотвращает показ старых значений)
+        countdownNumber.textContent = '';
+        // Используем requestAnimationFrame для плавного обновления
+        requestAnimationFrame(() => {
+          countdownNumber.textContent = newValue;
+        });
+      }
     }
     
     // ЦИКЛ ОТРИСОВКИ ВО ВРЕМЯ ОТСЧЕТА: Запускаем animationLoop если еще не запущен
@@ -644,6 +654,7 @@ function initSocket() {
   socket.on('game_start', (data) => {
     // ИСПРАВЛЕНИЕ: Очищаем значение обратного отсчета при старте игры
     countdownValue = "";
+    window.lastDrawnCountdown = null; // Сбрасываем последнее отрисованное значение
     if (window.appState && window.appState.game) {
       window.appState.game.countdownValue = "";
     }
@@ -2812,9 +2823,23 @@ function startAnimationLoop() {
     // ЛОГИКА ОТОБРАЖЕНИЯ: Если window.gameEngine.buffer пуст, рисуем window.appState.game.initial_state
     let frameData = null;
     const buffer = window.gameEngine.buffer || [];
+    const isCountdown = gameState === 'countdown' || window.appState?.game?.status === 'countdown';
     
-    if (buffer.length === 0) {
-      // Если буфер пуст, рисуем window.appState.game.initial_state
+    // ИСПРАВЛЕНИЕ: Во время countdown всегда используем initial_state для отрисовки змеек
+    if (isCountdown) {
+      if (window.appState?.game?.initial_state) {
+        frameData = {
+          my_snake: window.appState.game.initial_state.my_snake,
+          opponent_snake: window.appState.game.initial_state.opponent_snake
+        };
+      } else if (window.appState?.game?.my_snake && window.appState?.game?.opponent_snake) {
+        frameData = {
+          my_snake: window.appState.game.my_snake,
+          opponent_snake: window.appState.game.opponent_snake
+        };
+      }
+    } else if (buffer.length === 0) {
+      // Если буфер пуст (не во время countdown), рисуем window.appState.game.initial_state
       if (window.appState?.game?.initial_state) {
         frameData = {
           my_snake: window.appState.game.initial_state.my_snake,
@@ -2870,28 +2895,30 @@ function startAnimationLoop() {
       }
     }
     
-    // Отрисовка змеек
+    // Отрисовка змеек (работает и во время countdown, и во время игры)
     if (frameData) {
       if (frameData.my_snake && (frameData.my_snake.segments?.length > 0 || frameData.my_snake.body?.length > 0)) {
         // Определяем цвет для змейки игрока
         const playerColor = '#00FF41';
         drawSnake(frameData.my_snake, playerColor);
         
-        // ВИЗУАЛЬНЫЙ ИНДИКАТОР: Рисуем текст "YOU"
-        const headSegment = frameData.my_snake.segments?.[0] || frameData.my_snake.body?.[0];
-        if (headSegment) {
-          gameCtx.save();
-          gameCtx.font = "bold 14px Inter, Arial, sans-serif";
-          gameCtx.fillStyle = "#00FF41";
-          gameCtx.textAlign = "center";
-          gameCtx.textBaseline = "bottom";
-          gameCtx.shadowBlur = 5;
-          gameCtx.shadowColor = "#00FF41";
-          const tileSize = canvasLogicalSize / GRID_SIZE;
-          const headX = headSegment.x * tileSize;
-          const headY = headSegment.y * tileSize;
-          gameCtx.fillText("YOU", headX + tileSize / 2, headY - 5);
-          gameCtx.restore();
+        // ВИЗУАЛЬНЫЙ ИНДИКАТОР: Рисуем текст "YOU" (только если не countdown, чтобы не перекрывать цифры)
+        if (!isCountdown) {
+          const headSegment = frameData.my_snake.segments?.[0] || frameData.my_snake.body?.[0];
+          if (headSegment) {
+            gameCtx.save();
+            gameCtx.font = "bold 14px Inter, Arial, sans-serif";
+            gameCtx.fillStyle = "#00FF41";
+            gameCtx.textAlign = "center";
+            gameCtx.textBaseline = "bottom";
+            gameCtx.shadowBlur = 5;
+            gameCtx.shadowColor = "#00FF41";
+            const tileSize = canvasLogicalSize / GRID_SIZE;
+            const headX = headSegment.x * tileSize;
+            const headY = headSegment.y * tileSize;
+            gameCtx.fillText("YOU", headX + tileSize / 2, headY - 5);
+            gameCtx.restore();
+          }
         }
       }
       
@@ -2902,52 +2929,8 @@ function startAnimationLoop() {
       }
     }
     
-    // ОТРИСОВКА ОТСЧЕТА (COUNTDOWN)
-    const isCountdown = gameState === 'countdown' || window.appState?.game?.status === 'countdown';
-    if (isCountdown) {
-      // ИСПРАВЛЕНИЕ: Полностью очищаем canvas перед отрисовкой countdown для устранения двойного отсчета
-      gameCtx.clearRect(0, 0, gameCanvas.width, gameCanvas.height);
-      
-      // Рисуем фон и сетку заново после очистки
-      gameCtx.fillStyle = '#0a0e27';
-      gameCtx.fillRect(0, 0, canvasLogicalSize, canvasLogicalSize);
-      if (gridCanvas) {
-        gameCtx.drawImage(gridCanvas, 0, 0);
-      }
-      
-      // Перерисовываем змейки после очистки
-      if (frameData) {
-        if (frameData.my_snake && (frameData.my_snake.segments?.length > 0 || frameData.my_snake.body?.length > 0)) {
-          const playerColor = '#00FF41';
-          drawSnake(frameData.my_snake, playerColor);
-        }
-        if (frameData.opponent_snake && (frameData.opponent_snake.segments?.length > 0 || frameData.opponent_snake.body?.length > 0)) {
-          const opponentColor = '#FF3131';
-          drawSnake(frameData.opponent_snake, opponentColor);
-        }
-      }
-      
-      const countdownNumber = document.getElementById('countdown-number');
-      const countdownVal = window.appState?.game?.countdownValue || 
-                          countdownNumber?.textContent || 
-                          countdownValue || 
-                          "";
-      
-      if (countdownVal) {
-        gameCtx.save();
-        gameCtx.font = "bold 120px Inter, Arial, sans-serif";
-        gameCtx.fillStyle = "#ffffff";
-        gameCtx.textAlign = "center";
-        gameCtx.textBaseline = "middle";
-        gameCtx.shadowBlur = 30;
-        gameCtx.shadowColor = "#00f5ff";
-        gameCtx.strokeStyle = "#00f5ff";
-        gameCtx.lineWidth = 4;
-        gameCtx.strokeText(countdownVal, canvasLogicalSize / 2, canvasLogicalSize / 2);
-        gameCtx.fillText(countdownVal, canvasLogicalSize / 2, canvasLogicalSize / 2);
-        gameCtx.restore();
-      }
-    }
+    // ИСПРАВЛЕНИЕ: Countdown отображается только через DOM overlay, не на canvas
+    // Это предотвращает двойной отсчет (canvas + overlay)
     
     // Цикл продолжается
     requestAnimationFrame(animationLoop);
