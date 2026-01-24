@@ -354,216 +354,215 @@ function initSocket() {
     currentGame.gameId = data.gameId;
     currentGame.playerNumber = data.playerNumber;
     
-      // Сохраняем начальное состояние для отображения во время countdown
-      if (data.initial_state) {
-        // ИНИЦИАЛИЗАЦИЯ ПОЗИЦИЙ: валидируем initial_state перед использованием
-        const initialState = data.initial_state;
-        
-        currentGame.initialState = initialState;
-        
-        // STATE MANAGEMENT: Обновляем window.appState из initial_state
-        window.appState.game.status = 'countdown';
-        // ПОЗИЦИОНИРОВАНИЕ НА СТАРТЕ: Принудительно устанавливаем горизонтальное положение змеек
-        // Игрок 1: голова на x=5, y=15, хвост тянется вправо
-        // Игрок 2: голова на x=24, y=15, хвост тянется влево
-        // ИСПРАВЛЕНИЕ: В initial_state принудительно установи змейкам горизонтальное положение
-        // УДАЛЕНИЕ ДУБЛИКАТА: Объявляем переменные только один раз
-        const mySnakeSegments = initialState.my_snake?.segments || initialState.my_snake?.body;
-        const opponentSnakeSegments = initialState.opponent_snake?.segments || initialState.opponent_snake?.body;
-        
-        // Валидация координат в initial_state (используем уже объявленные переменные)
-        if (mySnakeSegments && mySnakeSegments[0]) {
-          const mySnakeHead = mySnakeSegments[0];
-          if (mySnakeHead && (mySnakeHead.x < 0 || mySnakeHead.x >= GRID_SIZE || mySnakeHead.y < 0 || mySnakeHead.y >= GRID_SIZE)) {
-            console.error(`❌ CRITICAL: Invalid my_snake initial position: x=${mySnakeHead.x}, y=${mySnakeHead.y}`);
-          }
-        }
-        if (opponentSnakeSegments && opponentSnakeSegments[0]) {
-          const opponentSnakeHead = opponentSnakeSegments[0];
-          if (opponentSnakeHead && (opponentSnakeHead.x < 0 || opponentSnakeHead.x >= GRID_SIZE || opponentSnakeHead.y < 0 || opponentSnakeHead.y >= GRID_SIZE)) {
-            console.error(`❌ CRITICAL: Invalid opponent_snake initial position: x=${opponentSnakeHead.x}, y=${opponentSnakeHead.y}`);
-          }
-        }
-        
-        // ПРИНУДИТЕЛЬНОЕ ГОРИЗОНТАЛЬНОЕ ПОЛОЖЕНИЕ: Если сегменты невалидны или змейка уходит за край, устанавливаем правильные координаты
-        let fixedMySnakeSegments = mySnakeSegments;
-        let fixedOpponentSnakeSegments = opponentSnakeSegments;
-        
-        // ЛОГИКА КООРДИНАТ: Если в логах видишь x = -1, значит змейка движется влево слишком быстро
-        // В initial_state принудительно задаем горизонтальное положение
-        if (!mySnakeSegments || mySnakeSegments.length === 0 || (mySnakeSegments[0] && (mySnakeSegments[0].x < 0 || mySnakeSegments[0].x >= GRID_SIZE))) {
-          // Змейка 1 (Player 1): segments: [{x: 5, y: 15}, {x: 4, y: 15}, {x: 3, y: 15}] (горизонтально)
-          // Горизонтальное положение — это когда у сегментов одинаковый y, а x меняется
-          fixedMySnakeSegments = [
-            { x: 5, y: 15 },
-            { x: 4, y: 15 },
-            { x: 3, y: 15 }
-          ];
-          console.log('🔧 Fixed my_snake initial position to horizontal:', fixedMySnakeSegments);
-        }
-        
-        if (!opponentSnakeSegments || opponentSnakeSegments.length === 0 || (opponentSnakeSegments[0] && (opponentSnakeSegments[0].x < 0 || opponentSnakeSegments[0].x >= GRID_SIZE))) {
-          // Змейка 2 (Player 2): segments: [{x: 24, y: 15}, {x: 25, y: 15}, {x: 26, y: 15}] (горизонтально)
-          // Горизонтальное положение — это когда у сегментов одинаковый y, а x меняется
-          fixedOpponentSnakeSegments = [
-            { x: 24, y: 15 },
-            { x: 25, y: 15 },
-            { x: 26, y: 15 }
-          ];
-          console.log('🔧 Fixed opponent_snake initial position to horizontal:', fixedOpponentSnakeSegments);
-        }
-        
-        const mySnakeSegs = fixedMySnakeSegments || mySnakeSegments || [];
-        const oppSnakeSegs = fixedOpponentSnakeSegments || opponentSnakeSegments || [];
-        
-        // ГЛУБОКОЕ КОПИРОВАНИЕ: Используем JSON для гарантированного копирования
-        const mySnakeSegsCopy = JSON.parse(JSON.stringify(mySnakeSegs));
-        const oppSnakeSegsCopy = JSON.parse(JSON.stringify(oppSnakeSegs));
-        
-        window.appState.game.my_snake = {
-          segments: mySnakeSegsCopy,
-          direction: { dx: 1, dy: 0 }, // Горизонтально вправо
-          alive: true
-        };
-        window.appState.game.opponent_snake = {
-          segments: oppSnakeSegsCopy,
-          direction: { dx: -1, dy: 0 }, // Горизонтально влево
-          alive: true
-        };
-        
-        // ИНИЦИАЛИЗАЦИЯ: Добавляем initial_state в интерполяционный буфер
-        const mySegsCopy = mySnakeSegsCopy.map(s => ({ x: Number(s.x), y: Number(s.y) }));
-        const oppSegsCopy = oppSnakeSegsCopy.map(s => ({ x: Number(s.x), y: Number(s.y) }));
-        
-        // Если segments.length === 0, заполняем начальной позицией головы
-        if (mySegsCopy.length === 0) {
-          mySegsCopy.push({ x: 5, y: 15 });
-        }
-        if (oppSegsCopy.length === 0) {
-          oppSegsCopy.push({ x: 24, y: 15 });
-        }
-        
-        // Добавляем initial_state в буфер для интерполяции
-        const initTime = performance.now();
-        if (initialState) {
-          const initState = {
-            ...initialState,
-            my_snake: { ...initialState.my_snake, segments: mySegsCopy },
-            opponent_snake: { ...initialState.opponent_snake, segments: oppSegsCopy }
-          };
-          
-          // Добавляем в gameStateBuffer
-          if (!window.gameStateBuffer) {
-            window.gameStateBuffer = [];
-          }
-          window.gameStateBuffer.push({
-            state: deepClone(initState),
-            receiveTime: initTime,
-            tick: 0
-          });
-          
-          // Для обратной совместимости также в window.gameBuffer
-          window.gameBuffer.push({
-            state: deepClone(initState),
-            clientTime: initTime
-          });
-        }
-        window.appState.game.snakes = [window.appState.game.my_snake, window.appState.game.opponent_snake].filter(s => s !== null);
-        
-        // ОБНОВЛЕНИЕ ИНФОРМАЦИИ О ЗМЕЙКАХ: Показываем, кто за какую змейку играет
-        const player1Status = document.getElementById('player1-status');
-        const player2Status = document.getElementById('player2-status');
-        if (player1Status) {
-          player1Status.textContent = 'You - Green Snake';
-        }
-        if (player2Status) {
-          player2Status.textContent = 'Opponent - Red Snake';
-        }
-        
-        // CURRENT GAME STATE: Синхронизируем currentGameState с appState
-        currentGameState.status = 'countdown';
-        currentGameState.my_snake = window.appState.game.my_snake;
-        currentGameState.opponent_snake = window.appState.game.opponent_snake;
-        currentGameState.snakes = window.appState.game.snakes;
-        
-        // ИНИЦИАЛИЗАЦИЯ ВИЗУАЛЬНЫХ ПОЗИЦИЙ: Сохраняем initial_state для использования в render()
-        if (!currentGame) {
-          currentGame = {};
-        }
-        currentGame.initialState = initialState;
-        
-        // Инициализируем текущее направление из начального состояния
-        if (initialState.my_snake && initialState.my_snake.direction) {
-          const dir = initialState.my_snake.direction;
-          if (dir.dx === 1 && dir.dy === 0) {
-            currentDirection = 'right';
-          } else if (dir.dx === -1 && dir.dy === 0) {
-            currentDirection = 'left';
-          } else if (dir.dx === 0 && dir.dy === 1) {
-            currentDirection = 'down';
-          } else if (dir.dx === 0 && dir.dy === -1) {
-            currentDirection = 'up';
-          }
-        }
-        
-        // ОПТИМИЗАЦИЯ: Сразу переключаемся на игровой экран при получении initial_state
-        gameState = 'countdown'; // Устанавливаем 'countdown' вместо 'playing' до начала игры
-        showScreen('game');
+    // Сохраняем начальное состояние для отображения во время countdown
+    if (data.initial_state) {
+      // ИНИЦИАЛИЗАЦИЯ ПОЗИЦИЙ: валидируем initial_state перед использованием
+      const initialState = data.initial_state;
       
-        // Инициализируем Canvas перед отрисовкой начального состояния
-        if (!canvasInitialized) {
-          initCanvas();
+      currentGame.initialState = initialState;
+      
+      // STATE MANAGEMENT: Обновляем window.appState из initial_state
+      window.appState.game.status = 'countdown';
+      // ПОЗИЦИОНИРОВАНИЕ НА СТАРТЕ: Принудительно устанавливаем горизонтальное положение змеек
+      // Игрок 1: голова на x=5, y=15, хвост тянется вправо
+      // Игрок 2: голова на x=24, y=15, хвост тянется влево
+      // ИСПРАВЛЕНИЕ: В initial_state принудительно установи змейкам горизонтальное положение
+      // УДАЛЕНИЕ ДУБЛИКАТА: Объявляем переменные только один раз
+      const mySnakeSegments = initialState.my_snake?.segments || initialState.my_snake?.body;
+      const opponentSnakeSegments = initialState.opponent_snake?.segments || initialState.opponent_snake?.body;
+      
+      // Валидация координат в initial_state (используем уже объявленные переменные)
+      if (mySnakeSegments && mySnakeSegments[0]) {
+        const mySnakeHead = mySnakeSegments[0];
+        if (mySnakeHead && (mySnakeHead.x < 0 || mySnakeHead.x >= GRID_SIZE || mySnakeHead.y < 0 || mySnakeHead.y >= GRID_SIZE)) {
+          console.error(`❌ CRITICAL: Invalid my_snake initial position: x=${mySnakeHead.x}, y=${mySnakeHead.y}`);
         }
+      }
+      if (opponentSnakeSegments && opponentSnakeSegments[0]) {
+        const opponentSnakeHead = opponentSnakeSegments[0];
+        if (opponentSnakeHead && (opponentSnakeHead.x < 0 || opponentSnakeHead.x >= GRID_SIZE || opponentSnakeHead.y < 0 || opponentSnakeHead.y >= GRID_SIZE)) {
+          console.error(`❌ CRITICAL: Invalid opponent_snake initial position: x=${opponentSnakeHead.x}, y=${opponentSnakeHead.y}`);
+        }
+      }
+      
+      // ПРИНУДИТЕЛЬНОЕ ГОРИЗОНТАЛЬНОЕ ПОЛОЖЕНИЕ: Если сегменты невалидны или змейка уходит за край, устанавливаем правильные координаты
+      let fixedMySnakeSegments = mySnakeSegments;
+      let fixedOpponentSnakeSegments = opponentSnakeSegments;
+      
+      // ЛОГИКА КООРДИНАТ: Если в логах видишь x = -1, значит змейка движется влево слишком быстро
+      // В initial_state принудительно задаем горизонтальное положение
+      if (!mySnakeSegments || mySnakeSegments.length === 0 || (mySnakeSegments[0] && (mySnakeSegments[0].x < 0 || mySnakeSegments[0].x >= GRID_SIZE))) {
+        // Змейка 1 (Player 1): segments: [{x: 5, y: 15}, {x: 4, y: 15}, {x: 3, y: 15}] (горизонтально)
+        // Горизонтальное положение — это когда у сегментов одинаковый y, а x меняется
+        fixedMySnakeSegments = [
+          { x: 5, y: 15 },
+          { x: 4, y: 15 },
+          { x: 3, y: 15 }
+        ];
+        console.log('🔧 Fixed my_snake initial position to horizontal:', fixedMySnakeSegments);
+      }
+      
+      if (!opponentSnakeSegments || opponentSnakeSegments.length === 0 || (opponentSnakeSegments[0] && (opponentSnakeSegments[0].x < 0 || opponentSnakeSegments[0].x >= GRID_SIZE))) {
+        // Змейка 2 (Player 2): segments: [{x: 24, y: 15}, {x: 25, y: 15}, {x: 26, y: 15}] (горизонтально)
+        // Горизонтальное положение — это когда у сегментов одинаковый y, а x меняется
+        fixedOpponentSnakeSegments = [
+          { x: 24, y: 15 },
+          { x: 25, y: 15 },
+          { x: 26, y: 15 }
+        ];
+        console.log('🔧 Fixed opponent_snake initial position to horizontal:', fixedOpponentSnakeSegments);
+      }
+      
+      const mySnakeSegs = fixedMySnakeSegments || mySnakeSegments || [];
+      const oppSnakeSegs = fixedOpponentSnakeSegments || opponentSnakeSegments || [];
+      
+      // ГЛУБОКОЕ КОПИРОВАНИЕ: Используем JSON для гарантированного копирования
+      const mySnakeSegsCopy = JSON.parse(JSON.stringify(mySnakeSegs));
+      const oppSnakeSegsCopy = JSON.parse(JSON.stringify(oppSnakeSegs));
+      
+      window.appState.game.my_snake = {
+        segments: mySnakeSegsCopy,
+        direction: { dx: 1, dy: 0 }, // Горизонтально вправо
+        alive: true
+      };
+      window.appState.game.opponent_snake = {
+        segments: oppSnakeSegsCopy,
+        direction: { dx: -1, dy: 0 }, // Горизонтально влево
+        alive: true
+      };
+      
+      // ИНИЦИАЛИЗАЦИЯ: Добавляем initial_state в интерполяционный буфер
+      const mySegsCopy = mySnakeSegsCopy.map(s => ({ x: Number(s.x), y: Number(s.y) }));
+      const oppSegsCopy = oppSnakeSegsCopy.map(s => ({ x: Number(s.x), y: Number(s.y) }));
+      
+      // Если segments.length === 0, заполняем начальной позицией головы
+      if (mySegsCopy.length === 0) {
+        mySegsCopy.push({ x: 5, y: 15 });
+      }
+      if (oppSegsCopy.length === 0) {
+        oppSegsCopy.push({ x: 24, y: 15 });
+      }
+      
+      // Добавляем initial_state в буфер для интерполяции
+      const initTime = performance.now();
+      if (initialState) {
+        const initState = {
+          ...initialState,
+          my_snake: { ...initialState.my_snake, segments: mySegsCopy },
+          opponent_snake: { ...initialState.opponent_snake, segments: oppSegsCopy }
+        };
         
-        // Убеждаемся, что Canvas и контекст доступны
-        if (!gameCanvas || !gameCtx) {
-          gameCanvas = document.getElementById('game-canvas');
-          if (gameCanvas) {
-            gameCtx = gameCanvas.getContext('2d');
-            if (gameCtx) {
-              gameCtx.imageSmoothingEnabled = false;
-            }
+        // Добавляем в gameStateBuffer
+        if (!window.gameStateBuffer) {
+          window.gameStateBuffer = [];
+        }
+        window.gameStateBuffer.push({
+          state: deepClone(initState),
+          receiveTime: initTime,
+          tick: 0
+        });
+        
+        // Для обратной совместимости также в window.gameBuffer
+        window.gameBuffer.push({
+          state: deepClone(initState),
+          clientTime: initTime
+        });
+      }
+      window.appState.game.snakes = [window.appState.game.my_snake, window.appState.game.opponent_snake].filter(s => s !== null);
+      
+      // ОБНОВЛЕНИЕ ИНФОРМАЦИИ О ЗМЕЙКАХ: Показываем, кто за какую змейку играет
+      const player1Status = document.getElementById('player1-status');
+      const player2Status = document.getElementById('player2-status');
+      if (player1Status) {
+        player1Status.textContent = 'You - Green Snake';
+      }
+      if (player2Status) {
+        player2Status.textContent = 'Opponent - Red Snake';
+      }
+      
+      // CURRENT GAME STATE: Синхронизируем currentGameState с appState
+      currentGameState.status = 'countdown';
+      currentGameState.my_snake = window.appState.game.my_snake;
+      currentGameState.opponent_snake = window.appState.game.opponent_snake;
+      currentGameState.snakes = window.appState.game.snakes;
+      
+      // ИНИЦИАЛИЗАЦИЯ ВИЗУАЛЬНЫХ ПОЗИЦИЙ: Сохраняем initial_state для использования в render()
+      if (!currentGame) {
+        currentGame = {};
+      }
+      currentGame.initialState = initialState;
+      
+      // Инициализируем текущее направление из начального состояния
+      if (initialState.my_snake && initialState.my_snake.direction) {
+        const dir = initialState.my_snake.direction;
+        if (dir.dx === 1 && dir.dy === 0) {
+          currentDirection = 'right';
+        } else if (dir.dx === -1 && dir.dy === 0) {
+          currentDirection = 'left';
+        } else if (dir.dx === 0 && dir.dy === 1) {
+          currentDirection = 'down';
+        } else if (dir.dx === 0 && dir.dy === -1) {
+          currentDirection = 'up';
+        }
+      }
+      
+      // ОПТИМИЗАЦИЯ: Сразу переключаемся на игровой экран при получении initial_state
+      gameState = 'countdown'; // Устанавливаем 'countdown' вместо 'playing' до начала игры
+      showScreen('game');
+    
+      // Инициализируем Canvas перед отрисовкой начального состояния
+      if (!canvasInitialized) {
+        initCanvas();
+      }
+      
+      // Убеждаемся, что Canvas и контекст доступны
+      if (!gameCanvas || !gameCtx) {
+        gameCanvas = document.getElementById('game-canvas');
+        if (gameCanvas) {
+          gameCtx = gameCanvas.getContext('2d');
+          if (gameCtx) {
+            gameCtx.imageSmoothingEnabled = false;
           }
         }
-        
-        // Показываем countdown overlay (прозрачный, только цифры)
-        const countdownOverlay = document.getElementById('countdown-overlay');
-        if (countdownOverlay) {
-          countdownOverlay.style.display = 'flex';
-        }
-        
-        // ПРИНУДИТЕЛЬНАЯ ОТРИСОВКА: Запускаем цикл render СРАЗУ при переходе на game-screen
-        // ЦИКЛ ОТРИСОВКИ ВО ВРЕМЯ ОТСЧЕТА: requestAnimationFrame запускается сразу
-        if (!animationFrameId && gameCanvas && gameCtx) {
-          startRenderLoop();
-        }
-        
-        // ПРИНУДИТЕЛЬНАЯ ОТРИСОВКА: Вызываем первый кадр отрисовки сразу после получения initial_state
-        // render() уже запущен через startRenderLoop(), он автоматически отрисует змеек из initial_state
-        
-        // Обеспечиваем видимость змеек на старте
-        window.appState.gameState = 'countdown';
-        // Принудительно копируем начальные координаты в текущее состояние
-        if (initialState) {
-          // Создаем полную копию initial_state с правильными сегментами
-          const initStateCopy = {
-            ...initialState,
-            my_snake: {
-              ...initialState.my_snake,
-              segments: mySegsCopy,
-              direction: initialState.my_snake?.direction || { dx: 1, dy: 0 },
-              alive: initialState.my_snake?.alive !== undefined ? initialState.my_snake.alive : true
-            },
-            opponent_snake: {
-              ...initialState.opponent_snake,
-              segments: oppSegsCopy,
-              direction: initialState.opponent_snake?.direction || { dx: -1, dy: 0 },
-              alive: initialState.opponent_snake?.alive !== undefined ? initialState.opponent_snake.alive : true
-            }
-          };
-          window.appState.game.initial_state = deepClone(initStateCopy);
-          window.appState.game.current_state = deepClone(initStateCopy);
-        }
+      }
+      
+      // Показываем countdown overlay (прозрачный, только цифры)
+      const countdownOverlay = document.getElementById('countdown-overlay');
+      if (countdownOverlay) {
+        countdownOverlay.style.display = 'flex';
+      }
+      
+      // ПРИНУДИТЕЛЬНАЯ ОТРИСОВКА: Запускаем цикл render СРАЗУ при переходе на game-screen
+      // ЦИКЛ ОТРИСОВКИ ВО ВРЕМЯ ОТСЧЕТА: requestAnimationFrame запускается сразу
+      if (!animationFrameId && gameCanvas && gameCtx) {
+        startRenderLoop();
+      }
+      
+      // ПРИНУДИТЕЛЬНАЯ ОТРИСОВКА: Вызываем первый кадр отрисовки сразу после получения initial_state
+      // render() уже запущен через startRenderLoop(), он автоматически отрисует змеек из initial_state
+      
+      // Обеспечиваем видимость змеек на старте
+      window.appState.gameState = 'countdown';
+      // Принудительно копируем начальные координаты в текущее состояние
+      if (initialState) {
+        // Создаем полную копию initial_state с правильными сегментами
+        const initStateCopy = {
+          ...initialState,
+          my_snake: {
+            ...initialState.my_snake,
+            segments: mySegsCopy,
+            direction: initialState.my_snake?.direction || { dx: 1, dy: 0 },
+            alive: initialState.my_snake?.alive !== undefined ? initialState.my_snake.alive : true
+          },
+          opponent_snake: {
+            ...initialState.opponent_snake,
+            segments: oppSegsCopy,
+            direction: initialState.opponent_snake?.direction || { dx: -1, dy: 0 },
+            alive: initialState.opponent_snake?.alive !== undefined ? initialState.opponent_snake.alive : true
+          }
+        };
+        window.appState.game.initial_state = deepClone(initStateCopy);
+        window.appState.game.current_state = deepClone(initStateCopy);
       }
     }
   });
