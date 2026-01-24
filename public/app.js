@@ -486,7 +486,11 @@ function initSocket() {
         currentGameState.opponent_snake = window.appState.game.opponent_snake;
         currentGameState.snakes = window.appState.game.snakes;
         
-        console.log('✅ window.appState инициализирован из initial_state:', window.appState);
+        // ИНИЦИАЛИЗАЦИЯ ВИЗУАЛЬНЫХ ПОЗИЦИЙ: Сохраняем initial_state для использования в render()
+        if (!currentGame) {
+          currentGame = {};
+        }
+        currentGame.initialState = initialState;
         
         // Инициализируем текущее направление из начального состояния
         if (initialState.my_snake && initialState.my_snake.direction) {
@@ -506,50 +510,37 @@ function initSocket() {
         gameState = 'countdown'; // Устанавливаем 'countdown' вместо 'playing' до начала игры
         showScreen('game');
       
-      // Инициализируем Canvas перед отрисовкой начального состояния
-      if (!canvasInitialized) {
-        initCanvas();
-      }
-      
-      // Убеждаемся, что Canvas и контекст доступны
-      if (!gameCanvas || !gameCtx) {
-        gameCanvas = document.getElementById('game-canvas');
-        if (gameCanvas) {
-          gameCtx = gameCanvas.getContext('2d');
-          if (gameCtx) {
-            gameCtx.imageSmoothingEnabled = false;
+        // Инициализируем Canvas перед отрисовкой начального состояния
+        if (!canvasInitialized) {
+          initCanvas();
         }
-        }
-      }
-      
-      // Показываем countdown overlay (прозрачный, только цифры)
-      const countdownOverlay = document.getElementById('countdown-overlay');
-      if (countdownOverlay) {
-        countdownOverlay.style.display = 'flex';
-      } else {
-        console.warn('countdown-overlay не найден!');
-      }
-      
-      // ОПТИМИЗАЦИЯ: Сразу вызываем render() для отрисовки начального состояния
-      // Используем requestAnimationFrame для гарантии, что Canvas готов
-      requestAnimationFrame(() => {
-        if (gameCanvas && gameCtx && data.initial_state) {
-          // Сохраняем начальное состояние для использования в render()
-          if (!currentGame) {
-            currentGame = {};
+        
+        // Убеждаемся, что Canvas и контекст доступны
+        if (!gameCanvas || !gameCtx) {
+          gameCanvas = document.getElementById('game-canvas');
+          if (gameCanvas) {
+            gameCtx = gameCanvas.getContext('2d');
+            if (gameCtx) {
+              gameCtx.imageSmoothingEnabled = false;
+            }
           }
-          currentGame.initialState = data.initial_state;
-          
-          // Отрисовываем начальное состояние
-        renderGamePreviewOnCanvas(data.initial_state, gameCanvas, gameCtx);
-          console.log('🎨 Начальное состояние отрисовано во время countdown');
-          
-          // Запускаем цикл render для плавного обновления во время countdown
-          if (!animationFrameId) {
-            startRenderLoop();
-      }
         }
-      });
+        
+        // Показываем countdown overlay (прозрачный, только цифры)
+        const countdownOverlay = document.getElementById('countdown-overlay');
+        if (countdownOverlay) {
+          countdownOverlay.style.display = 'flex';
+        }
+        
+        // ПРИНУДИТЕЛЬНАЯ ОТРИСОВКА: Запускаем цикл render СРАЗУ при переходе на game-screen
+        // ЦИКЛ ОТРИСОВКИ ВО ВРЕМЯ ОТСЧЕТА: requestAnimationFrame запускается сразу
+        if (!animationFrameId && gameCanvas && gameCtx) {
+          startRenderLoop();
+        }
+        
+        // ПРИНУДИТЕЛЬНАЯ ОТРИСОВКА: Вызываем первый кадр отрисовки сразу после получения initial_state
+        // render() уже запущен через startRenderLoop(), он автоматически отрисует змеек из initial_state
+      }
     }
   });
   
@@ -606,18 +597,10 @@ function initSocket() {
       });
     }
     
-    // Запускаем рендер-луп, если он еще не запущен
+    // ЦИКЛ ОТРИСОВКИ ВО ВРЕМЯ ОТСЧЕТА: Запускаем requestAnimationFrame СРАЗУ при получении countdown
+    // Убеждаемся, что цикл render работает во время countdown
     if (!animationFrameId && gameCanvas && gameCtx) {
       startRenderLoop();
-    }
-    
-    // ОБНОВЛЕНИЕ ИГРОВОГО ПОЛЯ ВО ВРЕМЯ COUNTDOWN: рисуем начальное состояние, чтобы не было черного экрана
-    if (gameCanvas && gameCtx && currentGame && currentGame.initialState && !animationFrameId) {
-      // Обновляем отрисовку игрового поля во время countdown, чтобы пользователь видел змеек
-      // Используем requestAnimationFrame для плавного обновления
-      requestAnimationFrame(() => {
-        renderGamePreviewOnCanvas(currentGame.initialState, gameCanvas, gameCtx);
-      });
     }
   });
   
@@ -2873,13 +2856,26 @@ function startRenderLoop() {
       return;
     }
 
-    // 1. Очистка и фон (строго один раз в начале цикла render)
-    gameCtx.clearRect(0, 0, canvasLogicalSize, canvasLogicalSize);
-    gameCtx.fillStyle = '#0a0e27';
-    gameCtx.fillRect(0, 0, canvasLogicalSize, canvasLogicalSize);
+    // ПРОВЕРКА ОЧИСТКИ (Canvas): Очищаем только если есть что рисовать
+    // Во время countdown всегда есть змейки из initial_state, поэтому очищаем
+    const hasSnakesToDraw = (gameState === 'countdown' || gameState === 'playing') && 
+                            (window.appState?.game?.my_snake || window.appState?.game?.opponent_snake || 
+                             currentGame?.initialState?.my_snake || currentGame?.initialState?.opponent_snake ||
+                             (window.gameStateBuffer && window.gameStateBuffer.length > 0));
+    
+    if (hasSnakesToDraw || gameState === 'countdown' || gameState === 'playing') {
+      // 1. Очистка и фон (строго один раз в начале цикла render)
+      gameCtx.clearRect(0, 0, canvasLogicalSize, canvasLogicalSize);
+      gameCtx.fillStyle = '#0a0e27';
+      gameCtx.fillRect(0, 0, canvasLogicalSize, canvasLogicalSize);
 
-    // 2. Сетка
-    if (gridCanvas) gameCtx.drawImage(gridCanvas, 0, 0);
+      // 2. Сетка
+      if (gridCanvas) gameCtx.drawImage(gridCanvas, 0, 0);
+    } else {
+      // Если нечего рисовать, не очищаем canvas (предотвращаем мерцание)
+      animationFrameId = requestAnimationFrame(render);
+      return;
+    }
 
     // АБСОЛЮТНАЯ ПЛАВНОСТЬ: Принудительная интерполяция для 60 FPS
     // Обрабатываем пакеты из очереди (для обратной совместимости)
@@ -3027,10 +3023,35 @@ function startRenderLoop() {
         drawSnakeSimple(mySnake, headHistory, '#00FF41', '#008F11');
       }
     } else {
-      // Fallback на window.appState
-      const fallback = window.appState?.game?.my_snake || currentGameState?.my_snake || currentGame?.initialState?.my_snake;
-      if (fallback && gameCtx) {
+      // Fallback на window.appState (работает даже во время countdown)
+      // ПРИНУДИТЕЛЬНАЯ ОТРИСОВКА: Рисуем змейку из initial_state даже если буфер пуст
+      const fallback = window.appState?.game?.my_snake || 
+                       currentGameState?.my_snake || 
+                       currentGame?.initialState?.my_snake ||
+                       (currentGame?.initialState?.my_snake ? {
+                         segments: currentGame.initialState.my_snake.segments || currentGame.initialState.my_snake.body || [],
+                         direction: currentGame.initialState.my_snake.direction || { dx: 1, dy: 0 },
+                         alive: currentGame.initialState.my_snake.alive !== undefined ? currentGame.initialState.my_snake.alive : true
+                       } : null);
+      if (fallback && gameCtx && (fallback.segments?.length > 0 || fallback.body?.length > 0)) {
         drawSnakeSimple(fallback, headHistory, '#00FF41', '#008F11');
+        
+        // ВИЗУАЛЬНЫЙ ИНДИКАТОР: Рисуем текст "YOU" рядом с головой
+        const headSeg = fallback.segments?.[0] || fallback.body?.[0];
+        if (headSeg) {
+          gameCtx.save();
+          gameCtx.font = "bold 14px Inter, Arial, sans-serif";
+          gameCtx.fillStyle = "#00FF41";
+          gameCtx.textAlign = "center";
+          gameCtx.textBaseline = "bottom";
+          gameCtx.shadowBlur = 5;
+          gameCtx.shadowColor = "#00FF41";
+          const tileSize = canvasLogicalSize / GRID_SIZE;
+          const headX = headSeg.x * tileSize;
+          const headY = headSeg.y * tileSize;
+          gameCtx.fillText("YOU", headX + tileSize / 2, headY - 5);
+          gameCtx.restore();
+        }
       }
     }
 
@@ -3092,9 +3113,17 @@ function startRenderLoop() {
         drawSnakeSimple(oppSnake, opponentHeadHistory, '#FF3131', '#8B0000');
       }
     } else {
-      // Fallback на window.appState
-      const fallback = window.appState?.game?.opponent_snake || currentGameState?.opponent_snake || currentGame?.initialState?.opponent_snake;
-      if (fallback && gameCtx) {
+      // Fallback на window.appState (работает даже во время countdown)
+      // ПРИНУДИТЕЛЬНАЯ ОТРИСОВКА: Рисуем змейку из initial_state даже если буфер пуст
+      const fallback = window.appState?.game?.opponent_snake || 
+                       currentGameState?.opponent_snake || 
+                       currentGame?.initialState?.opponent_snake ||
+                       (currentGame?.initialState?.opponent_snake ? {
+                         segments: currentGame.initialState.opponent_snake.segments || currentGame.initialState.opponent_snake.body || [],
+                         direction: currentGame.initialState.opponent_snake.direction || { dx: -1, dy: 0 },
+                         alive: currentGame.initialState.opponent_snake.alive !== undefined ? currentGame.initialState.opponent_snake.alive : true
+                       } : null);
+      if (fallback && gameCtx && (fallback.segments?.length > 0 || fallback.body?.length > 0)) {
         drawSnakeSimple(fallback, opponentHeadHistory, '#FF3131', '#8B0000');
       }
     }
