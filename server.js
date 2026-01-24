@@ -728,7 +728,32 @@ io.on('connection', async (socket) => {
               const provider = client.provider(wallet.address);
               console.log(`✅ [Withdrawal] Provider создан`);
               
-              const seqno = await wallet.getSeqno(provider);
+              // Функция для получения seqno с retry при ошибке 429
+              const getSeqnoWithRetry = async (maxRetries = 3, delayMs = 2000) => {
+                for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                  try {
+                    const seqno = await wallet.getSeqno(provider);
+                    return seqno;
+                  } catch (error) {
+                    const isRateLimit = error.message && (
+                      error.message.includes('429') || 
+                      error.message.includes('Too Many Requests') ||
+                      error.status === 429 ||
+                      error.response?.status === 429
+                    );
+                    
+                    if (isRateLimit && attempt < maxRetries) {
+                      const waitTime = delayMs * attempt; // Экспоненциальная задержка
+                      console.log(`⚠️ [Withdrawal] Rate limit (429) при получении seqno, попытка ${attempt}/${maxRetries}. Ждём ${waitTime}ms...`);
+                      await new Promise(resolve => setTimeout(resolve, waitTime));
+                      continue;
+                    }
+                    throw error;
+                  }
+                }
+              };
+              
+              const seqno = await getSeqnoWithRetry();
               console.log(`✅ [Withdrawal] Seqno получен: ${String(seqno)}`);
               
               // Конвертируем адрес получателя
@@ -764,18 +789,47 @@ io.on('connection', async (socket) => {
               console.log(`💰 [Withdrawal] Сумма: ${amountInTon} TON = ${amountInNano.toString()} нанотонов`);
               console.log(`🚀 [Withdrawal] Отправка транзакции: seqno=${String(seqno)}, сумма=${amountInTon} TON, получатель=${recipientAddress.toString()}`);
               
-              await wallet.sendTransfer(provider, {
-                seqno: seqno,
-                secretKey: keyPair.secretKey,
-                messages: [
-                  internal({
-                    to: recipientAddress,
-                    value: amountInNano,
-                    bounce: false,
-                    body: `Snake Game Prize: ${amount} TON`
-                  })
-                ]
-              });
+              // Функция для отправки транзакции с retry при ошибке 429
+              const sendTransferWithRetry = async (currentSeqno, maxRetries = 3, delayMs = 2000) => {
+                let attemptSeqno = currentSeqno;
+                for (let attempt = 1; attempt <= maxRetries; attempt++) {
+                  try {
+                    await wallet.sendTransfer(provider, {
+                      seqno: attemptSeqno,
+                      secretKey: keyPair.secretKey,
+                      messages: [
+                        internal({
+                          to: recipientAddress,
+                          value: amountInNano,
+                          bounce: false,
+                          body: `Snake Game Prize: ${amount} TON`
+                        })
+                      ]
+                    });
+                    return; // Успешно отправлено
+                  } catch (error) {
+                    const isRateLimit = error.message && (
+                      error.message.includes('429') || 
+                      error.message.includes('Too Many Requests') ||
+                      error.status === 429 ||
+                      error.response?.status === 429
+                    );
+                    
+                    if (isRateLimit && attempt < maxRetries) {
+                      const waitTime = delayMs * attempt; // Экспоненциальная задержка
+                      console.log(`⚠️ [Withdrawal] Rate limit (429) при отправке транзакции, попытка ${attempt}/${maxRetries}. Ждём ${waitTime}ms...`);
+                      await new Promise(resolve => setTimeout(resolve, waitTime));
+                      // Обновляем seqno перед повторной попыткой
+                      attemptSeqno = await getSeqnoWithRetry();
+                      console.log(`🔄 [Withdrawal] Seqno обновлён для повторной попытки: ${String(attemptSeqno)}`);
+                      continue;
+                    }
+                    throw error;
+                  }
+                }
+              };
+              
+              await sendTransferWithRetry(seqno);
               
               console.log('✅ [Withdrawal] Транзакция успешно отправлена в сеть!');
               transactionSuccess = true;
