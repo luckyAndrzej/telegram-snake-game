@@ -585,22 +585,36 @@ io.on('connection', async (socket) => {
             // ВАЖНО: Используем ту же логику, что и для сканера (с fallback на testnet)
             const isTestnet = process.env.IS_TESTNET === 'true' || process.env.IS_TESTNET === true || process.env.IS_TESTNET === 'TRUE' || true; // Fallback: true (тестнет)
             console.log(`🌐 [Withdrawal] IS_TESTNET=${isTestnet} (из env: ${process.env.IS_TESTNET || 'undefined (fallback=true)'}), network=${isTestnet ? 'testnet' : 'mainnet'}`);
+            console.log(`⏳ [Withdrawal] Начинаем получение endpoint...`);
             
-            // Получаем endpoint через децентрализованную сеть Orbs
-            console.log(`🔗 [Withdrawal] Получение endpoint через Orbs Access...`);
+            // Получаем endpoint через децентрализованную сеть Orbs с таймаутом
+            console.log(`🔗 [Withdrawal] Получение endpoint через Orbs Access для сети: ${isTestnet ? 'testnet' : 'mainnet'}...`);
             let endpoint;
             try {
-              endpoint = await getHttpEndpoint({ network: isTestnet ? 'testnet' : 'mainnet' });
+              // Добавляем таймаут для получения endpoint (10 секунд)
+              const endpointPromise = getHttpEndpoint({ network: isTestnet ? 'testnet' : 'mainnet' });
+              const timeoutPromise = new Promise((_, reject) => 
+                setTimeout(() => reject(new Error('Timeout: получение endpoint заняло более 10 секунд')), 10000)
+              );
+              
+              endpoint = await Promise.race([endpointPromise, timeoutPromise]);
               console.log(`✅ [Withdrawal] Подключено к децентрализованному узлу: ${endpoint}`);
             } catch (endpointError) {
-              console.error(`❌ [Withdrawal] Ошибка получения endpoint:`, endpointError.message);
+              console.error(`❌ [Withdrawal] Ошибка получения endpoint через Orbs:`, endpointError.message);
               console.error(`❌ [Withdrawal] Stack:`, endpointError.stack);
-              errorDetails = `Не удалось подключиться к TON сети: ${endpointError.message}`;
-              throw new Error(errorDetails);
+              
+              // Fallback: используем прямой endpoint TonCenter
+              console.log(`🔄 [Withdrawal] Используем fallback: прямой endpoint TonCenter...`);
+              endpoint = isTestnet 
+                ? 'https://testnet.toncenter.com/api/v2/jsonRPC'
+                : 'https://toncenter.com/api/v2/jsonRPC';
+              console.log(`✅ [Withdrawal] Используется fallback endpoint: ${endpoint}`);
+              console.log(`⏭️ [Withdrawal] Продолжаем выполнение после fallback...`);
             }
               
+            console.log(`🔧 [Withdrawal] Создание TonClient с endpoint: ${endpoint}`);
             const client = new TonClient({ endpoint });
-            console.log(`✅ [Withdrawal] TonClient создан`);
+            console.log(`✅ [Withdrawal] TonClient создан успешно`);
             
             // Создаем кошелек из seed-фразы
             console.log(`🔑 [Withdrawal] Создание кошелька из seed-фразы...`);
