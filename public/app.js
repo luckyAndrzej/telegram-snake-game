@@ -1333,17 +1333,22 @@ function initEventListeners() {
     
     // Пытаемся открыть Tonkeeper
     // ВАЖНО: tg.openLink() НЕ поддерживает протокол ton:// в Telegram WebApp
-    // Используем window.open() или window.location.href напрямую
+    // В Telegram Mini App для Deep Links ton:// лучше использовать временную ссылку
+    // Создаем временный <a> элемент и кликаем по нему
+    const link = document.createElement('a');
+    link.href = tonkeeperUrl;
+    link.style.display = 'none';
+    document.body.appendChild(link);
+    
+    // Пытаемся открыть через клик на ссылке
     try {
-      // Пробуем window.open() сначала (может работать лучше в некоторых случаях)
-      const opened = window.open(tonkeeperUrl, '_blank');
-      if (opened) {
-        console.log('Opened Tonkeeper via window.open()');
-      } else {
-        // Если window.open() заблокирован, используем window.location.href
-        window.location.href = tonkeeperUrl;
-        console.log('Opened Tonkeeper via window.location.href');
-      }
+      link.click();
+      console.log('Clicked Tonkeeper link for deposit');
+      
+      // Удаляем ссылку после клика
+      setTimeout(() => {
+        document.body.removeChild(link);
+      }, 100);
       
       // Начинаем polling баланса для депозита
       const initialWinnings = localUserState.winnings_ton || 0;
@@ -1407,14 +1412,99 @@ function initEventListeners() {
         });
         observer.observe(depositModal, { attributes: true, attributeFilter: ['class'] });
       }
-    } catch (error) {
-      console.error('Error opening Tonkeeper:', error);
-      const statusEl = document.getElementById('deposit-status');
-      if (statusEl) {
-        statusEl.innerHTML = '⚠️ Please copy the address and comment, then send the payment manually in Tonkeeper app.';
-        statusEl.style.color = '#ef4444';
+    } catch (linkError) {
+      // Если клик не сработал, пробуем window.location или window.open()
+      console.warn('Link click failed, trying window.location:', linkError);
+      try {
+        document.body.removeChild(link);
+      } catch (e) {
+        // Игнорируем ошибку, если ссылка уже удалена
       }
-      tg.showAlert('Error opening Tonkeeper. Please send the payment manually using the address and comment above.');
+      
+      // Пропускаем tg.openLink() для протокола ton://, так как он не поддерживается
+      // Используем window.location.href или window.open() напрямую
+      try {
+        // Пробуем window.open() сначала (может работать лучше в некоторых случаях)
+        const opened = window.open(tonkeeperUrl, '_blank');
+        if (opened) {
+          console.log('Opened Tonkeeper via window.open()');
+        } else {
+          // Если window.open() заблокирован, используем window.location.href
+          window.location.href = tonkeeperUrl;
+          console.log('Opened Tonkeeper via window.location.href');
+        }
+        
+        // Начинаем polling баланса для депозита
+        const initialWinnings = localUserState.winnings_ton || 0;
+        let pollCount = 0;
+        const maxPolls = 30;
+        
+        const statusEl = document.getElementById('deposit-status');
+        const pollingStatusEl = document.getElementById('deposit-polling-status');
+        
+        if (pollingStatusEl) {
+          pollingStatusEl.style.display = 'block';
+          pollingStatusEl.textContent = '⏳ Waiting for transaction confirmation... (usually 15-30 sec)';
+        }
+        
+        const pollDeposit = setInterval(async () => {
+          pollCount++;
+          console.log(`🔄 Polling deposit balance (attempt ${pollCount}/${maxPolls})...`);
+          
+          try {
+            await refreshUserProfile();
+            const currentWinnings = localUserState.winnings_ton || 0;
+            
+            if (currentWinnings > initialWinnings) {
+              console.log('✅ Deposit received! Closing deposit modal.');
+              clearInterval(pollDeposit);
+              
+              if (pollingStatusEl) {
+                pollingStatusEl.style.display = 'none';
+              }
+              
+              toggleModal('deposit-modal', false);
+              
+              if (statusEl) {
+                statusEl.textContent = '✅ Deposit received!';
+                statusEl.style.color = '#00ff41';
+              }
+            } else if (pollCount >= maxPolls) {
+              clearInterval(pollDeposit);
+              if (pollingStatusEl) {
+                pollingStatusEl.style.display = 'none';
+              }
+            }
+          } catch (error) {
+            console.error('❌ Error polling deposit balance:', error);
+          }
+        }, 10000); // Проверяем каждые 10 секунд
+        
+        // Очищаем polling при закрытии модалки
+        const depositModal = document.getElementById('deposit-modal');
+        if (depositModal) {
+          const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+              if (!depositModal.classList.contains('modal-visible')) {
+                clearInterval(pollDeposit);
+                if (pollingStatusEl) {
+                  pollingStatusEl.style.display = 'none';
+                }
+                observer.disconnect();
+              }
+            });
+          });
+          observer.observe(depositModal, { attributes: true, attributeFilter: ['class'] });
+        }
+      } catch (locationError) {
+        console.error('All methods to open Tonkeeper failed:', locationError);
+        const statusEl = document.getElementById('deposit-status');
+        if (statusEl) {
+          statusEl.innerHTML = '⚠️ Please copy the address and comment, then send the payment manually in Tonkeeper app.';
+          statusEl.style.color = '#ef4444';
+        }
+        tg.showAlert('Error opening Tonkeeper. Please send the payment manually using the address and comment above.');
+      }
     }
   });
   
