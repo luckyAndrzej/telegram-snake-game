@@ -565,6 +565,7 @@ io.on('connection', async (socket) => {
       let txHash = null;
       let withdrawalStatus = 'pending';
       let transactionSuccess = false;
+      let errorDetails = ''; // Детали ошибки для передачи клиенту
       
       // Попытка реального вывода через TON API
       try {
@@ -589,7 +590,9 @@ io.on('connection', async (socket) => {
               console.log(`✅ [Withdrawal] Подключено к децентрализованному узлу: ${endpoint}`);
             } catch (endpointError) {
               console.error(`❌ [Withdrawal] Ошибка получения endpoint:`, endpointError.message);
-              throw new Error(`Не удалось подключиться к TON сети: ${endpointError.message}`);
+              console.error(`❌ [Withdrawal] Stack:`, endpointError.stack);
+              errorDetails = `Не удалось подключиться к TON сети: ${endpointError.message}`;
+              throw new Error(errorDetails);
             }
               
             const client = new TonClient({ endpoint });
@@ -599,11 +602,19 @@ io.on('connection', async (socket) => {
             console.log(`🔑 [Withdrawal] Создание кошелька из seed-фразы...`);
             const seedWords = adminSeed.split(' ');
             if (seedWords.length !== 24) {
-              throw new Error('ADMIN_SEED должен содержать 24 слова');
+              errorDetails = 'ADMIN_SEED должен содержать 24 слова';
+              throw new Error(errorDetails);
             }
             
-            const keyPair = await mnemonicToWalletKey(seedWords);
-            console.log(`✅ [Withdrawal] KeyPair создан`);
+            let keyPair;
+            try {
+              keyPair = await mnemonicToWalletKey(seedWords);
+              console.log(`✅ [Withdrawal] KeyPair создан`);
+            } catch (keyError) {
+              console.error(`❌ [Withdrawal] Ошибка создания KeyPair:`, keyError.message);
+              errorDetails = `Ошибка создания ключа из seed-фразы: ${keyError.message}`;
+              throw new Error(errorDetails);
+            }
             
             // Пробуем сначала V4, потом V3R2 (если V4 дает нулевой баланс)
             let wallet = WalletContractV4.create({ publicKey: keyPair.publicKey, workchain: 0 });
@@ -627,14 +638,17 @@ io.on('connection', async (socket) => {
             } catch (balanceError) {
               console.error('❌ [Withdrawal] Ошибка getBalance:', balanceError.message);
               console.error('❌ [Withdrawal] Stack:', balanceError.stack);
+              errorDetails = `Ошибка проверки баланса: ${balanceError.message}`;
               throw balanceError;
             }
             
             const balanceInTon = parseFloat(balance.toString()) / 1000000000;
-            console.log(`💰 [Withdrawal] Баланс админа: ${balanceInTon} TON`);
+            console.log(`💰 [Withdrawal] Баланс админа: ${balanceInTon.toFixed(4)} TON, требуется: ${(amountInTon + 0.1).toFixed(4)} TON`);
             
-            if (balanceInTon < 0.1) {
-              throw new Error(`Недостаточно средств на администраторском кошельке. Баланс: ${balanceInTon} TON, требуется минимум 0.1 TON`);
+            if (balanceInTon < amountInTon + 0.1) {
+              const required = amountInTon + 0.1;
+              errorDetails = `Недостаточно средств на администраторском кошельке. Баланс: ${balanceInTon.toFixed(4)} TON, требуется: ${required.toFixed(4)} TON (${amountInTon} TON + 0.1 TON комиссия)`;
+              throw new Error(errorDetails);
             }
             
             // Используем проверенный метод для Wallet V4
@@ -684,6 +698,7 @@ io.on('connection', async (socket) => {
               transactionSuccess = false;
               txHash = `withdraw_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
               withdrawalStatus = 'failed';
+              errorDetails = `Ошибка отправки транзакции: ${e.message}`;
             }
           } catch (tonError) {
             console.error('❌ [Withdrawal] Ошибка TON SDK:', tonError.message);
@@ -691,6 +706,7 @@ io.on('connection', async (socket) => {
             transactionSuccess = false;
             txHash = `withdraw_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
             withdrawalStatus = 'failed';
+            errorDetails = `Ошибка TON SDK: ${tonError.message}`;
           }
         } else if (DEBUG_MODE) {
           // DEBUG_MODE: симулируем успешную транзакцию
@@ -703,6 +719,7 @@ io.on('connection', async (socket) => {
           console.warn(`⚠️ [Withdrawal] Нет ADMIN_SEED и не DEBUG_MODE, транзакция не отправлена`);
           transactionSuccess = false;
           withdrawalStatus = 'failed';
+          errorDetails = 'Система вывода временно недоступна. ADMIN_SEED не настроен.';
         }
       } catch (error) {
         console.error('❌ [Withdrawal] Ошибка при выполнении TON транзакции:', error.message);
@@ -710,6 +727,9 @@ io.on('connection', async (socket) => {
         transactionSuccess = false;
         txHash = `withdraw_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         withdrawalStatus = 'failed';
+        if (!errorDetails) {
+          errorDetails = `Ошибка выполнения транзакции: ${error.message}`;
+        }
       }
       
       // БЕЗОПАСНЫЙ ВЫВОД: Списываем баланс ТОЛЬКО после успешной отправки транзакции
@@ -718,7 +738,7 @@ io.on('connection', async (socket) => {
         await updateUser(userId, {
           winnings_ton: newWinnings
         });
-        console.log('💰 Баланс списан ПОСЛЕ успешной отправки транзакции:', { 
+        console.log('💰 [Withdrawal] Баланс списан ПОСЛЕ успешной отправки транзакции:', { 
           old: user.winnings_ton, 
           new: newWinnings 
         });
@@ -726,8 +746,27 @@ io.on('connection', async (socket) => {
         // Транзакция не удалась - баланс НЕ списываем
         console.warn('⚠️ [Withdrawal] Транзакция не удалась, баланс НЕ списан');
         console.warn('⚠️ [Withdrawal] Причина: transactionSuccess=false, withdrawalStatus=' + withdrawalStatus);
+        console.warn('⚠️ [Withdrawal] Детали ошибки:', errorDetails || 'Неизвестная ошибка');
+        
+        // Формируем понятное сообщение для пользователя
+        let userMessage = 'Не удалось отправить транзакцию. Баланс не списан.';
+        if (errorDetails) {
+          // Если есть детали, добавляем их (но упрощаем для пользователя)
+          if (errorDetails.includes('ADMIN_SEED')) {
+            userMessage = 'Система вывода временно недоступна. Попробуйте позже.';
+          } else if (errorDetails.includes('Недостаточно средств')) {
+            userMessage = 'Недостаточно средств на администраторском кошельке. Обратитесь в поддержку.';
+          } else if (errorDetails.includes('Некорректный адрес')) {
+            userMessage = 'Некорректный адрес кошелька. Проверьте адрес и попробуйте снова.';
+          } else if (errorDetails.includes('подключиться к TON сети')) {
+            userMessage = 'Ошибка подключения к сети TON. Попробуйте позже.';
+          } else {
+            userMessage = `Ошибка: ${errorDetails}`;
+          }
+        }
+        
         socket.emit('withdrawal_error', {
-          message: 'Не удалось отправить транзакцию. Баланс не списан. Проверьте логи сервера для деталей.'
+          message: userMessage
         });
         return;
       }
