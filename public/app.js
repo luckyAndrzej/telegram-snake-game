@@ -532,14 +532,25 @@ function initSocket() {
         countdownOverlay.style.display = 'flex';
       }
       
+      // ИСПРАВЛЕНИЕ ЧЕРНОГО ЭКРАНА: Принудительно вызываем отрисовку фона игрового поля
+      // Перед началом отсчета рисуем фон и сетку, даже если данные змеек еще не загружены
+      if (gameCanvas && gameCtx) {
+        // Очищаем и рисуем фон
+        gameCtx.clearRect(0, 0, canvasLogicalSize, canvasLogicalSize);
+        gameCtx.fillStyle = '#0a0e27';
+        gameCtx.fillRect(0, 0, canvasLogicalSize, canvasLogicalSize);
+        
+        // Рисуем сетку
+        if (gridCanvas) {
+          gameCtx.drawImage(gridCanvas, 0, 0);
+        }
+      }
+      
       // ПРИНУДИТЕЛЬНАЯ ОТРИСОВКА: Запускаем цикл render СРАЗУ при переходе на game-screen
       // ЦИКЛ ОТРИСОВКИ ВО ВРЕМЯ ОТСЧЕТА: requestAnimationFrame запускается сразу
       if (!animationFrameId && gameCanvas && gameCtx) {
         startRenderLoop();
       }
-      
-      // ПРИНУДИТЕЛЬНАЯ ОТРИСОВКА: Вызываем первый кадр отрисовки сразу после получения initial_state
-      // render() уже запущен через startRenderLoop(), он автоматически отрисует змеек из initial_state
       
       // Обеспечиваем видимость змеек на старте
       window.appState.gameState = 'countdown';
@@ -629,6 +640,17 @@ function initSocket() {
   
   // Экран 4: Игра начинается (после countdown) - скрываем overlay
   socket.on('game_start', (data) => {
+    // СИНХРОНИЗАЦИЯ СОСТОЯНИЯ: Полностью очищаем массивы отрисовки предыдущих состояний
+    // Это предотвращает наслоение координат из 'initial_state'
+    if (window.gameStateBuffer) {
+      window.gameStateBuffer = [];
+    }
+    if (window.gameBuffer) {
+      window.gameBuffer = [];
+    }
+    gameStateBuffer = [];
+    headHistory = [];
+    opponentHeadHistory = [];
     
     // НЕ удаляем слушатель game_state здесь - он должен оставаться активным
     // ИНИЦИАЛИЗАЦИЯ: Инициализируем состояние интерполяции из initial_state если оно есть
@@ -640,26 +662,22 @@ function initSocket() {
       const oppSegs = oppSnakeSegs.length > 0 ? oppSnakeSegs.map(s => ({ x: Number(s.x), y: Number(s.y) })) : [{ x: 24, y: 15 }];
       
       const initTime = performance.now();
-      // Добавляем initial_state в буфер при game_start
-      if (data.initial_state) {
-        const initTime = performance.now();
-        
-        // Добавляем в gameStateBuffer
-        if (!window.gameStateBuffer) {
-          window.gameStateBuffer = [];
-        }
-        window.gameStateBuffer.push({
-          state: deepClone(data.initial_state),
-          receiveTime: initTime,
-          tick: 0
-        });
-        
-        // Для обратной совместимости также в window.gameBuffer
-        window.gameBuffer.push({
-          state: deepClone(data.initial_state),
-          clientTime: initTime
-        });
+      
+      // Добавляем в gameStateBuffer
+      if (!window.gameStateBuffer) {
+        window.gameStateBuffer = [];
       }
+      window.gameStateBuffer.push({
+        state: deepClone(data.initial_state),
+        receiveTime: initTime,
+        tick: 0
+      });
+      
+      // Для обратной совместимости также в window.gameBuffer
+      window.gameBuffer.push({
+        state: deepClone(data.initial_state),
+        clientTime: initTime
+      });
     }
     
     // Сбрасываем переменную таймера при новом старте игры
@@ -2879,25 +2897,16 @@ function startRenderLoop() {
       return;
     }
 
-    // ПРОВЕРКА ОЧИСТКИ (Canvas): Очищаем только если есть что рисовать
-    // Во время countdown всегда есть змейки из initial_state, поэтому очищаем
-    const hasSnakesToDraw = (gameState === 'countdown' || gameState === 'playing') && 
-                            (window.appState?.game?.my_snake || window.appState?.game?.opponent_snake || 
-                             currentGame?.initialState?.my_snake || currentGame?.initialState?.opponent_snake ||
-                             (window.gameStateBuffer && window.gameStateBuffer.length > 0));
-    
-    if (hasSnakesToDraw || gameState === 'countdown' || gameState === 'playing') {
-      // 1. Очистка и фон (строго один раз в начале цикла render)
-      gameCtx.clearRect(0, 0, canvasLogicalSize, canvasLogicalSize);
-      gameCtx.fillStyle = '#0a0e27';
-      gameCtx.fillRect(0, 0, canvasLogicalSize, canvasLogicalSize);
+    // УДАЛЕНИЕ "ТЕНЕЙ": ПЕРВЫМ делом всегда полная очистка канваса
+    // Это должно происходить и во время 'countdown', и во время 'playing'
+    // Никогда не рисуем поверх старого кадра
+    gameCtx.clearRect(0, 0, canvasLogicalSize, canvasLogicalSize);
+    gameCtx.fillStyle = '#0a0e27';
+    gameCtx.fillRect(0, 0, canvasLogicalSize, canvasLogicalSize);
 
-      // 2. Сетка
-      if (gridCanvas) gameCtx.drawImage(gridCanvas, 0, 0);
-    } else {
-      // Если нечего рисовать, не очищаем canvas (предотвращаем мерцание)
-      animationFrameId = requestAnimationFrame(render);
-      return;
+    // 2. Сетка (рисуем всегда, даже если данных змеек еще нет)
+    if (gridCanvas) {
+      gameCtx.drawImage(gridCanvas, 0, 0);
     }
 
     // АБСОЛЮТНАЯ ПЛАВНОСТЬ: Принудительная интерполяция для 60 FPS
