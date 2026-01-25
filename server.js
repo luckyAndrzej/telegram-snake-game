@@ -904,24 +904,13 @@ async function handleFindMatch(socket, userId) {
     return;
   }
   
-  // Списываем 1 TON из выигрышей сразу при поиске
-  const newWinnings = Math.max(0, (user.winnings_ton || 0) - 1);
-  await updateUser(userId, {
-    winnings_ton: newWinnings
-  });
-  
-  // Отправляем обновленный баланс
-  const updatedUser = await getUser(userId);
-  socket.emit('balance_updated', {
-    games_balance: updatedUser.games_balance,
-    winnings_ton: updatedUser.winnings_ton
-  });
-  
   // Проверяем, не находится ли игрок уже в игре
   if (playerToGame.has(userId)) {
     socket.emit('error', { message: 'You are already in a game!' });
     return;
   }
+  
+  // 1 TON списывается только при найденном матче (в createGame). Отмена поиска — без списания.
   
   // Ищем ожидающего соперника
   const waitingUser = Array.from(waitingPlayers.keys()).find(id => id !== userId);
@@ -992,24 +981,29 @@ async function handleReady(socket, userId) {
  * Создание игры
  */
 async function createGame(player1Id, player2Id, socket1Id, socket2Id) {
-  // ОПТИМИЗАЦИЯ: Параллельные запросы к БД для уменьшения задержки
   const [player1, player2] = await Promise.all([
     getUser(player1Id),
     getUser(player2Id)
   ]);
   
-  // Баланс уже списан при поиске матча, просто создаем игру
+  // Списываем 1 TON только при найденном матче (отмена поиска — без списания)
+  const newW1 = Math.max(0, (player1.winnings_ton || 0) - GAME_CONFIG.ENTRY_PRICE);
+  const newW2 = Math.max(0, (player2.winnings_ton || 0) - GAME_CONFIG.ENTRY_PRICE);
+  await Promise.all([
+    updateUser(player1Id, { winnings_ton: newW1 }),
+    updateUser(player2Id, { winnings_ton: newW2 })
+  ]);
+  
   const player1Socket = io.sockets.sockets.get(socket1Id);
   const player2Socket = io.sockets.sockets.get(socket2Id);
   
-  // Отправляем актуальный баланс клиентам
   player1Socket?.emit('balance_updated', {
     games_balance: player1.games_balance,
-    winnings_ton: player1.winnings_ton
+    winnings_ton: newW1
   });
   player2Socket?.emit('balance_updated', {
     games_balance: player2.games_balance,
-    winnings_ton: player2.winnings_ton
+    winnings_ton: newW2
   });
   
   // Создаем игру
