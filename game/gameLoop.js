@@ -25,7 +25,6 @@ function start(io, activeGames, config, endGameCallback) {
   
   // Запускаем цикл обновления игры
   gameLoopInterval = setInterval(() => {
-    const tickStartTime = performance.now(); // Замер времени выполнения тика
     const currentTime = Date.now();
     const gameIds = Array.from(activeGames.keys());
     
@@ -66,14 +65,7 @@ function start(io, activeGames, config, endGameCallback) {
       }
     });
     
-    // ЛОГИРОВАНИЕ ЛАГОВ: Если расчет тика занимает более 20мс, выводим предупреждение
-    const tickDuration = performance.now() - tickStartTime;
-    if (tickDuration > 20) {
-      console.warn(`⚠️ SERVER LAG: ${tickDuration.toFixed(2)}ms`);
-    }
   }, tickInterval);
-  
-  console.log(`✅ Игровой цикл запущен: ${config.TICK_RATE} тиков/сек (интервал: ${tickInterval.toFixed(2)}ms)`);
 }
 
 /**
@@ -126,12 +118,8 @@ function broadcastGameState(io, game, gameId) {
   const roomName = `game_${gameId}`;
   const room = io.sockets.adapter.rooms.get(roomName);
   
-  // Логирование для диагностики (только если комната пуста или есть проблемы)
-  if (!room || room.size === 0) {
-    console.warn(`⚠️ Комната ${roomName} пуста или не найдена при отправке game_state (tick: ${game.tick_number})`);
-    return;
-  }
-  
+  if (!room || room.size === 0) return;
+
   if (room) {
     room.forEach(socketId => {
       const socket = io.sockets.sockets.get(socketId);
@@ -179,9 +167,7 @@ function stop() {
   if (gameLoopInterval) {
     clearInterval(gameLoopInterval);
     gameLoopInterval = null;
-    // Очищаем кэш состояний при остановке
     lastSentStateCache.clear();
-    console.log('⏹ Игровой цикл остановлен');
   }
 }
 

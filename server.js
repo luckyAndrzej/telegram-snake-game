@@ -1,14 +1,6 @@
 // ЗАГРУЗКА ПЕРЕМЕННЫХ ОКРУЖЕНИЯ В САМОМ НАЧАЛЕ (до всех остальных импортов)
 require('dotenv').config();
 
-// Проверка и логирование загруженных переменных
-console.log('📋 Проверка переменных окружения:');
-console.log(`   IS_TESTNET: ${process.env.IS_TESTNET || 'не задано'}`);
-console.log(`   TON_WALLET_ADDRESS: ${process.env.TON_WALLET_ADDRESS ? process.env.TON_WALLET_ADDRESS.substring(0, 10) + '...' : 'не задано'}`);
-console.log(`   ADMIN_SEED: ${process.env.ADMIN_SEED ? 'загружен (' + process.env.ADMIN_SEED.split(' ').length + ' слов)' : 'не задано'}`);
-console.log(`   DEBUG_MODE: ${process.env.DEBUG_MODE || 'не задано'}`);
-console.log(`   PORT: ${process.env.PORT || 'не задано'}`);
-
 const path = require('path');
 const { getHttpEndpoint } = require('@orbs-network/ton-access');
 
@@ -122,40 +114,17 @@ db.init().then(async () => {
   if (!DEBUG_MODE) {
     await tonPayment.initPaymentFiles();
     
-    // Используем значения из .env, с fallback на true для тестнета если не задано
-    const IS_TESTNET = process.env.IS_TESTNET === 'true' || process.env.IS_TESTNET === true || process.env.IS_TESTNET === 'TRUE' || true; // Fallback: true (тестнет)
+    // Mainnet по умолчанию. Явно IS_TESTNET=true — тестнет.
+    const IS_TESTNET = process.env.IS_TESTNET === 'true' || process.env.IS_TESTNET === true || process.env.IS_TESTNET === 'TRUE';
     const WALLET = process.env.TON_WALLET_ADDRESS || '';
-    const API_KEY = process.env.TONCENTER_API_KEY || process.env.TON_API_KEY || ''; // Для сканера транзакций (пока используем TonCenter API)
-    
-    // Определяем, используются ли fallback значения
-    const usingFallback = !process.env.IS_TESTNET || !process.env.TON_WALLET_ADDRESS;
-    
-    // Устанавливаем правильный API URL на основе IS_TESTNET (для сканера транзакций)
+    const API_KEY = process.env.TONCENTER_API_KEY || process.env.TON_API_KEY || '';
     const API_URL = IS_TESTNET ? 'https://testnet.toncenter.com/api/v2' : 'https://toncenter.com/api/v2';
-    
-    // Логирование конфигурации
-    if (usingFallback) {
-      const envPath = path.join(__dirname, '.env');
-      console.warn(`⚠️ ВНИМАНИЕ: Файл .env не найден по пути ${envPath}. Используются ручные настройки для TESTNET.`);
-      console.log(`✅ WALLET: ${WALLET.substring(0, 5)}...`);
-      console.log(`✅ API_URL (для сканера): ${API_URL}`);
-    }
-    
-    // Логирование переменных окружения для отладки
-    console.log('🔍 Проверка переменных окружения:');
-    console.log(`   process.env.IS_TESTNET = "${process.env.IS_TESTNET || 'undefined (используется fallback)'}" (type: ${typeof process.env.IS_TESTNET})`);
-    console.log(`   process.env.TON_WALLET_ADDRESS = "${process.env.TON_WALLET_ADDRESS ? process.env.TON_WALLET_ADDRESS.substring(0, 10) + '...' : 'undefined (используется fallback)'}"`);
-    
-    console.log(`✅ ПРОВЕРКА: IS_TESTNET из файла = ${IS_TESTNET}${usingFallback ? ' (fallback)' : ''}`);
-    
-    // Инициализация конфигурации TON (для сканера транзакций пока используется TonCenter)
+
     tonPayment.initConfig({
       IS_TESTNET: IS_TESTNET,
       TON_WALLET_ADDRESS: WALLET,
-      TON_API_KEY: API_KEY  // Для сканера транзакций (пока используем TonCenter API)
+      TON_API_KEY: API_KEY
     });
-    
-    console.log(`🌐 TON Config: IS_TESTNET=${IS_TESTNET}, API_URL (для сканера)=${API_URL}`);
 
     // ОПТИМИЗАЦИЯ: Выносим сканер TON в отдельный интервал, который не пересекается с игровым циклом
     // Используем setImmediate для асинхронных операций, чтобы не блокировать event loop
@@ -174,7 +143,7 @@ db.init().then(async () => {
         try {
           await tonPayment.checkTonPayments(io);
         } catch (error) {
-          console.error('❌ Ошибка сканера транзакций:', error);
+          console.error('Scanner error:', error.message);
         } finally {
           isScanning = false;
         }
@@ -186,15 +155,14 @@ db.init().then(async () => {
     
     // Периодическая проверка каждые 35 секунд (увеличено для предотвращения 429)
     // Используем отдельный интервал, который не пересекается с игровым циклом
-    scannerInterval = setInterval(runScanner, 35000); // 35 секунд
-    console.log('✅ Сканер блокчейна TON запущен (интервал: 35 сек, асинхронный режим, не блокирует event loop)');
+    scannerInterval = setInterval(runScanner, 35000);
   }
   
   // Запускаем игровой цикл (передаем endGame как callback)
   // Сообщение о запуске выводится внутри gameLoop.start(), убираем дублирование
   gameLoop.start(io, activeGames, GAME_CONFIG, endGame);
 }).catch(err => {
-  console.error('❌ Ошибка инициализации БД:', err);
+  console.error('DB init error:', err.message);
 });
 
 // Middleware для валидации initData от Telegram
@@ -221,11 +189,7 @@ io.on('connection', async (socket) => {
   const now = Date.now();
   const reconnectThreshold = 2000; // 2 секунды
   
-  if (lastConnection && (now - lastConnection) < reconnectThreshold) {
-    console.log(`🔄 Быстрое переподключение игрока ${userId} (${now - lastConnection}ms). Используем существующую сессию.`);
-  } else {
-    console.log(`🔌 Пользователь подключен: ${userId} (${username})`);
-    // Инициализация пользователя в БД только если не было недавнего подключения
+  if (!(lastConnection && (now - lastConnection) < reconnectThreshold)) {
     await initUser(userId, username, DEBUG_MODE);
   }
   
@@ -266,7 +230,6 @@ io.on('connection', async (socket) => {
   socket.on('cancel_search', () => {
     if (waitingPlayers.has(userId)) {
       waitingPlayers.delete(userId);
-      console.log(`❌ Игрок ${userId} отменил поиск соперника`);
       socket.emit('search_cancelled');
     }
   });
@@ -378,7 +341,6 @@ io.on('connection', async (socket) => {
         return;
       }
       
-      console.log(`📥 Запрос на покупку ${amount} игр за выигрыши от пользователя: ${userId}`);
       
       // ОПТИМИЗАЦИЯ: Получаем текущий баланс для мгновенного обновления UI
       const currentUser = await getUser(userId);
@@ -402,7 +364,6 @@ io.on('connection', async (socket) => {
         winnings_ton: optimisticWinningsTon
       });
       
-      console.log(`✅ Мгновенное обновление баланса отправлено игроку ${userId} (оптимистичное обновление)`);
       
       // ОПТИМИЗАЦИЯ: Запись в БД выполняется фоном (не блокирует ответ клиенту)
       setImmediate(async () => {
@@ -417,7 +378,6 @@ io.on('connection', async (socket) => {
               winnings_ton: result.user.winnings_ton
             });
             
-            console.log(`✅ Игрок ${userId} успешно купил ${result.gamesPurchased} игр за выигрыши (БД обновлена)`);
           } else {
             // Если запись в БД не удалась, отправляем ошибку и откатываем оптимистичное обновление
             socket.emit('buy_games_error', {
@@ -427,7 +387,6 @@ io.on('connection', async (socket) => {
               winnings_ton: currentUser.winnings_ton
             });
             
-            console.log(`❌ Ошибка покупки игр для игрока ${userId}: ${result.error}`);
           }
         } catch (error) {
           console.error(`❌ Ошибка при покупке игр за выигрыши (фоновая запись):`, error);
@@ -450,9 +409,6 @@ io.on('connection', async (socket) => {
   
   // Обработчик запроса на вывод средств
   socket.on('requestWithdraw', async (data) => {
-    console.log('📥 Получен запрос на вывод от пользователя:', userId);
-    console.log('   Данные запроса:', data);
-    
     try {
       const { amount, address } = data;
       
@@ -474,10 +430,8 @@ io.on('connection', async (socket) => {
         return;
       }
       
-      // Получаем пользователя
       const user = await getUser(userId);
-      console.log('1. Проверка баланса пройдена:', { winnings_ton: user.winnings_ton, requested: amount });
-      
+
       // Проверяем баланс
       if (!user.winnings_ton || user.winnings_ton < amount) {
         socket.emit('withdrawal_error', {
@@ -526,40 +480,22 @@ io.on('connection', async (socket) => {
         return;
       }
       
-      console.log('✅ Анти-фрод проверки пройдены:', {
-        totalEarned: user.totalEarned,
-        winnings_ton: user.winnings_ton,
-        requested: amount,
-        maxPossibleEarnings
-      });
-      
-      // Используем адрес из запроса или из БД
       const userWallet = (address && address.trim()) || user.wallet || user.wallet_address || '';
       if (!userWallet || userWallet.trim() === '') {
-        console.log('❌ Кошелек не найден в запросе и в БД:', { address, wallet: user.wallet, wallet_address: user.wallet_address });
         socket.emit('withdrawal_error', {
           message: 'Кошелек не указан. Пожалуйста, укажите адрес кошелька.'
         });
         return;
       }
-      console.log('2. Кошелек найден:', userWallet);
-      console.log('   Источник адреса:', address ? 'из запроса' : (user.wallet ? 'из БД (wallet)' : 'из БД (wallet_address)'));
-      console.log('   Длина адреса:', userWallet.length);
-      console.log('   Формат адреса:', userWallet.includes('_') ? 'url-safe (с подчеркиваниями)' : 'standard (без подчеркиваний)');
-      
-      // Обновляем время последнего запроса
+
       lastWithdrawRequest.set(userId, now);
-      
-      // БЕЗОПАСНЫЙ ВЫВОД: Проверяем ADMIN_SEED ПЕРЕД списанием баланса
       const adminSeed = process.env.ADMIN_SEED;
-      console.log('🔍 Проверка ADMIN_SEED:', !!adminSeed, adminSeed ? '(загружен)' : '(не найден)');
-      
+
       if (!adminSeed && !DEBUG_MODE) {
         // Если нет ADMIN_SEED и не DEBUG_MODE - выдаем ошибку и НЕ списываем баланс
         socket.emit('withdrawal_error', {
           message: 'Система вывода временно недоступна. Пожалуйста, попробуйте позже.'
         });
-        console.error('❌ ADMIN_SEED не найден, вывод отменен без списания баланса');
         return;
       }
       
@@ -573,23 +509,13 @@ io.on('connection', async (socket) => {
       
       // Попытка реального вывода через TON API
       try {
-        console.log(`🔍 [Withdrawal] Начало обработки: adminSeed=${!!adminSeed}, DEBUG_MODE=${DEBUG_MODE}`);
-        
-        if (adminSeed && !DEBUG_MODE) {
-          // Реальная транзакция через @ton/ton (требуется: npm install @ton/ton @ton/crypto)
+          if (adminSeed && !DEBUG_MODE) {
           try {
-            console.log(`📦 [Withdrawal] Загрузка TON SDK...`);
             const { TonClient, WalletContractV4, WalletContractV3R2, internal, toNano, Address } = require('@ton/ton');
             const { mnemonicToWalletKey } = require('@ton/crypto');
             
             // Используем децентрализованный Orbs Access вместо TonCenter
-            // ВАЖНО: Используем ту же логику, что и для сканера (с fallback на testnet)
-            const isTestnet = process.env.IS_TESTNET === 'true' || process.env.IS_TESTNET === true || process.env.IS_TESTNET === 'TRUE' || true; // Fallback: true (тестнет)
-            console.log(`🌐 [Withdrawal] IS_TESTNET=${isTestnet} (из env: ${process.env.IS_TESTNET || 'undefined (fallback=true)'}), network=${isTestnet ? 'testnet' : 'mainnet'}`);
-            console.log(`⏳ [Withdrawal] Начинаем получение endpoint...`);
-            
-            // Получаем endpoint через децентрализованную сеть Orbs с таймаутом
-            console.log(`🔗 [Withdrawal] Получение endpoint через Orbs Access для сети: ${isTestnet ? 'testnet' : 'mainnet'}...`);
+            const isTestnet = process.env.IS_TESTNET === 'true' || process.env.IS_TESTNET === true || process.env.IS_TESTNET === 'TRUE';
             let endpoint;
             try {
               // Добавляем таймаут для получения endpoint (10 секунд)
@@ -599,34 +525,14 @@ io.on('connection', async (socket) => {
               );
               
               endpoint = await Promise.race([endpointPromise, timeoutPromise]);
-              console.log(`✅ [Withdrawal] Подключено к децентрализованному узлу: ${endpoint}`);
             } catch (endpointError) {
-              console.error(`❌ [Withdrawal] Ошибка получения endpoint через Orbs:`, endpointError.message);
-              console.error(`❌ [Withdrawal] Stack:`, endpointError.stack);
-              
-              // Fallback: используем прямой endpoint TonCenter
-              console.log(`🔄 [Withdrawal] Используем fallback: прямой endpoint TonCenter...`);
-              endpoint = isTestnet 
+              endpoint = isTestnet
                 ? 'https://testnet.toncenter.com/api/v2/jsonRPC'
                 : 'https://toncenter.com/api/v2/jsonRPC';
-              console.log(`✅ [Withdrawal] Используется fallback endpoint: ${endpoint}`);
-              console.log(`⏭️ [Withdrawal] Продолжаем выполнение после fallback...`);
             }
-              
-            // API-ключ TonCenter увеличивает лимит запросов (снижает вероятность 429)
+
             const apiKey = process.env.TONCENTER_API_KEY || process.env.TON_API_KEY || '';
-            if (apiKey) {
-              console.log(`🔑 [Withdrawal] Используется TonCenter API Key (увеличенный rate limit)`);
-            } else {
-              console.log(`⚠️ [Withdrawal] TonCenter API Key не задан — возможны ограничения (429). Получить ключ: @toncenter в Telegram или https://docs.ton.org/ecosystem/api/toncenter/get-api-key`);
-            }
-            
-            console.log(`🔧 [Withdrawal] Создание TonClient с endpoint: ${endpoint}`);
             const client = new TonClient({ endpoint, apiKey: apiKey || undefined });
-            console.log(`✅ [Withdrawal] TonClient создан успешно`);
-            
-            // Создаем кошелек из seed-фразы
-            console.log(`🔑 [Withdrawal] Создание кошелька из seed-фразы...`);
             const seedWords = adminSeed.split(' ');
             if (seedWords.length !== 24) {
               errorDetails = 'ADMIN_SEED должен содержать 24 слова';
@@ -636,20 +542,16 @@ io.on('connection', async (socket) => {
             let keyPair;
             try {
               keyPair = await mnemonicToWalletKey(seedWords);
-              console.log(`✅ [Withdrawal] KeyPair создан`);
             } catch (keyError) {
-              console.error(`❌ [Withdrawal] Ошибка создания KeyPair:`, keyError.message);
               errorDetails = `Ошибка создания ключа из seed-фразы: ${keyError.message}`;
               throw new Error(errorDetails);
             }
-            
+
             const opts = { testOnly: isTestnet, bounceable: false, urlSafe: true };
             const walletV4 = WalletContractV4.create({ publicKey: keyPair.publicKey, workchain: 0 });
             const walletV3R2 = WalletContractV3R2.create({ publicKey: keyPair.publicKey, workchain: 0 });
             const addrV4 = walletV4.address.toString(opts);
             const addrV3R2 = walletV3R2.address.toString(opts);
-            console.log(`📝 [Withdrawal] Адрес V4 (из seed):    ${addrV4}`);
-            console.log(`📝 [Withdrawal] Адрес V3R2 (из seed): ${addrV3R2}`);
 
             const expectedAddrRaw = (process.env.TON_WALLET_ADDRESS || '').trim();
             let wallet = null;
@@ -666,11 +568,9 @@ io.on('connection', async (socket) => {
               if (addrV4 === expectedNorm) {
                 wallet = walletV4;
                 walletVersion = 'V4';
-                console.log(`✅ [Withdrawal] Используем V4: адрес совпадает с TON_WALLET_ADDRESS`);
               } else if (addrV3R2 === expectedNorm) {
                 wallet = walletV3R2;
                 walletVersion = 'V3R2';
-                console.log(`✅ [Withdrawal] Используем V3R2: адрес совпадает с TON_WALLET_ADDRESS`);
               } else {
                 errorDetails = `Адрес TON_WALLET_ADDRESS (${expectedAddrRaw}) не совпадает ни с V4 (${addrV4}), ни с V3R2 (${addrV3R2}) из ADMIN_SEED. Проверьте, что seed соответствует этому кошельку.`;
                 throw new Error(errorDetails);
@@ -680,27 +580,15 @@ io.on('connection', async (socket) => {
             if (!wallet) {
               let balV4 = BigInt(0);
               let balV3 = BigInt(0);
-              try {
-                balV4 = await client.getBalance(walletV4.address);
-                console.log(`💰 [Withdrawal] Баланс V4: ${balV4.toString()} нанотонов`);
-              } catch (e) {
-                console.warn(`⚠️ [Withdrawal] Ошибка getBalance V4:`, e.message);
-              }
-              try {
-                balV3 = await client.getBalance(walletV3R2.address);
-                console.log(`💰 [Withdrawal] Баланс V3R2: ${balV3.toString()} нанотонов`);
-              } catch (e) {
-                console.warn(`⚠️ [Withdrawal] Ошибка getBalance V3R2:`, e.message);
-              }
+              try { balV4 = await client.getBalance(walletV4.address); } catch (_) {}
+              try { balV3 = await client.getBalance(walletV3R2.address); } catch (_) {}
               const requiredNano = BigInt(Math.ceil((amountInTon + 0.1) * 1e9));
               if (balV4 >= requiredNano) {
                 wallet = walletV4;
                 walletVersion = 'V4';
-                console.log(`✅ [Withdrawal] Используем V4: достаточно баланса`);
               } else if (balV3 >= requiredNano) {
                 wallet = walletV3R2;
                 walletVersion = 'V3R2';
-                console.log(`✅ [Withdrawal] Используем V3R2: достаточно баланса`);
               } else {
                 const balanceV4Ton = Number(balV4) / 1e9;
                 const balanceV3Ton = Number(balV3) / 1e9;
@@ -709,95 +597,56 @@ io.on('connection', async (socket) => {
               }
             }
 
-            const walletAddress = wallet.address.toString(opts);
-            console.log(`📝 [Withdrawal] Выбран кошелёк ${walletVersion}: ${walletAddress}`);
-
             let balance;
             try {
               balance = await client.getBalance(wallet.address);
-              console.log(`✅ [Withdrawal] Баланс получен: ${balance.toString()} нанотонов`);
             } catch (balanceError) {
-              console.error('❌ [Withdrawal] Ошибка getBalance:', balanceError.message);
               errorDetails = `Ошибка проверки баланса: ${balanceError.message}`;
               throw balanceError;
             }
 
             const balanceInTon = parseFloat(balance.toString()) / 1000000000;
-            console.log(`💰 [Withdrawal] Баланс админа: ${balanceInTon.toFixed(4)} TON, требуется: ${(amountInTon + 0.1).toFixed(4)} TON`);
-
             if (balanceInTon < amountInTon + 0.1) {
               const required = amountInTon + 0.1;
               errorDetails = `Недостаточно средств на администраторском кошельке. Баланс: ${balanceInTon.toFixed(4)} TON, требуется: ${required.toFixed(4)} TON (${amountInTon} TON + 0.1 TON комиссия)`;
               throw new Error(errorDetails);
             }
 
-            // Используем выбранный кошелёк (V4 или V3R2)
-            console.log(`🚀 [Withdrawal] Подготовка транзакции...`);
             try {
               const provider = client.provider(wallet.address);
-              console.log(`✅ [Withdrawal] Provider создан`);
-              
-              // Функция для получения seqno с retry при ошибке 429
+
               const getSeqnoWithRetry = async (maxRetries = 5, initialDelayMs = 3000) => {
                 for (let attempt = 1; attempt <= maxRetries; attempt++) {
                   try {
-                    const seqno = await wallet.getSeqno(provider);
-                    return seqno;
+                    return await wallet.getSeqno(provider);
                   } catch (error) {
                     const isRateLimit = error.message && (
-                      error.message.includes('429') || 
-                      error.message.includes('Too Many Requests') ||
-                      error.status === 429 ||
-                      error.response?.status === 429
+                      error.message.includes('429') || error.message.includes('Too Many Requests') ||
+                      error.status === 429 || error.response?.status === 429
                     );
-                    
                     if (isRateLimit && attempt < maxRetries) {
-                      // Экспоненциальная задержка: 3s, 6s, 12s, 24s
-                      const waitTime = initialDelayMs * Math.pow(2, attempt - 1);
-                      console.log(`⚠️ [Withdrawal] Rate limit (429) при получении seqno, попытка ${attempt}/${maxRetries}. Ждём ${waitTime}ms (${(waitTime/1000).toFixed(1)}s)...`);
-                      await new Promise(resolve => setTimeout(resolve, waitTime));
+                      await new Promise(resolve => setTimeout(resolve, initialDelayMs * Math.pow(2, attempt - 1)));
                       continue;
                     }
                     throw error;
                   }
                 }
               };
-              
+
               const seqno = await getSeqnoWithRetry();
-              console.log(`✅ [Withdrawal] Seqno получен: ${String(seqno)}`);
-              
-              // Конвертируем адрес получателя
-              console.log(`📝 [Withdrawal] Парсинг адреса получателя: ${userWallet}`);
-              console.log(`📝 [Withdrawal] Длина адреса: ${userWallet.length}, формат: ${userWallet.includes('_') ? 'url-safe' : 'standard'}`);
               let recipientAddress;
               try {
                 recipientAddress = Address.parse(userWallet);
-                const recipientAddrStr = recipientAddress.toString({ 
-                  testOnly: isTestnet, 
-                  bounceable: false, 
-                  urlSafe: true 
-                });
-                console.log(`✅ [Withdrawal] Адрес получателя распарсен успешно`);
-                console.log(`📝 [Withdrawal] Нормализованный адрес получателя: ${recipientAddrStr}`);
-                console.log(`📝 [Withdrawal] Workchain получателя: ${recipientAddress.workChain}`);
-                
-                // Проверяем, что адрес получателя не совпадает с адресом отправителя (защита от ошибок)
                 if (recipientAddress.equals(wallet.address)) {
-                  console.warn(`⚠️ [Withdrawal] Адрес получателя совпадает с адресом отправителя!`);
                   errorDetails = 'Адрес получателя не может совпадать с адресом администратора';
                   throw new Error(errorDetails);
                 }
               } catch (parseError) {
-                console.error(`❌ [Withdrawal] Ошибка парсинга адреса получателя:`, parseError.message);
-                console.error(`❌ [Withdrawal] Полный адрес: ${userWallet}`);
-                console.error(`❌ [Withdrawal] Stack:`, parseError.stack);
                 errorDetails = `Некорректный адрес кошелька получателя: ${parseError.message}. Убедитесь, что адрес указан правильно и соответствует сети (${isTestnet ? 'testnet' : 'mainnet'}).`;
                 throw new Error(errorDetails);
               }
-              
+
               const amountInNano = toNano(amountInTon.toFixed(9));
-              console.log(`💰 [Withdrawal] Сумма: ${amountInTon} TON = ${amountInNano.toString()} нанотонов`);
-              console.log(`🚀 [Withdrawal] Отправка транзакции: seqno=${String(seqno)}, сумма=${amountInTon} TON, получатель=${recipientAddress.toString()}`);
               
               // Функция для отправки транзакции с retry при ошибке 429
               const sendTransferWithRetry = async (currentSeqno, maxRetries = 5, initialDelayMs = 3000) => {
@@ -826,17 +675,8 @@ io.on('connection', async (socket) => {
                     );
                     
                     if (isRateLimit && attempt < maxRetries) {
-                      // Экспоненциальная задержка: 3s, 6s, 12s, 24s
-                      const waitTime = initialDelayMs * Math.pow(2, attempt - 1);
-                      console.log(`⚠️ [Withdrawal] Rate limit (429) при отправке транзакции, попытка ${attempt}/${maxRetries}. Ждём ${waitTime}ms (${(waitTime/1000).toFixed(1)}s)...`);
-                      await new Promise(resolve => setTimeout(resolve, waitTime));
-                      // Обновляем seqno перед повторной попыткой (с меньшим количеством retry, чтобы не усугублять проблему)
-                      try {
-                        attemptSeqno = await getSeqnoWithRetry(3, 2000);
-                        console.log(`🔄 [Withdrawal] Seqno обновлён для повторной попытки: ${String(attemptSeqno)}`);
-                      } catch (seqnoError) {
-                        console.warn(`⚠️ [Withdrawal] Не удалось обновить seqno, используем предыдущий: ${String(attemptSeqno)}`);
-                      }
+                      await new Promise(resolve => setTimeout(resolve, initialDelayMs * Math.pow(2, attempt - 1)));
+                      try { attemptSeqno = await getSeqnoWithRetry(3, 2000); } catch (_) {}
                       continue;
                     }
                     throw error;
@@ -845,14 +685,10 @@ io.on('connection', async (socket) => {
               };
               
               await sendTransferWithRetry(seqno);
-              
-              console.log('✅ [Withdrawal] Транзакция успешно отправлена в сеть!');
               transactionSuccess = true;
               withdrawalStatus = 'completed';
               txHash = `tx_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
             } catch (e) {
-              console.error('❌ [Withdrawal] Ошибка при отправке через sendTransfer:', e.message);
-              console.error('❌ [Withdrawal] Stack:', e.stack);
               transactionSuccess = false;
               txHash = `withdraw_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
               withdrawalStatus = 'failed';
@@ -872,8 +708,6 @@ io.on('connection', async (socket) => {
               }
             }
           } catch (tonError) {
-            console.error('❌ [Withdrawal] Ошибка TON SDK:', tonError.message);
-            console.error('❌ [Withdrawal] Stack:', tonError.stack);
             transactionSuccess = false;
             txHash = `withdraw_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
             withdrawalStatus = 'failed';
@@ -881,20 +715,15 @@ io.on('connection', async (socket) => {
           }
         } else if (DEBUG_MODE) {
           // DEBUG_MODE: симулируем успешную транзакцию
-          console.log(`💰 [Withdrawal] Вывод средств (DEBUG_MODE): ${amount} TON на ${userWallet}`);
           transactionSuccess = true;
           txHash = `debug_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
           withdrawalStatus = 'completed';
         } else {
-          // Нет ADMIN_SEED и не DEBUG_MODE - уже обработано выше
-          console.warn(`⚠️ [Withdrawal] Нет ADMIN_SEED и не DEBUG_MODE, транзакция не отправлена`);
           transactionSuccess = false;
           withdrawalStatus = 'failed';
           errorDetails = 'Система вывода временно недоступна. ADMIN_SEED не настроен.';
         }
       } catch (error) {
-        console.error('❌ [Withdrawal] Ошибка при выполнении TON транзакции:', error.message);
-        console.error('❌ [Withdrawal] Stack:', error.stack);
         transactionSuccess = false;
         txHash = `withdraw_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
         withdrawalStatus = 'failed';
@@ -906,20 +735,8 @@ io.on('connection', async (socket) => {
       // БЕЗОПАСНЫЙ ВЫВОД: Списываем баланс ТОЛЬКО после успешной отправки транзакции
       if (transactionSuccess) {
         const newWinnings = Math.max(0, (user.winnings_ton || 0) - amount);
-        await updateUser(userId, {
-          winnings_ton: newWinnings
-        });
-        console.log('💰 [Withdrawal] Баланс списан ПОСЛЕ успешной отправки транзакции:', { 
-          old: user.winnings_ton, 
-          new: newWinnings 
-        });
+        await updateUser(userId, { winnings_ton: newWinnings });
       } else {
-        // Транзакция не удалась - баланс НЕ списываем
-        console.warn('⚠️ [Withdrawal] Транзакция не удалась, баланс НЕ списан');
-        console.warn('⚠️ [Withdrawal] Причина: transactionSuccess=false, withdrawalStatus=' + withdrawalStatus);
-        console.warn('⚠️ [Withdrawal] Детали ошибки:', errorDetails || 'Неизвестная ошибка');
-        
-        // Формируем понятное сообщение для пользователя
         let userMessage = 'Не удалось отправить транзакцию. Баланс не списан.';
         if (errorDetails) {
           // Если есть детали, добавляем их (но упрощаем для пользователя)
@@ -1042,7 +859,6 @@ async function handleFindMatch(socket, userId) {
       // Лимит достигнут — не создаём игру, оба ждут в очереди
       waitingPlayers.set(userId, { socketId: socket.id, ready: false });
       socket.emit('waiting_opponent');
-      console.log(`⏳ Игрок ${userId} в очереди (лимит ${GAME_CONFIG.MAX_CONCURRENT_GAMES} игр), ожидает с ${waitingUser}`);
       return;
     }
     // Найден соперник и есть слот — создаем игру
@@ -1054,7 +870,6 @@ async function handleFindMatch(socket, userId) {
     // Нет соперника — добавляем в очередь ожидания
     waitingPlayers.set(userId, { socketId: socket.id, ready: false });
     socket.emit('waiting_opponent');
-    console.log(`⏳ Игрок ${userId} ожидает соперника`);
   }
 }
 
@@ -1165,7 +980,6 @@ async function createGame(player1Id, player2Id, socket1Id, socket2Id) {
     initial_state: snapshot2 // Начальное состояние для отображения во время countdown
   });
   
-  console.log(`🎮 Игра ${gameId} создана: ${player1Id} vs ${player2Id}`);
   
   // Запускаем countdown на сервере (3 секунды)
   startCountdown(gameId);
@@ -1233,11 +1047,7 @@ async function startGame(gameId) {
   
   // Получаем комнату игры для отправки initial_state
   const room = io.sockets.adapter.rooms.get(`game_${gameId}`);
-  if (!room) {
-    console.error(`❌ Комната game_${gameId} не найдена!`);
-  } else {
-    console.log(`📤 Отправляю состояние игры для комнаты: game_${gameId} (игроков: ${room.size})`);
-  }
+  if (!room) console.error(`Room not found: game_${gameId}`);
   
   // Отправляем начальное состояние каждому игроку
   room?.forEach(socketId => {
@@ -1254,7 +1064,6 @@ async function startGame(gameId) {
     }
   });
   
-  console.log(`🚀 Игра ${gameId} началась! Змейки: snake1=${game.snake1?.body?.length || 0} сегментов, snake2=${game.snake2?.body?.length || 0} сегментов`);
 }
 
 /**
@@ -1307,36 +1116,15 @@ function handleDirection(socket, userId, direction) {
  * Завершение игры и начисление призов
  */
 async function endGame(gameId, winnerId, loserId) {
-  console.log(`🔔 endGame вызвана: gameId=${gameId}, winner=${winnerId}, loser=${loserId}`);
-  
   const game = activeGames.get(gameId);
-  if (!game) {
-    console.log(`❌ Игра ${gameId} не найдена в activeGames`);
-    return;
-  }
-  
-  // Флаг для проверки, было ли уже отправлено событие game_end
-  const shouldSendEvent = !game.finished;
-  
-  if (game.finished) {
-    console.log(`⚠️ Игра ${gameId} уже завершена, пропускаем повторную обработку`);
-    // НЕ выходим сразу - возможно событие не было отправлено в первый раз
-    // Но если уже отправлено - не отправляем повторно
-    if (game.end_event_sent) {
-      console.log(`✅ Событие game_end уже было отправлено ранее`);
-      return;
-    }
-    console.log(`⚠️ Игра завершена, но событие game_end не отправлено! Отправляем сейчас...`);
-  }
+  if (!game) return;
+  if (game.finished && game.end_event_sent) return;
   
   game.finished = true;
   game.end_time = Date.now();
   
   // Защита от повторного начисления по одному matchId
   if (game.winnings_paid) {
-    console.log(`⚠️ Попытка повторного начисления по матчу [${gameId}]. Отклонено.`);
-    // Все равно отправляем событие game_end, если оно еще не было отправлено
-    // Используем сохраненный prize из game.prize (если был установлен)
     if (!game.end_event_sent) {
       const roomName = `game_${gameId}`;
       const savedPrize = game.prize !== undefined ? game.prize : 0;
@@ -1361,7 +1149,6 @@ async function endGame(gameId, winnerId, loserId) {
   if (winnerId) {
     // Проверка активности матча: выигрыш начисляется только если был хотя бы один тик
     if (game.tick_number === 0 || !game.tick_number) {
-      console.log(`⚠️ Игра ${gameId} не имела тиков движения (tick_number=0). Выигрыш не начисляется.`);
       prize = 0;
     } else {
       try {
@@ -1383,29 +1170,13 @@ async function endGame(gameId, winnerId, loserId) {
           await winnerModel.reload();
           
           prize = winAmount;
-          
-          // Жирное логирование начисления
-          console.log('\n========================================');
-          console.log(`💰 ВЫИГРЫШ ЗАЧИСЛЕН: Игрок ${winnerId}, новый баланс: ${winnerModel.winningsTon} TON`);
-          console.log(`   withdrawalBalance (winnings_ton): ${oldWinnings} -> ${winnerModel.winningsTon} TON`);
-          console.log(`   totalEarned: ${oldTotalEarned} -> ${winnerModel.totalEarned} TON`);
-          console.log('========================================\n');
-          
-          // Получаем обновленного пользователя для отправки
           const updatedUser = await getUser(winnerId);
-          
-          // Сразу отправляем обновленный баланс игроку через Socket.io
           io.to(`user_${winnerId}`).emit('balance_updated', {
             games_balance: updatedUser.games_balance,
             winnings_ton: updatedUser.winnings_ton
           });
-          
-          // Дополнительное событие для обновления баланса
           io.to(`user_${winnerId}`).emit('updateBalance', winAmount);
-          
-          console.log(`📤 Отправлен обновленный баланс игроку ${winnerId}: winnings=${updatedUser.winnings_ton} TON`);
         } else {
-          console.log(`⚠️ Победитель ${winnerId} не найден в PostgreSQL. Попытка через getUser...`);
           // Попытка получить через getUser (fallback на JSON если используется)
           try {
             const winner = await getUser(winnerId);
@@ -1423,15 +1194,11 @@ async function endGame(gameId, winnerId, loserId) {
               
               prize = winAmount;
               const updatedUser = await getUser(winnerId);
-              
-              console.log(`💰 ВЫИГРЫШ ЗАЧИСЛЕН (JSON fallback): Игрок ${winnerId}, новый баланс: ${updatedUser.winnings_ton} TON`);
-              
               io.to(`user_${winnerId}`).emit('balance_updated', {
                 games_balance: updatedUser.games_balance,
                 winnings_ton: updatedUser.winnings_ton
               });
             } else {
-              console.log(`⚠️ Победитель ${winnerId} не найден в БД или является ботом. Выигрыш не начисляется.`);
               prize = 0;
             }
           } catch (error) {
@@ -1445,8 +1212,6 @@ async function endGame(gameId, winnerId, loserId) {
       }
     }
   } else {
-    // Ничья: лобовое столкновение или оба игрока проиграли одновременно
-    console.log(`🏁 Игра ${gameId} завершена ничьей`);
     prize = 0;
   }
   
@@ -1459,9 +1224,6 @@ async function endGame(gameId, winnerId, loserId) {
   // Уведомляем игроков (ОБЯЗАТЕЛЬНО отправляем событие, даже если игра уже завершена)
   if (!game.end_event_sent) {
     const roomName = `game_${gameId}`;
-    console.log(`📤 Отправка game_end в комнату: ${roomName}`);
-    
-    // Если ничья (winnerId === null), отправляем специальное сообщение
     const eventData = {
       winnerId,
       prize: prize, // Всегда 0 при ничьей
@@ -1473,12 +1235,7 @@ async function endGame(gameId, winnerId, loserId) {
     };
     
     io.to(roomName).emit('game_end', eventData);
-    game.end_event_sent = true; // Помечаем, что событие отправлено
-    
-    console.log(`✅ game_end отправлено игрокам в комнате ${roomName}:`, eventData);
-    console.log(`   prize=${prize}, winnerId=${winnerId || 'null (ничья)'}`);
-  } else {
-    console.log(`⚠️ Событие game_end уже было отправлено ранее, пропускаем`);
+    game.end_event_sent = true;
   }
   
   // Очищаем из активных игр
@@ -1516,9 +1273,8 @@ async function processQueue() {
     }
     try {
       await createGame(p1, p2, d1.socketId, d2.socketId);
-      console.log(`📋 Очередь: создана игра для ${p1} и ${p2}`);
     } catch (err) {
-      console.error('❌ Очередь: ошибка createGame', err);
+      console.error('Queue createGame error:', err.message);
       break;
     }
   }
@@ -1528,31 +1284,14 @@ async function processQueue() {
  * Обработка отключения
  */
 function handleDisconnect(socket, userId) {
-  console.log(`🔌 Пользователь отключен: ${userId}`);
-  
-  // Удаляем из ожидания
   waitingPlayers.delete(userId);
-  
-  // Удаляем связь socket -> user
   socketToUser.delete(socket.id);
-  
-  // Если игрок в игре - завершаем игру
   const gameId = playerToGame.get(userId);
-  console.log(`🔍 Отключение: игрок ${userId}, gameId: ${gameId}`);
-  
   if (gameId && activeGames.has(gameId)) {
     const game = activeGames.get(gameId);
-    console.log(`🎮 Игра найдена: ${gameId}, игроки: ${game.player1_id}, ${game.player2_id}`);
-    const isPlayer1 = game.player1_id === userId;
-    const opponentId = isPlayer1 ? game.player2_id : game.player1_id;
-    
-    // Завершаем игру, противник побеждает
-    console.log(`🏁 Завершение игры ${gameId}: победитель ${opponentId}, проигравший ${userId}`);
+    const opponentId = game.player1_id === userId ? game.player2_id : game.player1_id;
     endGame(gameId, opponentId, userId);
-  } else {
-    console.log(`⚠️ Игра не найдена для игрока ${userId} (gameId: ${gameId}, active: ${activeGames.has(gameId || '')})`);
   }
-  
   playerToGame.delete(userId);
 }
 
@@ -1655,7 +1394,6 @@ app.post('/api/create-payment', async (req, res) => {
 // Запуск сервера
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`🚀 Сервер запущен на порту ${PORT}`);
-  console.log(`🔧 Режим: ${DEBUG_MODE ? 'ТЕСТОВЫЙ (DEBUG_MODE)' : 'БОЕВОЙ (TON)'}`);
+  console.log(`Server running on port ${PORT} (${DEBUG_MODE ? 'DEBUG' : 'mainnet'})`);
 });
 

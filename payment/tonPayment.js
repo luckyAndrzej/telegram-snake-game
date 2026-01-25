@@ -30,18 +30,14 @@ async function initPaymentFiles() {
       await fs.access(PENDING_PAYMENTS_FILE);
     } catch {
       await fs.writeFile(PENDING_PAYMENTS_FILE, JSON.stringify({}, null, 2));
-      console.log('✅ Создан файл pending_payments.json');
     }
-
-    // Создаем processed_tx.json если его нет
     try {
       await fs.access(PROCESSED_TX_FILE);
     } catch {
       await fs.writeFile(PROCESSED_TX_FILE, JSON.stringify({}, null, 2));
-      console.log('✅ Создан файл processed_tx.json');
     }
   } catch (error) {
-    console.error('❌ Ошибка инициализации файлов платежей:', error);
+    console.error('Init payment files error:', error.message);
   }
 }
 
@@ -133,11 +129,8 @@ async function createDeposit(userId, amount) {
       walletAddress: TON_CONFIG.TON_WALLET_ADDRESS
     };
   } catch (error) {
-    console.error('❌ Ошибка создания депозита:', error);
-    return {
-      success: false,
-      error: error.message
-    };
+    console.error('Create deposit error:', error.message);
+    return { success: false, error: error.message };
   }
 }
 
@@ -185,8 +178,6 @@ async function createPayment(userId, packageId) {
     // Сохраняем в файл
     await fs.writeFile(PENDING_PAYMENTS_FILE, JSON.stringify(pendingPayments, null, 2));
 
-    console.log(`💰 Создан платеж: userId=${userId}, package=${packageId}, comment=${comment}, amount=${pkg.amount} TON`);
-
     return {
       success: true,
       paymentId,
@@ -197,11 +188,8 @@ async function createPayment(userId, packageId) {
       walletAddress: TON_CONFIG.TON_WALLET_ADDRESS
     };
   } catch (error) {
-    console.error('❌ Ошибка создания платежа:', error);
-    return {
-      success: false,
-      error: error.message
-    };
+    console.error('Create payment error:', error.message);
+    return { success: false, error: error.message };
   }
 }
 
@@ -216,13 +204,6 @@ async function getWalletTransactions(address) {
       ? { 'X-API-Key': TON_CONFIG.TON_API_KEY }
       : {};
 
-    // Логирование полного URL для отладки
-    console.log(`🌐 Запрос к TonCenter API:`);
-    console.log(`   Full URL: ${url}`);
-    console.log(`   API URL (base): ${TON_CONFIG.TON_API_URL}`);
-    console.log(`   IS_TESTNET: ${TON_CONFIG.IS_TESTNET}`);
-    console.log(`   Has API Key: ${!!TON_CONFIG.TON_API_KEY}`);
-
     const response = await fetch(url, { headers });
     
     // Обработка ошибки 429 (Too Many Requests) с задержкой
@@ -236,14 +217,10 @@ async function getWalletTransactions(address) {
     }
 
     const data = await response.json();
-    console.log(`📊 TonCenter API response: ok=${data.ok}, transactions count=${data.result?.length || 0}`);
     return data.ok ? data.result : [];
   } catch (error) {
-    // Если ошибка 429, не логируем, чтобы не забивать логи
-    if (error.response?.status === 429) {
-      return [];
-    }
-    console.error('❌ Ошибка получения транзакций:', error);
+    if (error.response?.status === 429) return [];
+    console.error('getWalletTransactions error:', error.message);
     return [];
   }
 }
@@ -277,22 +254,7 @@ async function scanTransactions(io) {
       pendingPayments = {};
     }
     
-    // Логируем запуск сканера
-    const pendingCountAtStart = Object.keys(pendingPayments).length;
-    if (pendingCountAtStart > 0) {
-      const pendingComments = Object.values(pendingPayments).map(p => (p.comment || '').toUpperCase().trim());
-      console.log(`🔍 [Сканер] Запуск сканирования транзакций (ожидающих платежей: ${pendingCountAtStart}, комментарии: [${pendingComments.join(', ')}])`);
-    }
-
-    // Получаем транзакции кошелька
     const transactions = await getWalletTransactions(walletAddress);
-    
-    // Логируем только если есть транзакции
-    if (transactions.length > 0) {
-      console.log(`📊 Проверка ${transactions.length} транзакций для кошелька: ${walletAddress.substring(0, 10)}...`);
-    } else if (pendingCountAtStart > 0) {
-      console.log(`⚠️ [Сканер] Транзакции не найдены, но есть ${pendingCountAtStart} ожидающих платежей`);
-    }
 
     // Читаем processed_tx.json (обработанные транзакции)
     let processedTx = {};
@@ -311,15 +273,6 @@ async function scanTransactions(io) {
       pendingPayments = {};
     }
     
-    // Логируем количество ожидающих платежей
-    const pendingCount = Object.keys(pendingPayments).length;
-    if (pendingCount > 0) {
-      const pendingList = Object.entries(pendingPayments).map(([id, p]) => 
-        `${id}: comment=${p.comment}, userId=${p.userId}, status=${p.status}`
-      );
-      console.log(`📋 [Сканер] Ожидающие платежи (${pendingCount}):`, pendingList);
-    }
-
     // Обрабатываем каждую транзакцию
     // Операции внутри цикла асинхронные (await), поэтому не блокируют event loop
     for (const tx of transactions) {
@@ -340,20 +293,6 @@ async function scanTransactions(io) {
         continue; // Убраны лишние логи для производительности
       }
       
-      // ДИАГНОСТИКА: Логируем структуру in_msg для отладки (только если есть ожидающие платежи)
-      if (Object.keys(pendingPayments).length > 0) {
-        const pendingComments = Object.values(pendingPayments).map(p => (p.comment || '').toUpperCase().trim());
-        console.log(`🔍 [Сканер] Структура in_msg (ожидаемые комментарии: [${pendingComments.join(', ')}]):`, {
-          hasMessage: !!inMsg.message,
-          hasMsgData: !!inMsg.msg_data,
-          msgDataKeys: inMsg.msg_data ? Object.keys(inMsg.msg_data) : [],
-          messagePreview: inMsg.message ? inMsg.message.substring(0, 50) : null,
-          msgDataTextPreview: inMsg.msg_data?.text ? inMsg.msg_data.text.substring(0, 50) : null,
-          msgDataBodyPreview: inMsg.msg_data?.body ? (typeof inMsg.msg_data.body === 'string' ? inMsg.msg_data.body.substring(0, 50) : 'not string') : null,
-          inMsgKeys: Object.keys(inMsg || {})
-        });
-      }
-
       // Извлекаем комментарий из транзакции
       let extractedComment = '';
       
@@ -391,7 +330,6 @@ async function scanTransactions(io) {
               const decoded = buffer.toString('utf-8');
               // Проверяем, что это валидный текст (не битые байты)
               if (decoded && !decoded.includes('\ufffd') && /^[A-Za-z0-9]+$/.test(decoded)) {
-                console.log(`✅ [SCANNER] Декодирован комментарий из Base64 (без префикса): "${decoded}"`);
                 return decoded;
               }
             }
@@ -399,12 +337,10 @@ async function scanTransactions(io) {
             // Буфер слишком короткий - пробуем декодировать как есть
             const decoded = buffer.toString('utf-8');
             if (decoded && !decoded.includes('\ufffd') && /^[A-Za-z0-9]+$/.test(decoded)) {
-              console.log(`✅ [SCANNER] Декодирован комментарий из короткого Base64: "${decoded}"`);
               return decoded;
             }
           }
         } catch (error) {
-          console.error(`❌ [SCANNER] Ошибка декодирования Base64:`, error.message);
           return null;
         }
         
@@ -413,112 +349,43 @@ async function scanTransactions(io) {
       
       // ПРИОРИТЕТ 1: Проверяем msg_data
       if (inMsg.msg_data) {
-        console.log(`🔍 [Сканер] msg_data найден:`, {
-          hasText: !!inMsg.msg_data.text,
-          hasBody: !!inMsg.msg_data.body,
-          textType: typeof inMsg.msg_data.text,
-          bodyType: typeof inMsg.msg_data.body,
-          msgDataKeys: Object.keys(inMsg.msg_data)
-        });
-        
-        // ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: Может быть комментарий в других полях msg_data
-        if (inMsg.msg_data.op) {
-          console.log(`🔍 [Сканер] msg_data.op найден: ${inMsg.msg_data.op}`);
-        }
-        if (inMsg.msg_data.init) {
-          console.log(`🔍 [Сканер] msg_data.init найден`);
-        }
-        
-        // Если msg_data.text существует и это текст
         if (inMsg.msg_data.text && typeof inMsg.msg_data.text === 'string') {
           const text = inMsg.msg_data.text.trim();
-          console.log(`📄 [Сканер] msg_data.text: "${text.substring(0, 50)}..." (длина: ${text.length})`);
-          
-          // ПРИОРИТЕТ 1: Если это похоже на валидный комментарий (4-20 символов, только буквы и цифры), используем напрямую
-          // ВАЖНО: Проверяем ДО проверки на Base64, чтобы не декодировать валидные комментарии
           if (/^[A-Za-z0-9]{4,20}$/.test(text)) {
             extractedComment = text;
-            console.log(`✅ [Сканер] Используем msg_data.text как комментарий напрямую (валидный формат): "${extractedComment}"`);
           } else if (!isBase64(text) && !text.startsWith('0x') && !/^[0-9a-fA-F]+$/i.test(text)) {
-            // Если это не Base64 и не Hex, используем как текст
             extractedComment = text;
-            console.log(`✅ [Сканер] Используем msg_data.text как обычный текст: "${extractedComment}"`);
           } else if (isBase64(text)) {
-            // Если это Base64, декодируем
             const decoded = decodeTonCommentFromBase64(text);
-            if (decoded) {
-              extractedComment = decoded;
-            }
+            if (decoded) extractedComment = decoded;
           } else {
-            // Если это не Base64 и не валидный комментарий, используем как текст
             extractedComment = text;
-            console.log(`✅ [SCANNER] Используем msg_data.text как обычный текст: "${extractedComment}"`);
           }
         }
-        
-        // Если msg_data.body существует (бинарные данные в Base64)
         if (!extractedComment && inMsg.msg_data.body) {
-          const body = typeof inMsg.msg_data.body === 'string' 
-            ? inMsg.msg_data.body.trim() 
-            : inMsg.msg_data.body;
-          console.log(`📦 [SCANNER] msg_data.body найден, тип: ${typeof body}, длина: ${typeof body === 'string' ? body.length : 'N/A'}`);
-          
+          const body = typeof inMsg.msg_data.body === 'string' ? inMsg.msg_data.body.trim() : inMsg.msg_data.body;
           if (typeof body === 'string' && isBase64(body)) {
-            // Декодируем Base64 body
             const decoded = decodeTonCommentFromBase64(body);
-            if (decoded) {
-              extractedComment = decoded;
-            }
+            if (decoded) extractedComment = decoded;
           } else if (typeof body === 'string') {
-            // Если body - это уже текст, используем его
             extractedComment = body;
-            console.log(`✅ [SCANNER] Используем msg_data.body как текст: "${extractedComment}"`);
           }
         }
-      } else {
-        console.log(`⚠️ [Сканер] msg_data отсутствует в in_msg`);
       }
-      
-      // ПРИОРИТЕТ 2: Если не нашли в msg_data, проверяем in_msg.message
       if (!extractedComment && inMsg.message && typeof inMsg.message === 'string') {
         const message = inMsg.message.trim();
-        console.log(`📨 [SCANNER] in_msg.message: "${message.substring(0, 50)}..." (длина: ${message.length})`);
-        
-        // Если это похоже на валидный комментарий, используем напрямую
         if (/^[A-Za-z0-9]{4,20}$/.test(message)) {
           extractedComment = message;
-          console.log(`✅ [SCANNER] Используем in_msg.message как комментарий напрямую: "${extractedComment}"`);
         } else if (isBase64(message)) {
-          // Если это Base64, декодируем
           const decoded = decodeTonCommentFromBase64(message);
-          if (decoded) {
-            extractedComment = decoded;
-          }
+          if (decoded) extractedComment = decoded;
         } else {
-          // Если это не Base64 и не валидный комментарий, используем как текст
           extractedComment = message;
-          console.log(`✅ [SCANNER] Используем in_msg.message как обычный текст: "${extractedComment}"`);
         }
-      }
-      
-      // Нормализация: ТОЛЬКО trim() и toUpperCase(), без других замен
-      const comment = extractedComment ? extractedComment.trim().toUpperCase() : '';
-      
-      // ЛОГИРОВАНИЕ: Выводим финальный декодированный текст для отладки
-      if (comment) {
-        console.log(`📝 [Сканер] Декодированный комментарий: "${comment}" (длина: ${comment.length})`);
-      } else {
-        console.log(`⚠️ [Сканер] Комментарий не извлечен из транзакции`);
       }
 
-      // Если комментарий пустой, пропускаем транзакцию
-      if (!comment || comment.length === 0) {
-        // Логируем только если есть ожидающие платежи
-        if (Object.keys(pendingPayments).length > 0) {
-          console.log(`⚠️ [Сканер] Пропускаем транзакцию ${txHash?.substring(0, 10)}... - комментарий пустой`);
-        }
-        continue;
-      }
+      const comment = extractedComment ? extractedComment.trim().toUpperCase() : '';
+      if (!comment || comment.length === 0) continue;
       
       // Ищем платеж с таким комментарием в pending_payments
       let foundPaymentId = null;
@@ -527,83 +394,33 @@ async function scanTransactions(io) {
       // Точное совпадение: сравниваем комментарий с базой
       for (const [paymentId, payment] of Object.entries(pendingPayments)) {
         const expectedComment = (payment.comment || '').trim().toUpperCase();
-        
-        // Логируем попытку сопоставления
-        console.log(`[SCANNER] Пытаюсь сопоставить: [${comment}] с ожидаемым [${expectedComment}]`);
-        
-        // Проверка: decodedComment.trim().toUpperCase() === expectedComment.trim().toUpperCase()
         if (comment === expectedComment && payment.status === 'pending') {
           foundPaymentId = paymentId;
           foundPayment = payment;
-          console.log(`✅ [SCANNER] Найдено совпадение комментариев: "${comment}" === "${expectedComment}"`);
           break;
         }
       }
-      
-      // Для депозитов проверяем сумму без games
-      if (foundPayment && foundPayment.type === 'deposit') {
-        // Депозит найден, проверка суммы будет ниже
-        console.log(`✅ [SCANNER] Депозит найден: amount=${foundPayment.amount} TON`);
-      } else if (foundPayment && !foundPayment.games && foundPayment.type !== 'deposit') {
-        // Если это не депозит и нет games, пропускаем
-        console.log(`⚠️ [SCANNER] Платеж найден, но нет games и не депозит, пропускаем`);
-        continue;
-      }
-      
-      // ДОПОЛНИТЕЛЬНАЯ ПРОВЕРКА: Если не нашли совпадение, пробуем найти комментарий в других местах
-      if (!foundPayment && comment && Object.keys(pendingPayments).length > 0) {
-        console.log(`⚠️ [Сканер] Комментарий "${comment}" не совпал с ожидаемыми. Пробуем альтернативные варианты...`);
-        
-        // Пробуем искать комментарий в разных частях структуры
+      if (foundPayment && !foundPayment.games && foundPayment.type !== 'deposit') continue;
+
+      if (!foundPayment && comment && Object.keys(pendingPayments).length > 0 && inMsg.msg_data?.text) {
         const pendingComments = Object.values(pendingPayments).map(p => (p.comment || '').toUpperCase().trim());
-        
-        // Проверяем, может быть комментарий закодирован по-другому
-        // Пробуем декодировать msg_data.text как есть (без Base64 декодирования)
-        if (inMsg.msg_data?.text) {
-          const directText = inMsg.msg_data.text.trim();
-          if (directText && !isBase64(directText) && !directText.startsWith('0x') && !/^[0-9a-fA-F]+$/i.test(directText)) {
-            const directComment = directText.toUpperCase().trim();
-            if (pendingComments.includes(directComment)) {
-              console.log(`✅ [Сканер] Найден комментарий напрямую в msg_data.text: "${directComment}"`);
-              for (const [paymentId, payment] of Object.entries(pendingPayments)) {
-                const expectedComment = (payment.comment || '').toUpperCase().trim();
-                if (directComment === expectedComment && payment.status === 'pending') {
-                  foundPaymentId = paymentId;
-                  foundPayment = payment;
-                  break;
-                }
+        const directText = inMsg.msg_data.text.trim();
+        if (directText && !isBase64(directText) && !directText.startsWith('0x') && !/^[0-9a-fA-F]+$/i.test(directText)) {
+          const directComment = directText.toUpperCase().trim();
+          if (pendingComments.includes(directComment)) {
+            for (const [paymentId, payment] of Object.entries(pendingPayments)) {
+              const expectedComment = (payment.comment || '').toUpperCase().trim();
+              if (directComment === expectedComment && payment.status === 'pending') {
+                foundPaymentId = paymentId;
+                foundPayment = payment;
+                break;
               }
             }
           }
         }
       }
-      
-      // Логируем все ожидаемые комментарии для отладки
-      const pendingComments = Object.values(pendingPayments).map(p => (p.comment || '').toUpperCase().trim());
-      if (pendingComments.length > 0) {
-        console.log(`🔍 [Сканер] Ожидаемые комментарии: [${pendingComments.join(', ')}]`);
-        console.log(`🔍 [Сканер] Полученный комментарий: "${comment}"`);
-        console.log(`🔍 [Сканер] Сравнение: "${comment}" vs ожидаемые [${pendingComments.join(', ')}]`);
-        
-        // Детальное сравнение каждого комментария
-        for (const [paymentId, payment] of Object.entries(pendingPayments)) {
-          const expectedComment = (payment.comment || '').toUpperCase().trim();
-          const isMatch = comment === expectedComment;
-          console.log(`   - ${paymentId}: ожидается "${expectedComment}", получено "${comment}", совпадение: ${isMatch ? '✅' : '❌'}`);
-        }
-      } else {
-        console.log(`⚠️ [Сканер] Нет ожидающих платежей в pending_payments.json`);
-      }
 
-      if (!foundPayment) {
-        continue;
-      }
-
-      // Жирное логирование найденного совпадения
-      console.log('\n========================================');
-      console.log(`✅ НАЙДЕНО СОВПАДЕНИЕ: [${comment}] для пользователя [${foundPayment.userId}]`);
-      console.log(`   paymentId: ${foundPaymentId}`);
-      console.log('========================================\n');
+      if (!foundPayment) continue;
 
       // Проверяем сумму (из value в нанотонах) - используем BigInt для точности
       const txValueStr = (inMsg.value || tx.value || '0').toString();
@@ -617,17 +434,7 @@ async function scanTransactions(io) {
         ? txValueNanoTon - expectedAmountNanoTon 
         : expectedAmountNanoTon - txValueNanoTon;
 
-      if (diff > toleranceNanoTon) {
-        const txAmount = nanoTonToTon(txValueStr);
-        console.log(`⚠️ Несоответствие суммы: ожидается ${expectedAmountTon} TON, получено ${txAmount} TON (comment: ${comment})`);
-        console.log(`   Нанотоны: получено ${txValueNanoTon.toString()}, ожидается ${expectedAmountNanoTon.toString()}, разница: ${diff.toString()}, допустимо: ${toleranceNanoTon.toString()}`);
-        continue;
-      }
-
-      // Проверяем конвертацию: 1 TON = 1,000,000,000 нанотонов
-      const txAmountTon = nanoTonToTon(txValueStr);
-      console.log(`✅ Сумма совпадает: ${expectedAmountTon} TON (получено ${txAmountTon} TON = ${txValueNanoTon.toString()} нанотонов)`);
-      console.log(`   Проверка: ${txValueNanoTon.toString()} нанотонов = ${txAmountTon} TON (должно быть ${expectedAmountTon} TON)`);
+      if (diff > toleranceNanoTon) continue;
 
       // Всё верно! Обрабатываем платеж
       try {
@@ -660,24 +467,13 @@ async function scanTransactions(io) {
           await fs.writeFile(PENDING_PAYMENTS_FILE, JSON.stringify(pendingPayments, null, 2));
           await fs.writeFile(PROCESSED_TX_FILE, JSON.stringify(processedTx, null, 2));
 
-          console.log(`✅ Депозит обработан:`);
-          console.log(`   userId: ${foundPayment.userId}`);
-          console.log(`   comment: ${comment}`);
-          console.log(`   заплачено: ${expectedAmountTon} TON`);
-          console.log(`   winnings до: ${user.winnings_ton || 0}`);
-          console.log(`   winnings после: ${newWinnings}`);
-
-          // Отправляем событие клиенту через Socket.io
           if (io) {
-            const userRoom = `user_${foundPayment.userId}`;
-            console.log(`📤 Отправляю deposit_success в комнату: ${userRoom}`);
-            io.to(userRoom).emit('deposit_success', {
+            io.to(`user_${foundPayment.userId}`).emit('deposit_success', {
               paymentId: foundPaymentId,
               amount: expectedAmountTon,
               new_winnings: newWinnings,
               games_balance: updatedUser.games_balance
             });
-            console.log(`✅ Событие deposit_success отправлено: amount=${expectedAmountTon}, new_winnings=${newWinnings}`);
           }
         } else {
           // Покупка игр: добавляем в games_balance
@@ -705,34 +501,22 @@ async function scanTransactions(io) {
           await fs.writeFile(PENDING_PAYMENTS_FILE, JSON.stringify(pendingPayments, null, 2));
           await fs.writeFile(PROCESSED_TX_FILE, JSON.stringify(processedTx, null, 2));
 
-          console.log(`✅ Платеж обработан:`);
-          console.log(`   userId: ${foundPayment.userId}`);
-          console.log(`   comment: ${comment}`);
-          console.log(`   заплачено: ${expectedAmountTon} TON`);
-          console.log(`   добавлено игр: ${foundPayment.games} (из пакета ${foundPayment.packageId})`);
-          console.log(`   баланс до: ${user.games_balance}`);
-          console.log(`   баланс после: ${newBalance}`);
-
-          // Отправляем событие клиенту через Socket.io
           if (io) {
-            const userRoom = `user_${foundPayment.userId}`;
-            console.log(`📤 Отправляю payment_success в комнату: ${userRoom}`);
-            io.to(userRoom).emit('payment_success', {
+            io.to(`user_${foundPayment.userId}`).emit('payment_success', {
               paymentId: foundPaymentId,
               games: foundPayment.games,
               new_balance: newBalance,
               winnings_ton: updatedUser.winnings_ton
             });
-            console.log(`✅ Событие payment_success отправлено: games=${foundPayment.games}, new_balance=${newBalance}`);
           }
         }
 
       } catch (error) {
-        console.error(`❌ Ошибка обработки платежа (comment: ${comment}):`, error);
+        console.error('Payment processing error:', error.message);
       }
     }
   } catch (error) {
-    console.error('❌ Ошибка сканирования транзакций:', error);
+    console.error('Scan transactions error:', error.message);
   }
 }
 
@@ -755,13 +539,6 @@ function initConfig(config) {
     TON_WALLET_ADDRESS: config.TON_WALLET_ADDRESS || '',
     TON_API_KEY: config.TON_API_KEY || ''
   };
-  
-  console.log(`🔧 TON Config initialized:`);
-  console.log(`   IS_TESTNET: ${TON_CONFIG.IS_TESTNET} (from config: ${config.IS_TESTNET})`);
-  console.log(`   API_URL: ${TON_CONFIG.TON_API_URL} ${isTestnet ? '(TESTNET)' : '(MAINNET)'}`);
-  console.log(`   WALLET_ADDRESS: ${TON_CONFIG.TON_WALLET_ADDRESS ? TON_CONFIG.TON_WALLET_ADDRESS.substring(0, 10) + '...' : 'NOT SET'}`);
-  console.log(`   TON_API_KEY: ${TON_CONFIG.TON_API_KEY ? '***' + TON_CONFIG.TON_API_KEY.slice(-4) : 'NOT SET'}`);
-  console.log(`✅ ПРОВЕРКА: API Key загружен: ${!!TON_CONFIG.TON_API_KEY}`);
 }
 
 module.exports = {
