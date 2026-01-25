@@ -448,15 +448,6 @@ io.on('connection', async (socket) => {
         return;
       }
       
-      // Минимальная сумма вывода 1.75 TON
-      if (amount < 1.75) {
-        console.log(`[Withdraw] Отклонено: сумма ${amount} меньше минимума 1.75 TON`);
-        socket.emit('withdrawal_error', {
-          message: 'Минимальная сумма вывода: 1.75 TON'
-        });
-        return;
-      }
-      
       // АНТИ-ФРОД ПРОВЕРКИ
       // 1. Проверка лимита адекватности: сумма вывода не должна превышать максимально возможный заработок
       const maxPossibleEarnings = (user.totalEarned || 0); // Максимум = общий заработок
