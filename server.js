@@ -489,7 +489,7 @@ io.on('connection', async (socket) => {
       }
 
       lastWithdrawRequest.set(userId, now);
-      const adminSeed = process.env.ADMIN_SEED;
+      const adminSeed = (process.env.ADMIN_SEED || '').trim();
 
       if (!adminSeed && !DEBUG_MODE) {
         // Если нет ADMIN_SEED и не DEBUG_MODE - выдаем ошибку и НЕ списываем баланс
@@ -533,7 +533,7 @@ io.on('connection', async (socket) => {
 
             const apiKey = process.env.TONCENTER_API_KEY || process.env.TON_API_KEY || '';
             const client = new TonClient({ endpoint, apiKey: apiKey || undefined });
-            const seedWords = adminSeed.split(' ');
+            const seedWords = adminSeed.split(/\s+/).filter(Boolean);
             if (seedWords.length !== 24) {
               errorDetails = 'ADMIN_SEED должен содержать 24 слова';
               throw new Error(errorDetails);
@@ -1389,6 +1389,21 @@ app.post('/api/create-payment', async (req, res) => {
   } catch (error) {
     res.status(500).json({ success: false, error: error.message });
   }
+});
+
+// Диагностика: проверка переменных окружения (без секретов)
+app.get('/api/check-env', (req, res) => {
+  const adminSeed = process.env.ADMIN_SEED || '';
+  const words = adminSeed.trim().split(/\s+/).filter(Boolean);
+  res.json({
+    hasAdminSeed: !!adminSeed,
+    adminSeedWordCount: words.length,
+    hasTonWallet: !!process.env.TON_WALLET_ADDRESS,
+    hasTonCenterKey: !!(process.env.TONCENTER_API_KEY || process.env.TON_API_KEY),
+    debugMode: process.env.DEBUG_MODE,
+    isTestnet: process.env.IS_TESTNET,
+    hasDatabaseUrl: !!process.env.DATABASE_URL
+  });
 });
 
 // Запуск сервера
