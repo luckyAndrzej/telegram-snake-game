@@ -1019,19 +1019,39 @@ function initSocket() {
   socket.on('withdrawal_error', (error) => {
     console.error('❌ Withdrawal error:', error);
     
-    // Восстанавливаем кнопку вывода
     const withdrawBtn = document.getElementById('withdraw-btn');
-    if (withdrawBtn) {
+    const remainingSeconds = error.remainingSeconds;
+    
+    if (withdrawBtn && typeof remainingSeconds === 'number' && remainingSeconds > 0) {
+      // Кулдаун: оставляем кнопку выключенной и показываем обратный отсчёт
+      if (window.withdrawCooldownInterval) clearInterval(window.withdrawCooldownInterval);
+      let sec = remainingSeconds;
+      withdrawBtn.disabled = true;
+      withdrawBtn.style.opacity = '0.7';
+      withdrawBtn.style.cursor = 'not-allowed';
+      withdrawBtn.innerHTML = `<span>⏳ Retry in ${sec}s</span>`;
+      window.withdrawCooldownInterval = setInterval(() => {
+        sec -= 1;
+        if (sec <= 0) {
+          clearInterval(window.withdrawCooldownInterval);
+          window.withdrawCooldownInterval = null;
+          withdrawBtn.disabled = false;
+          withdrawBtn.innerHTML = withdrawBtn.dataset.originalText || '<span>💸 Withdraw Funds</span>';
+          withdrawBtn.style.opacity = '1';
+          withdrawBtn.style.cursor = 'pointer';
+        } else {
+          withdrawBtn.innerHTML = `<span>⏳ Retry in ${sec}s</span>`;
+        }
+      }, 1000);
+    } else if (withdrawBtn) {
       withdrawBtn.disabled = false;
       withdrawBtn.innerHTML = withdrawBtn.dataset.originalText || '<span>💸 Withdraw Funds</span>';
       withdrawBtn.style.opacity = '1';
       withdrawBtn.style.cursor = 'pointer';
     }
     
-    // Показываем ошибку
     const errorMessage = error.message || 'Unknown error';
     const message = `❌ Error: ${errorMessage}. Check your wallet or balance.`;
-    
     if (window.Telegram && window.Telegram.WebApp) {
       window.Telegram.WebApp.showAlert(message);
     } else {

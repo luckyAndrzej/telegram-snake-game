@@ -419,13 +419,14 @@ io.on('connection', async (socket) => {
         return;
       }
       
-      // Защита от частых запросов (30 секунд)
+      const WITHDRAW_COOLDOWN_MS = 30000; // 30 секунд между запросами
       const lastRequest = lastWithdrawRequest.get(userId);
       const now = Date.now();
-      if (lastRequest && (now - lastRequest) < 30000) {
-        const remainingSeconds = Math.ceil((30000 - (now - lastRequest)) / 1000);
+      if (lastRequest && (now - lastRequest) < WITHDRAW_COOLDOWN_MS) {
+        const remainingSeconds = Math.ceil((WITHDRAW_COOLDOWN_MS - (now - lastRequest)) / 1000);
         socket.emit('withdrawal_error', {
-          message: `Пожалуйста, подождите ${remainingSeconds} секунд перед следующим запросом вывода`
+          message: `Пожалуйста, подождите ${remainingSeconds} секунд перед следующим запросом вывода`,
+          remainingSeconds
         });
         return;
       }
@@ -488,7 +489,6 @@ io.on('connection', async (socket) => {
         return;
       }
 
-      lastWithdrawRequest.set(userId, now);
       const adminSeed = (process.env.ADMIN_SEED || '').trim();
 
       if (!adminSeed && !DEBUG_MODE) {
@@ -498,6 +498,9 @@ io.on('connection', async (socket) => {
         });
         return;
       }
+
+      // Кулдаун только для реальных попыток вывода (после всех проверок)
+      lastWithdrawRequest.set(userId, now);
       
       // Курс 1:1 (1 TON = 1 TON)
       const amountInTon = parseFloat(amount);
