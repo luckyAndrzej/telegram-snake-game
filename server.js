@@ -492,9 +492,9 @@ io.on('connection', async (socket) => {
       const adminSeed = (process.env.ADMIN_SEED || '').trim();
 
       if (!adminSeed && !DEBUG_MODE) {
-        // Если нет ADMIN_SEED и не DEBUG_MODE - выдаем ошибку и НЕ списываем баланс
+        console.warn('Withdrawal rejected: ADMIN_SEED not set. Add ADMIN_SEED to Railway Variables for the web service (node server.js).');
         socket.emit('withdrawal_error', {
-          message: 'Система вывода временно недоступна. Пожалуйста, попробуйте позже.'
+          message: 'Система вывода временно недоступна. Попробуйте позже.'
         });
         return;
       }
@@ -1409,6 +1409,7 @@ app.get('/api/check-env', (req, res) => {
 // Запуск сервера
 const PORT = process.env.PORT || 3000;
 server.listen(PORT, () => {
-  console.log(`Server running on port ${PORT} (${DEBUG_MODE ? 'DEBUG' : 'mainnet'})`);
+  const hasSeed = !!(process.env.ADMIN_SEED || '').trim();
+  console.log(`Server running on port ${PORT} (${DEBUG_MODE ? 'DEBUG' : 'mainnet'}) | ADMIN_SEED: ${hasSeed ? 'set' : 'NOT SET'}`);
 });
 
