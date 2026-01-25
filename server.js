@@ -630,14 +630,13 @@ io.on('connection', async (socket) => {
                 walletVersion = 'V3R2';
                 console.log(`[Withdraw] ✅ Используем кошелёк V3R2 (совпадает с TON_WALLET_ADDRESS)`);
               } else {
-                errorDetails = `Адрес TON_WALLET_ADDRESS (${expectedAddrRaw}) не совпадает ни с V4 (${addrV4}), ни с V3R2 (${addrV3R2}) из ADMIN_SEED. Проверьте, что seed соответствует этому кошельку.`;
-                console.error(`[Withdraw] ❌ ${errorDetails}`);
-                throw new Error(errorDetails);
+                // TON_WALLET_ADDRESS не совпадает, но продолжаем - используем кошелёк из ADMIN_SEED с достаточным балансом
+                console.warn(`[Withdraw] ⚠️ TON_WALLET_ADDRESS (${expectedAddrRaw.substring(0, 15)}...) не совпадает с V4/V3R2 из ADMIN_SEED. Будем использовать кошелёк из ADMIN_SEED с достаточным балансом.`);
               }
             }
 
             if (!wallet) {
-              console.log(`[Withdraw] TON_WALLET_ADDRESS не установлен, проверяем балансы V4 и V3R2...`);
+              console.log(`[Withdraw] Проверяем балансы V4 и V3R2 из ADMIN_SEED...`);
               let balV4 = BigInt(0);
               let balV3 = BigInt(0);
               try { balV4 = await client.getBalance(walletV4.address); } catch (e) { console.warn(`[Withdraw] Ошибка получения баланса V4:`, e.message); }
@@ -655,7 +654,7 @@ io.on('connection', async (socket) => {
                 walletVersion = 'V3R2';
                 console.log(`[Withdraw] ✅ Выбран кошелёк V3R2 (баланс достаточен)`);
               } else {
-                errorDetails = `Недостаточно средств на кошельке админа. V4: ${balanceV4Ton.toFixed(4)} TON, V3R2: ${balanceV3Ton.toFixed(4)} TON; требуется ${(amountInTon + 0.1).toFixed(4)} TON (сумма + 0.1 комиссия). Убедитесь, что TON_WALLET_ADDRESS соответствует кошельку из ADMIN_SEED (V4 или V3R2).`;
+                errorDetails = `Недостаточно средств на кошельке админа. V4: ${balV4Ton.toFixed(4)} TON, V3R2: ${balV3Ton.toFixed(4)} TON; требуется ${(amountInTon + 0.1).toFixed(4)} TON (сумма + 0.1 комиссия).`;
                 console.error(`[Withdraw] ❌ ${errorDetails}`);
                 throw new Error(errorDetails);
               }
