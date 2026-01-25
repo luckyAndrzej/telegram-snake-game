@@ -99,7 +99,8 @@ const GAME_CONFIG = {
   FIELD_HEIGHT: 30, // Увеличено с 20 до 30
   TICK_RATE: 9, // тиков в секунду (замедлено в 2 раза: было 18, стало 9)
   ENTRY_PRICE: 1, // стоимость входа (в TON, списывается из winnings_ton)
-  WINNER_PERCENTAGE: 0.75 // процент выигрыша победителя (75%)
+  WINNER_PERCENTAGE: 0.75, // процент выигрыша победителя (75%)
+  MAX_CONCURRENT_GAMES: 1 // лимит одновременных игр; при достижении новые пары ждут в очереди (тест: 1)
 };
 
 // Инициализация базы данных
@@ -1034,15 +1035,23 @@ async function handleFindMatch(socket, userId) {
   
   // Ищем ожидающего соперника
   const waitingUser = Array.from(waitingPlayers.keys()).find(id => id !== userId);
-  
+  const atLimit = activeGames.size >= GAME_CONFIG.MAX_CONCURRENT_GAMES;
+
   if (waitingUser) {
-    // Найден соперник - создаем игру
+    if (atLimit) {
+      // Лимит достигнут — не создаём игру, оба ждут в очереди
+      waitingPlayers.set(userId, { socketId: socket.id, ready: false });
+      socket.emit('waiting_opponent');
+      console.log(`⏳ Игрок ${userId} в очереди (лимит ${GAME_CONFIG.MAX_CONCURRENT_GAMES} игр), ожидает с ${waitingUser}`);
+      return;
+    }
+    // Найден соперник и есть слот — создаем игру
     const opponentSocketId = waitingPlayers.get(waitingUser).socketId;
     waitingPlayers.delete(waitingUser);
-    
+
     await createGame(userId, waitingUser, socket.id, opponentSocketId);
   } else {
-    // Нет соперника - добавляем в очередь ожидания
+    // Нет соперника — добавляем в очередь ожидания
     waitingPlayers.set(userId, { socketId: socket.id, ready: false });
     socket.emit('waiting_opponent');
     console.log(`⏳ Игрок ${userId} ожидает соперника`);
@@ -1476,10 +1485,43 @@ async function endGame(gameId, winnerId, loserId) {
   playerToGame.delete(game.player1_id);
   playerToGame.delete(game.player2_id);
   
-  // Удаляем игру через 5 секунд (для истории)
+  // Удаляем игру через 5 секунд (для истории), затем обрабатываем очередь
   setTimeout(() => {
     activeGames.delete(gameId);
+    processQueue();
   }, 5000);
+}
+
+/**
+ * Обработка очереди: при освобождении слота создаём игры из ожидающих пар.
+ */
+async function processQueue() {
+  while (activeGames.size < GAME_CONFIG.MAX_CONCURRENT_GAMES) {
+    const ids = Array.from(waitingPlayers.keys());
+    if (ids.length < 2) break;
+    const [p1, p2] = ids.slice(0, 2);
+    const d1 = waitingPlayers.get(p1);
+    const d2 = waitingPlayers.get(p2);
+    if (!d1?.socketId || !d2?.socketId) {
+      if (!d1?.socketId) waitingPlayers.delete(p1);
+      if (!d2?.socketId) waitingPlayers.delete(p2);
+      continue;
+    }
+    const s1 = io.sockets.sockets.get(d1.socketId);
+    const s2 = io.sockets.sockets.get(d2.socketId);
+    if (!s1 || !s2) {
+      if (!s1) waitingPlayers.delete(p1);
+      if (!s2) waitingPlayers.delete(p2);
+      continue;
+    }
+    try {
+      await createGame(p1, p2, d1.socketId, d2.socketId);
+      console.log(`📋 Очередь: создана игра для ${p1} и ${p2}`);
+    } catch (err) {
+      console.error('❌ Очередь: ошибка createGame', err);
+      break;
+    }
+  }
 }
 
 /**
