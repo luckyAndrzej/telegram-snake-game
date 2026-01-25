@@ -410,9 +410,12 @@ io.on('connection', async (socket) => {
   // Обработчик запроса на вывод средств
   socket.on('requestWithdraw', async (data) => {
     try {
+      console.log(`[Withdraw] Запрос на вывод от пользователя ${userId}:`, { amount: data.amount, address: data.address ? `${data.address.substring(0, 10)}...` : 'не указан' });
+      
       const { amount, address } = data;
       
       if (!amount || amount <= 0) {
+        console.log(`[Withdraw] Отклонено: некорректная сумма ${amount}`);
         socket.emit('withdrawal_error', {
           message: 'Некорректная сумма для вывода'
         });
@@ -424,6 +427,7 @@ io.on('connection', async (socket) => {
       const now = Date.now();
       if (lastRequest && (now - lastRequest) < WITHDRAW_COOLDOWN_MS) {
         const remainingSeconds = Math.ceil((WITHDRAW_COOLDOWN_MS - (now - lastRequest)) / 1000);
+        console.log(`[Withdraw] Отклонено: кулдаун активен, осталось ${remainingSeconds} секунд`);
         socket.emit('withdrawal_error', {
           message: `Пожалуйста, подождите ${remainingSeconds} секунд перед следующим запросом вывода`,
           remainingSeconds
@@ -431,10 +435,13 @@ io.on('connection', async (socket) => {
         return;
       }
       
+      console.log(`[Withdraw] Кулдаун пройден, загружаем пользователя ${userId}...`);
       const user = await getUser(userId);
 
       // Проверяем баланс
+      console.log(`[Withdraw] Баланс пользователя: winnings_ton=${user.winnings_ton}, запрошено=${amount}`);
       if (!user.winnings_ton || user.winnings_ton < amount) {
+        console.log(`[Withdraw] Отклонено: недостаточно средств (доступно: ${user.winnings_ton || 0}, запрошено: ${amount})`);
         socket.emit('withdrawal_error', {
           message: `Недостаточно средств для вывода. Доступно: ${user.winnings_ton || 0} TON, запрошено: ${amount} TON`
         });
@@ -443,6 +450,7 @@ io.on('connection', async (socket) => {
       
       // Минимальная сумма вывода 1.75 TON
       if (amount < 1.75) {
+        console.log(`[Withdraw] Отклонено: сумма ${amount} меньше минимума 1.75 TON`);
         socket.emit('withdrawal_error', {
           message: 'Минимальная сумма вывода: 1.75 TON'
         });
@@ -483,27 +491,53 @@ io.on('connection', async (socket) => {
       
       const userWallet = (address && address.trim()) || user.wallet || user.wallet_address || '';
       if (!userWallet || userWallet.trim() === '') {
+        console.log(`[Withdraw] Отклонено: кошелек не указан`);
         socket.emit('withdrawal_error', {
           message: 'Кошелек не указан. Пожалуйста, укажите адрес кошелька.'
         });
         return;
       }
 
-      const adminSeed = (process.env.ADMIN_SEED || '').trim();
+      console.log(`[Withdraw] Кошелек пользователя: ${userWallet.substring(0, 10)}...`);
+      
+      // Проверка ADMIN_SEED
+      const adminSeedRaw = process.env.ADMIN_SEED || '';
+      const adminSeed = adminSeedRaw.trim();
+      const seedWords = adminSeed ? adminSeed.split(/\s+/).filter(Boolean) : [];
+      const hasAdminSeed = !!adminSeed;
+      const seedWordCount = seedWords.length;
+      const isDebugMode = DEBUG_MODE === true || DEBUG_MODE === 'true' || DEBUG_MODE === 'TRUE';
+      
+      console.log(`[Withdraw] Проверка ADMIN_SEED:`, {
+        hasAdminSeed,
+        seedWordCount,
+        isDebugMode,
+        canProceed: hasAdminSeed || isDebugMode
+      });
 
-      if (!adminSeed && !DEBUG_MODE) {
-        console.warn('Withdrawal rejected: ADMIN_SEED not set. Add ADMIN_SEED to Railway Variables for the web service (node server.js).');
+      if (!adminSeed && !isDebugMode) {
+        console.error(`[Withdraw] ❌ ОТКЛОНЕНО: ADMIN_SEED не установлен.`, {
+          adminSeedRaw: adminSeedRaw ? `[${adminSeedRaw.length} символов]` : 'пусто',
+          adminSeedTrimmed: adminSeed ? `[${adminSeed.length} символов]` : 'пусто',
+          seedWordCount,
+          DEBUG_MODE: process.env.DEBUG_MODE,
+          isDebugMode
+        });
         socket.emit('withdrawal_error', {
           message: 'Система вывода временно недоступна. Попробуйте позже.'
         });
         return;
       }
+      
+      console.log(`[Withdraw] ✅ ADMIN_SEED проверка пройдена, продолжаем...`);
 
       // Кулдаун только для реальных попыток вывода (после всех проверок)
       lastWithdrawRequest.set(userId, now);
+      console.log(`[Withdraw] Кулдаун установлен для пользователя ${userId}`);
       
       // Курс 1:1 (1 TON = 1 TON)
       const amountInTon = parseFloat(amount);
+      console.log(`[Withdraw] Начинаем обработку вывода: ${amountInTon} TON на адрес ${userWallet.substring(0, 15)}...`);
       
       let txHash = null;
       let withdrawalStatus = 'pending';
@@ -512,15 +546,19 @@ io.on('connection', async (socket) => {
       
       // Попытка реального вывода через TON API
       try {
-          if (adminSeed && !DEBUG_MODE) {
+          if (adminSeed && !isDebugMode) {
+            console.log(`[Withdraw] Режим: реальный вывод (mainnet), загружаем TON SDK...`);
           try {
             const { TonClient, WalletContractV4, WalletContractV3R2, internal, toNano, Address } = require('@ton/ton');
             const { mnemonicToWalletKey } = require('@ton/crypto');
+            console.log(`[Withdraw] TON SDK загружен`);
             
             // Используем децентрализованный Orbs Access вместо TonCenter
             const isTestnet = process.env.IS_TESTNET === 'true' || process.env.IS_TESTNET === true || process.env.IS_TESTNET === 'TRUE';
+            console.log(`[Withdraw] IS_TESTNET=${isTestnet}, сеть=${isTestnet ? 'testnet' : 'mainnet'}`);
             let endpoint;
             try {
+              console.log(`[Withdraw] Получаем endpoint через Orbs Access...`);
               // Добавляем таймаут для получения endpoint (10 секунд)
               const endpointPromise = getHttpEndpoint({ network: isTestnet ? 'testnet' : 'mainnet' });
               const timeoutPromise = new Promise((_, reject) => 
@@ -528,25 +566,36 @@ io.on('connection', async (socket) => {
               );
               
               endpoint = await Promise.race([endpointPromise, timeoutPromise]);
+              console.log(`[Withdraw] ✅ Endpoint получен: ${endpoint.substring(0, 50)}...`);
             } catch (endpointError) {
+              console.warn(`[Withdraw] ⚠️ Ошибка получения endpoint через Orbs, используем fallback:`, endpointError.message);
               endpoint = isTestnet
                 ? 'https://testnet.toncenter.com/api/v2/jsonRPC'
                 : 'https://toncenter.com/api/v2/jsonRPC';
+              console.log(`[Withdraw] Используем fallback endpoint: ${endpoint}`);
             }
 
             const apiKey = process.env.TONCENTER_API_KEY || process.env.TON_API_KEY || '';
+            console.log(`[Withdraw] API Key: ${apiKey ? `[${apiKey.length} символов]` : 'не установлен'}`);
             const client = new TonClient({ endpoint, apiKey: apiKey || undefined });
+            console.log(`[Withdraw] TonClient создан`);
+            
             const seedWords = adminSeed.split(/\s+/).filter(Boolean);
+            console.log(`[Withdraw] Seed-фраза разбита на ${seedWords.length} слов`);
             if (seedWords.length !== 24) {
               errorDetails = 'ADMIN_SEED должен содержать 24 слова';
+              console.error(`[Withdraw] ❌ ${errorDetails} (получено: ${seedWords.length})`);
               throw new Error(errorDetails);
             }
             
             let keyPair;
             try {
+              console.log(`[Withdraw] Создаём keyPair из seed-фразы...`);
               keyPair = await mnemonicToWalletKey(seedWords);
+              console.log(`[Withdraw] ✅ KeyPair создан`);
             } catch (keyError) {
               errorDetails = `Ошибка создания ключа из seed-фразы: ${keyError.message}`;
+              console.error(`[Withdraw] ❌ ${errorDetails}`, keyError);
               throw new Error(errorDetails);
             }
 
@@ -555,8 +604,10 @@ io.on('connection', async (socket) => {
             const walletV3R2 = WalletContractV3R2.create({ publicKey: keyPair.publicKey, workchain: 0 });
             const addrV4 = walletV4.address.toString(opts);
             const addrV3R2 = walletV3R2.address.toString(opts);
+            console.log(`[Withdraw] Адреса кошельков: V4=${addrV4.substring(0, 15)}..., V3R2=${addrV3R2.substring(0, 15)}...`);
 
             const expectedAddrRaw = (process.env.TON_WALLET_ADDRESS || '').trim();
+            console.log(`[Withdraw] TON_WALLET_ADDRESS из env: ${expectedAddrRaw ? `${expectedAddrRaw.substring(0, 15)}...` : 'не установлен'}`);
             let wallet = null;
             let walletVersion = '';
 
@@ -564,47 +615,61 @@ io.on('connection', async (socket) => {
               let expectedNorm;
               try {
                 expectedNorm = Address.parse(expectedAddrRaw).toString(opts);
+                console.log(`[Withdraw] Нормализованный адрес из TON_WALLET_ADDRESS: ${expectedNorm.substring(0, 15)}...`);
               } catch (parseErr) {
                 errorDetails = `Некорректный TON_WALLET_ADDRESS: ${parseErr.message}`;
+                console.error(`[Withdraw] ❌ ${errorDetails}`, parseErr);
                 throw new Error(errorDetails);
               }
               if (addrV4 === expectedNorm) {
                 wallet = walletV4;
                 walletVersion = 'V4';
+                console.log(`[Withdraw] ✅ Используем кошелёк V4 (совпадает с TON_WALLET_ADDRESS)`);
               } else if (addrV3R2 === expectedNorm) {
                 wallet = walletV3R2;
                 walletVersion = 'V3R2';
+                console.log(`[Withdraw] ✅ Используем кошелёк V3R2 (совпадает с TON_WALLET_ADDRESS)`);
               } else {
                 errorDetails = `Адрес TON_WALLET_ADDRESS (${expectedAddrRaw}) не совпадает ни с V4 (${addrV4}), ни с V3R2 (${addrV3R2}) из ADMIN_SEED. Проверьте, что seed соответствует этому кошельку.`;
+                console.error(`[Withdraw] ❌ ${errorDetails}`);
                 throw new Error(errorDetails);
               }
             }
 
             if (!wallet) {
+              console.log(`[Withdraw] TON_WALLET_ADDRESS не установлен, проверяем балансы V4 и V3R2...`);
               let balV4 = BigInt(0);
               let balV3 = BigInt(0);
-              try { balV4 = await client.getBalance(walletV4.address); } catch (_) {}
-              try { balV3 = await client.getBalance(walletV3R2.address); } catch (_) {}
+              try { balV4 = await client.getBalance(walletV4.address); } catch (e) { console.warn(`[Withdraw] Ошибка получения баланса V4:`, e.message); }
+              try { balV3 = await client.getBalance(walletV3R2.address); } catch (e) { console.warn(`[Withdraw] Ошибка получения баланса V3R2:`, e.message); }
               const requiredNano = BigInt(Math.ceil((amountInTon + 0.1) * 1e9));
+              const balV4Ton = Number(balV4) / 1e9;
+              const balV3Ton = Number(balV3) / 1e9;
+              console.log(`[Withdraw] Балансы: V4=${balV4Ton.toFixed(4)} TON, V3R2=${balV3Ton.toFixed(4)} TON, требуется=${(amountInTon + 0.1).toFixed(4)} TON`);
               if (balV4 >= requiredNano) {
                 wallet = walletV4;
                 walletVersion = 'V4';
+                console.log(`[Withdraw] ✅ Выбран кошелёк V4 (баланс достаточен)`);
               } else if (balV3 >= requiredNano) {
                 wallet = walletV3R2;
                 walletVersion = 'V3R2';
+                console.log(`[Withdraw] ✅ Выбран кошелёк V3R2 (баланс достаточен)`);
               } else {
-                const balanceV4Ton = Number(balV4) / 1e9;
-                const balanceV3Ton = Number(balV3) / 1e9;
                 errorDetails = `Недостаточно средств на кошельке админа. V4: ${balanceV4Ton.toFixed(4)} TON, V3R2: ${balanceV3Ton.toFixed(4)} TON; требуется ${(amountInTon + 0.1).toFixed(4)} TON (сумма + 0.1 комиссия). Убедитесь, что TON_WALLET_ADDRESS соответствует кошельку из ADMIN_SEED (V4 или V3R2).`;
+                console.error(`[Withdraw] ❌ ${errorDetails}`);
                 throw new Error(errorDetails);
               }
             }
 
             let balance;
             try {
+              console.log(`[Withdraw] Проверяем баланс кошелька ${walletVersion}...`);
               balance = await client.getBalance(wallet.address);
+              const balanceInTon = parseFloat(balance.toString()) / 1000000000;
+              console.log(`[Withdraw] ✅ Баланс кошелька: ${balanceInTon.toFixed(4)} TON`);
             } catch (balanceError) {
               errorDetails = `Ошибка проверки баланса: ${balanceError.message}`;
+              console.error(`[Withdraw] ❌ ${errorDetails}`, balanceError);
               throw balanceError;
             }
 
@@ -612,25 +677,33 @@ io.on('connection', async (socket) => {
             if (balanceInTon < amountInTon + 0.1) {
               const required = amountInTon + 0.1;
               errorDetails = `Недостаточно средств на администраторском кошельке. Баланс: ${balanceInTon.toFixed(4)} TON, требуется: ${required.toFixed(4)} TON (${amountInTon} TON + 0.1 TON комиссия)`;
+              console.error(`[Withdraw] ❌ ${errorDetails}`);
               throw new Error(errorDetails);
             }
 
             try {
+              console.log(`[Withdraw] Создаём provider для кошелька ${walletVersion}...`);
               const provider = client.provider(wallet.address);
 
               const getSeqnoWithRetry = async (maxRetries = 5, initialDelayMs = 3000) => {
                 for (let attempt = 1; attempt <= maxRetries; attempt++) {
                   try {
-                    return await wallet.getSeqno(provider);
+                    console.log(`[Withdraw] Получаем seqno (попытка ${attempt}/${maxRetries})...`);
+                    const seqno = await wallet.getSeqno(provider);
+                    console.log(`[Withdraw] ✅ Seqno получен: ${seqno}`);
+                    return seqno;
                   } catch (error) {
                     const isRateLimit = error.message && (
                       error.message.includes('429') || error.message.includes('Too Many Requests') ||
                       error.status === 429 || error.response?.status === 429
                     );
                     if (isRateLimit && attempt < maxRetries) {
-                      await new Promise(resolve => setTimeout(resolve, initialDelayMs * Math.pow(2, attempt - 1)));
+                      const delay = initialDelayMs * Math.pow(2, attempt - 1);
+                      console.warn(`[Withdraw] ⚠️ Rate limit (429), ждём ${delay}ms перед повтором...`);
+                      await new Promise(resolve => setTimeout(resolve, delay));
                       continue;
                     }
+                    console.error(`[Withdraw] ❌ Ошибка получения seqno:`, error.message);
                     throw error;
                   }
                 }
@@ -639,23 +712,29 @@ io.on('connection', async (socket) => {
               const seqno = await getSeqnoWithRetry();
               let recipientAddress;
               try {
+                console.log(`[Withdraw] Парсим адрес получателя: ${userWallet.substring(0, 15)}...`);
                 recipientAddress = Address.parse(userWallet);
                 if (recipientAddress.equals(wallet.address)) {
                   errorDetails = 'Адрес получателя не может совпадать с адресом администратора';
+                  console.error(`[Withdraw] ❌ ${errorDetails}`);
                   throw new Error(errorDetails);
                 }
+                console.log(`[Withdraw] ✅ Адрес получателя валиден`);
               } catch (parseError) {
                 errorDetails = `Некорректный адрес кошелька получателя: ${parseError.message}. Убедитесь, что адрес указан правильно и соответствует сети (${isTestnet ? 'testnet' : 'mainnet'}).`;
+                console.error(`[Withdraw] ❌ ${errorDetails}`, parseError);
                 throw new Error(errorDetails);
               }
 
               const amountInNano = toNano(amountInTon.toFixed(9));
+              console.log(`[Withdraw] Сумма в нанотонах: ${amountInNano.toString()}`);
               
               // Функция для отправки транзакции с retry при ошибке 429
               const sendTransferWithRetry = async (currentSeqno, maxRetries = 5, initialDelayMs = 3000) => {
                 let attemptSeqno = currentSeqno;
                 for (let attempt = 1; attempt <= maxRetries; attempt++) {
                   try {
+                    console.log(`[Withdraw] Отправляем транзакцию (попытка ${attempt}/${maxRetries}), seqno=${attemptSeqno}...`);
                     await wallet.sendTransfer(provider, {
                       seqno: attemptSeqno,
                       secretKey: keyPair.secretKey,
@@ -668,6 +747,7 @@ io.on('connection', async (socket) => {
                         })
                       ]
                     });
+                    console.log(`[Withdraw] ✅ Транзакция успешно отправлена!`);
                     return; // Успешно отправлено
                   } catch (error) {
                     const isRateLimit = error.message && (
@@ -678,10 +758,16 @@ io.on('connection', async (socket) => {
                     );
                     
                     if (isRateLimit && attempt < maxRetries) {
-                      await new Promise(resolve => setTimeout(resolve, initialDelayMs * Math.pow(2, attempt - 1)));
-                      try { attemptSeqno = await getSeqnoWithRetry(3, 2000); } catch (_) {}
+                      const delay = initialDelayMs * Math.pow(2, attempt - 1);
+                      console.warn(`[Withdraw] ⚠️ Rate limit (429) при отправке, ждём ${delay}ms перед повтором...`);
+                      await new Promise(resolve => setTimeout(resolve, delay));
+                      try { 
+                        attemptSeqno = await getSeqnoWithRetry(3, 2000); 
+                        console.log(`[Withdraw] Обновлён seqno: ${attemptSeqno}`);
+                      } catch (_) {}
                       continue;
                     }
+                    console.error(`[Withdraw] ❌ Ошибка отправки транзакции (попытка ${attempt}):`, error.message);
                     throw error;
                   }
                 }
@@ -691,10 +777,12 @@ io.on('connection', async (socket) => {
               transactionSuccess = true;
               withdrawalStatus = 'completed';
               txHash = `tx_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
+              console.log(`[Withdraw] ✅ Транзакция успешно обработана, txHash=${txHash}`);
             } catch (e) {
               transactionSuccess = false;
               txHash = `withdraw_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
               withdrawalStatus = 'failed';
+              console.error(`[Withdraw] ❌ Ошибка в блоке отправки транзакции:`, e.message, e.stack);
               
               // Проверяем, является ли это ошибкой rate limit
               const isRateLimit = e.message && (
@@ -706,18 +794,21 @@ io.on('connection', async (socket) => {
               
               if (isRateLimit) {
                 errorDetails = 'Сеть TON временно перегружена (rate limit). Все попытки отправки исчерпаны. Пожалуйста, попробуйте через несколько минут. Баланс не списан.';
+                console.warn(`[Withdraw] ⚠️ Rate limit обнаружен`);
               } else {
                 errorDetails = `Ошибка отправки транзакции: ${e.message}`;
               }
             }
           } catch (tonError) {
+            console.error(`[Withdraw] ❌ Ошибка TON SDK:`, tonError.message, tonError.stack);
             transactionSuccess = false;
             txHash = `withdraw_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
             withdrawalStatus = 'failed';
             errorDetails = `Ошибка TON SDK: ${tonError.message}`;
           }
-        } else if (DEBUG_MODE) {
+        } else if (isDebugMode) {
           // DEBUG_MODE: симулируем успешную транзакцию
+          console.log(`[Withdraw] DEBUG_MODE: симулируем успешную транзакцию`);
           transactionSuccess = true;
           txHash = `debug_${Date.now()}_${Math.random().toString(36).substr(2, 9)}`;
           withdrawalStatus = 'completed';
@@ -725,6 +816,7 @@ io.on('connection', async (socket) => {
           transactionSuccess = false;
           withdrawalStatus = 'failed';
           errorDetails = 'Система вывода временно недоступна. ADMIN_SEED не настроен.';
+          console.error(`[Withdraw] ❌ ADMIN_SEED не настроен и DEBUG_MODE выключен`);
         }
       } catch (error) {
         transactionSuccess = false;
@@ -733,13 +825,16 @@ io.on('connection', async (socket) => {
         if (!errorDetails) {
           errorDetails = `Ошибка выполнения транзакции: ${error.message}`;
         }
+        console.error(`[Withdraw] ❌ Неожиданная ошибка в обработчике вывода:`, error.message, error.stack);
       }
       
       // БЕЗОПАСНЫЙ ВЫВОД: Списываем баланс ТОЛЬКО после успешной отправки транзакции
       if (transactionSuccess) {
+        console.log(`[Withdraw] ✅ Транзакция успешна, списываем баланс: ${user.winnings_ton} -> ${Math.max(0, (user.winnings_ton || 0) - amount)}`);
         const newWinnings = Math.max(0, (user.winnings_ton || 0) - amount);
         await updateUser(userId, { winnings_ton: newWinnings });
       } else {
+        console.log(`[Withdraw] ❌ Транзакция не удалась, баланс НЕ списан. Статус: ${withdrawalStatus}, ошибка: ${errorDetails}`);
         let userMessage = 'Не удалось отправить транзакцию. Баланс не списан.';
         if (errorDetails) {
           // Если есть детали, добавляем их (но упрощаем для пользователя)
@@ -1396,11 +1491,15 @@ app.post('/api/create-payment', async (req, res) => {
 
 // Диагностика: проверка переменных окружения (без секретов)
 app.get('/api/check-env', (req, res) => {
-  const adminSeed = process.env.ADMIN_SEED || '';
-  const words = adminSeed.trim().split(/\s+/).filter(Boolean);
+  const adminSeed = (process.env.ADMIN_SEED || '').trim();
+  const words = adminSeed ? adminSeed.split(/\s+/).filter(Boolean) : [];
+  const DEBUG = process.env.DEBUG_MODE === 'true' || process.env.DEBUG_MODE === true;
+  const withdrawOk = !!adminSeed || !!DEBUG;
   res.json({
     hasAdminSeed: !!adminSeed,
     adminSeedWordCount: words.length,
+    withdrawAvailable: withdrawOk,
+    reason: !withdrawOk ? 'ADMIN_SEED missing. Add it in Railway Variables for the web service (Node.js), then Redeploy.' : null,
     hasTonWallet: !!process.env.TON_WALLET_ADDRESS,
     hasTonCenterKey: !!(process.env.TONCENTER_API_KEY || process.env.TON_API_KEY),
     debugMode: process.env.DEBUG_MODE,
