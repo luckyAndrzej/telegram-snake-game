@@ -903,7 +903,8 @@ function initSocket() {
     const commentEl = document.getElementById('deposit-comment');
     const statusEl = document.getElementById('deposit-status');
     const confirmBtn = document.getElementById('confirm-deposit-btn');
-    const payBtn = document.getElementById('pay-deposit-tonkeeper-btn');
+    const payTonkeeperBtn = document.getElementById('pay-deposit-tonkeeper-btn');
+    const payTelegramBtn = document.getElementById('pay-deposit-telegram-btn');
     
     if (depositModal && addressEl && amountTonEl && commentEl) {
       // Показываем детали депозита, скрываем поле ввода суммы
@@ -918,9 +919,10 @@ function initSocket() {
       amountTonEl.textContent = data.amountTon;
       commentEl.textContent = data.comment;
       
-      // Скрываем кнопку подтверждения, показываем кнопку оплаты
+      // Скрываем кнопку подтверждения, показываем кнопки оплаты
       if (confirmBtn) confirmBtn.style.display = 'none';
-      if (payBtn) payBtn.style.display = 'block';
+      if (payTonkeeperBtn) payTonkeeperBtn.style.display = 'block';
+      if (payTelegramBtn) payTelegramBtn.style.display = 'block';
       
       if (statusEl) {
         statusEl.textContent = '';
@@ -1330,12 +1332,14 @@ function initEventListeners() {
     const amountSection = document.getElementById('deposit-amount-section');
     const detailsSection = document.getElementById('deposit-details-section');
     const confirmBtn = document.getElementById('confirm-deposit-btn');
-    const payBtn = document.getElementById('pay-deposit-tonkeeper-btn');
+    const payTonkeeperBtn = document.getElementById('pay-deposit-tonkeeper-btn');
+    const payTelegramBtn = document.getElementById('pay-deposit-telegram-btn');
     
     if (amountSection) amountSection.style.display = 'block';
     if (detailsSection) detailsSection.style.display = 'none';
     if (confirmBtn) confirmBtn.style.display = 'block';
-    if (payBtn) payBtn.style.display = 'none';
+    if (payTonkeeperBtn) payTonkeeperBtn.style.display = 'none';
+    if (payTelegramBtn) payTelegramBtn.style.display = 'none';
   });
   
   // Confirm deposit amount button
@@ -1377,12 +1381,14 @@ function initEventListeners() {
     const amountSection = document.getElementById('deposit-amount-section');
     const detailsSection = document.getElementById('deposit-details-section');
     const confirmBtn = document.getElementById('confirm-deposit-btn');
-    const payBtn = document.getElementById('pay-deposit-tonkeeper-btn');
+    const payTonkeeperBtn = document.getElementById('pay-deposit-tonkeeper-btn');
+    const payTelegramBtn = document.getElementById('pay-deposit-telegram-btn');
     
     if (amountSection) amountSection.style.display = 'block';
     if (detailsSection) detailsSection.style.display = 'none';
     if (confirmBtn) confirmBtn.style.display = 'block';
-    if (payBtn) payBtn.style.display = 'none';
+    if (payTonkeeperBtn) payTonkeeperBtn.style.display = 'none';
+    if (payTelegramBtn) payTelegramBtn.style.display = 'none';
     
     // Очищаем статусы
     const statusEl = document.getElementById('deposit-status');
@@ -1439,14 +1445,10 @@ function initEventListeners() {
     }
     
     const address = deposit.walletAddress;
-    // ИСПРАВЛЕНИЕ БАГА: Используем amountTon для получения суммы в TON, затем конвертируем в нанотоны
-    // Если amountTon не указан, используем amount напрямую (уже в нанотонах)
     let amountInNanoTon;
     if (deposit.amountTon) {
-      // Конвертируем TON в нанотоны (1 TON = 1,000,000,000 нанотонов)
       amountInNanoTon = Math.round(parseFloat(deposit.amountTon) * 1000000000).toString();
     } else if (deposit.amount) {
-      // Если amountTon не указан, используем amount напрямую
       amountInNanoTon = deposit.amount.toString();
     } else {
       tg.showAlert('Deposit amount is missing. Please try again.');
@@ -1467,15 +1469,9 @@ function initEventListeners() {
       comment 
     });
     
-    // Создаем deep link для Tonkeeper
     const tonkeeperUrl = `ton://transfer/${address}?amount=${amountInNanoTon}&text=${encodeURIComponent(comment)}`;
-    
     console.log('Opening Tonkeeper URL:', tonkeeperUrl);
     
-    // Пытаемся открыть Tonkeeper
-    // ВАЖНО: tg.openLink() НЕ поддерживает протокол ton:// в Telegram WebApp
-    // В Telegram Mini App для Deep Links ton:// лучше использовать временную ссылку
-    // Создаем временный <a> элемент и кликаем по нему
     const link = document.createElement('a');
     link.href = tonkeeperUrl;
     link.style.display = 'none';
@@ -1646,6 +1642,138 @@ function initEventListeners() {
         }
         tg.showAlert('Error opening Tonkeeper. Please send the payment manually using the address and comment above.');
       }
+    }
+  });
+  
+  // Pay deposit with Telegram Wallet button
+  document.getElementById('pay-deposit-telegram-btn')?.addEventListener('click', () => {
+    const deposit = window.currentDeposit;
+    if (!deposit) {
+      tg.showAlert('Deposit data not found. Please try again.');
+      return;
+    }
+    
+    const address = deposit.walletAddress;
+    let amountInNanoTon;
+    if (deposit.amountTon) {
+      amountInNanoTon = Math.round(parseFloat(deposit.amountTon) * 1000000000).toString();
+    } else if (deposit.amount) {
+      amountInNanoTon = deposit.amount.toString();
+    } else {
+      tg.showAlert('Deposit amount is missing. Please try again.');
+      return;
+    }
+    
+    const comment = deposit.comment;
+    
+    if (!address || !amountInNanoTon || !comment) {
+      tg.showAlert('Deposit data is incomplete. Please try again.');
+      return;
+    }
+    
+    console.log('Pay deposit with Telegram Wallet clicked:', { 
+      address, 
+      amountTon: deposit.amountTon, 
+      amountInNanoTon, 
+      comment 
+    });
+    
+    // Создаем deep link для Telegram Wallet
+    const telegramWalletUrl = `ton://transfer/${address}?amount=${amountInNanoTon}&text=${encodeURIComponent(comment)}`;
+    
+    console.log('Opening Telegram Wallet URL:', telegramWalletUrl);
+    
+    try {
+      // Используем tg.openLink() для открытия Telegram Wallet
+      if (tg && tg.openLink) {
+        tg.openLink(telegramWalletUrl);
+        console.log('Opened Telegram Wallet via tg.openLink()');
+        
+        // Показываем статус ожидания
+        const statusEl = document.getElementById('deposit-status');
+        if (statusEl) {
+          statusEl.textContent = '⏳ Waiting for payment...';
+          statusEl.style.color = '#667eea';
+        }
+        
+        const pollingStatusEl = document.getElementById('deposit-polling-status');
+        if (pollingStatusEl) {
+          pollingStatusEl.style.display = 'block';
+          pollingStatusEl.textContent = '⏳ Waiting for transaction confirmation...';
+        }
+        
+        // Polling баланса (та же логика, что и для Tonkeeper)
+        const initialWinnings = localUserState.winnings_ton || 0;
+        let pollCount = 0;
+        const maxPolls = 30;
+        
+        const pollBalance = setInterval(async () => {
+          pollCount++;
+          console.log(`🔄 Polling deposit balance (attempt ${pollCount}/${maxPolls})...`);
+          
+          try {
+            await refreshUserProfile();
+            const currentWinnings = localUserState.winnings_ton || 0;
+            
+            if (currentWinnings > initialWinnings) {
+              console.log('✅ Deposit successful!');
+              clearInterval(pollBalance);
+              
+              if (pollingStatusEl) {
+                pollingStatusEl.style.display = 'none';
+              }
+              
+              if (statusEl) {
+                statusEl.textContent = '✅ Deposit successful!';
+                statusEl.style.color = '#00ff41';
+              }
+              
+              tg.showAlert(`✅ Deposit successful! +${deposit.amountTon} TON added to winnings.`);
+              
+              // Закрываем модальное окно через 2 секунды
+              setTimeout(() => {
+                toggleModal('deposit-modal', false);
+              }, 2000);
+            } else if (pollCount >= maxPolls) {
+              clearInterval(pollBalance);
+              if (pollingStatusEl) {
+                pollingStatusEl.style.display = 'none';
+              }
+            }
+          } catch (error) {
+            console.error('❌ Error polling balance:', error);
+            if (pollCount >= maxPolls) {
+              clearInterval(pollBalance);
+              if (pollingStatusEl) {
+                pollingStatusEl.style.display = 'none';
+              }
+            }
+          }
+        }, 10000); // Каждые 10 секунд
+        
+        // Очищаем polling при закрытии модалки
+        const depositModal = document.getElementById('deposit-modal');
+        if (depositModal) {
+          const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+              if (!depositModal.classList.contains('modal-visible')) {
+                clearInterval(pollBalance);
+                if (pollingStatusEl) {
+                  pollingStatusEl.style.display = 'none';
+                }
+                observer.disconnect();
+              }
+            });
+          });
+          observer.observe(depositModal, { attributes: true, attributeFilter: ['class'] });
+        }
+      } else {
+        // Fallback: используем прямой deep link через window.location
+        window.location.href = telegramWalletUrl;
+      }
+    } catch (error) {
+      console.error('Error opening Telegram Wallet:', error);
+      tg.showAlert('Error opening Telegram Wallet. Please try again.');
     }
   });
   
@@ -1832,6 +1960,139 @@ function initEventListeners() {
         statusEl.innerHTML = '⚠️ Error opening Tonkeeper. Please send the payment manually using the address and comment above.';
         statusEl.style.color = '#ef4444';
       }
+    }
+  });
+  
+  // Pay with Telegram Wallet button (payment modal)
+  document.getElementById('pay-telegram-btn')?.addEventListener('click', () => {
+    const addressEl = document.getElementById('payment-address');
+    const amountTonEl = document.getElementById('payment-amount-ton');
+    const commentEl = document.getElementById('payment-comment');
+    
+    const address = addressEl?.textContent?.trim();
+    const amount = amountTonEl?.textContent?.trim();
+    const comment = commentEl?.textContent?.trim();
+    
+    console.log('Pay with Telegram Wallet clicked:', { address, amount, comment });
+    
+    if (!address || !amount || !comment) {
+      console.error('Missing payment data:', { address: !!address, amount: !!amount, comment: !!comment });
+      tg.showAlert('Payment data is missing. Please try again.');
+      return;
+    }
+    
+    try {
+      const nanoTon = (parseFloat(amount) * 1000000000).toString();
+      const telegramWalletUrl = `ton://transfer/${address}?amount=${nanoTon}&text=${encodeURIComponent(comment)}`;
+      
+      console.log('Opening Telegram Wallet URL:', telegramWalletUrl);
+      
+      let paymentInitiated = false;
+      
+      if (tg && tg.openLink) {
+        tg.openLink(telegramWalletUrl);
+        console.log('Opened Telegram Wallet via tg.openLink()');
+        paymentInitiated = true;
+        
+        const statusEl = document.getElementById('payment-status');
+        if (statusEl) {
+          statusEl.textContent = '⏳ Waiting for payment...';
+          statusEl.style.color = '#667eea';
+        }
+        
+        const pollingStatusEl = document.getElementById('polling-status');
+        if (pollingStatusEl) {
+          pollingStatusEl.style.display = 'block';
+          pollingStatusEl.textContent = '⏳ Waiting for transaction confirmation...';
+        }
+        
+        if (paymentInitiated) {
+          const initialBalance = localUserState.games_balance || 0;
+          let pollCount = 0;
+          const maxPolls = 30;
+          
+          const pollBalance = setInterval(async () => {
+            pollCount++;
+            console.log(`🔄 Polling balance (attempt ${pollCount}/${maxPolls})...`);
+            
+            try {
+              await refreshUserProfile();
+              const currentBalance = localUserState.games_balance || 0;
+              
+              if (currentBalance > initialBalance) {
+                console.log('✅ Balance updated! Closing payment modal.');
+                clearInterval(pollBalance);
+                
+                if (pollingStatusEl) {
+                  pollingStatusEl.style.display = 'none';
+                }
+                
+                toggleModal('payment-modal', false);
+                
+                if (statusEl) {
+                  statusEl.textContent = '✅ Payment received!';
+                  statusEl.style.color = '#00ff41';
+                  setTimeout(() => {
+                    statusEl.textContent = '';
+                  }, 2000);
+                }
+              } else if (pollCount >= maxPolls) {
+                clearInterval(pollBalance);
+                if (pollingStatusEl) {
+                  pollingStatusEl.style.display = 'none';
+                }
+              }
+            } catch (error) {
+              console.error('❌ Error polling balance:', error);
+              if (pollCount >= maxPolls) {
+                clearInterval(pollBalance);
+                if (pollingStatusEl) {
+                  pollingStatusEl.style.display = 'none';
+                }
+              }
+            }
+          }, 10000);
+          
+          const paymentModal = document.getElementById('payment-modal');
+          if (paymentModal) {
+            const observer = new MutationObserver((mutations) => {
+              mutations.forEach((mutation) => {
+                if (!paymentModal.classList.contains('modal-visible')) {
+                  clearInterval(pollBalance);
+                  if (pollingStatusEl) {
+                    pollingStatusEl.style.display = 'none';
+                  }
+                  observer.disconnect();
+                }
+              });
+            });
+            observer.observe(paymentModal, { attributes: true, attributeFilter: ['class'] });
+          }
+        }
+      } else {
+        window.location.href = telegramWalletUrl;
+        paymentInitiated = true;
+        
+        const statusEl = document.getElementById('payment-status');
+        if (statusEl) {
+          statusEl.textContent = '⏳ Waiting for payment...';
+          statusEl.style.color = '#667eea';
+        }
+        
+        if (paymentInitiated) {
+          setTimeout(() => {
+            refreshUserProfile();
+          }, 4000);
+        }
+      }
+    } catch (error) {
+      console.error('Error opening Telegram Wallet:', error);
+      const statusEl = document.getElementById('payment-status');
+      if (statusEl) {
+        statusEl.innerHTML = '⚠️ Error opening Telegram Wallet. Please try again.';
+        statusEl.style.color = '#ef4444';
+      }
+      tg.showAlert('Error opening Telegram Wallet. Please try again.');
     }
   });
   
