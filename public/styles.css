@@ -1018,6 +1018,8 @@ body::before {
     align-items: center !important; /* ИСПРАВЛЕНИЕ: Центрирование по вертикали */
     justify-content: center !important; /* ИСПРАВЛЕНИЕ: Центрирование по горизонтали */
     opacity: 1 !important;
+    padding: 10px !important; /* Добавлен padding для отступа от краев */
+    box-sizing: border-box !important;
 }
 
 .payment-modal-content {
@@ -1383,7 +1385,7 @@ body::before {
     display: flex !important;
     flex-direction: column !important;
     overflow: hidden !important;
-    max-height: calc(100vh - 40px) !important;
+    max-height: 85vh !important; /* Уменьшено с calc(100vh - 40px) для лучшей видимости */
     padding: 0 !important;
     height: auto !important;
     min-height: 0 !important;
@@ -1411,6 +1413,8 @@ body::before {
     padding: 20px 25px !important;
     min-height: 0 !important;
     max-height: none !important;
+    /* Убеждаемся, что контент не выходит за границы */
+    box-sizing: border-box !important;
 }
 #deposit-modal #deposit-status,
 #deposit-modal #deposit-polling-status {
@@ -1866,14 +1870,15 @@ body::before {
     }
     
     #deposit-modal .payment-modal-content {
-        max-height: calc(100vh - 20px) !important;
+        max-height: 85vh !important; /* Строгое ограничение для мобильных */
         height: auto !important;
         min-height: 0 !important;
     }
     
     #deposit-modal .payment-modal-content h3 {
         flex-shrink: 0 !important;
-        padding: 20px 50px 18px 20px !important;
+        padding: 18px 50px 15px 20px !important; /* Уменьшен padding для экономии места */
+        font-size: 22px !important; /* Немного уменьшен размер шрифта */
     }
     
     #deposit-modal #deposit-info {
@@ -1883,18 +1888,20 @@ body::before {
         overflow-x: hidden !important;
         -webkit-overflow-scrolling: touch !important;
         padding: 15px 20px !important;
+        box-sizing: border-box !important;
     }
     
     #deposit-modal #deposit-status,
     #deposit-modal #deposit-polling-status {
         flex-shrink: 0 !important;
-        padding: 10px 20px !important;
+        padding: 8px 20px !important; /* Уменьшен padding */
+        font-size: 13px !important; /* Уменьшен размер шрифта */
     }
     
     #deposit-modal .deposit-buttons {
         flex-shrink: 0 !important;
         background: #0a0a1a !important;
-        padding: 15px !important;
+        padding: 12px 15px 15px 15px !important; /* Уменьшен padding */
         margin: 0 !important;
         width: 100% !important;
         box-sizing: border-box !important;
@@ -1908,10 +1915,12 @@ body::before {
     }
     
     #deposit-modal .deposit-buttons .btn {
-        min-height: 48px !important;
+        min-height: 44px !important; /* Немного уменьшена высота */
         flex: 1 1 0 !important; /* Равная ширина для кнопок */
         min-width: 0 !important;
         margin-bottom: 0 !important;
+        font-size: 13px !important; /* Уменьшен размер шрифта для мобильных */
+        padding: 10px 8px !important; /* Уменьшен padding */
     }
     
     .btn {
@@ -1932,51 +1941,64 @@ body::before {
     
     .payment-modal-content {
         position: relative !important;
-        width: 100% !important; /* ИСПРАВЛЕНИЕ: 100% с учетом padding родителя */
+        width: 100% !important;
         margin: 0 !important;
         max-width: 100% !important;
-        max-height: 90vh !important;
+        max-height: 85vh !important; /* Уменьшено для очень маленьких экранов */
         z-index: 10001 !important;
         display: flex !important;
         flex-direction: column !important;
         border-radius: 20px !important;
-        overflow: hidden !important; /* ИСПРАВЛЕНИЕ: Убираем тёмные уголки внизу (как в rules) */
-        padding: 0 !important; /* ИСПРАВЛЕНИЕ: Padding убран, добавляется к внутренним элементам */
+        overflow: hidden !important;
+        padding: 0 !important;
+    }
+    
+    #deposit-modal .payment-modal-content {
+        max-height: 85vh !important; /* Строгое ограничение для депозита */
     }
     
     #deposit-modal #deposit-info {
-        flex: 1 1 auto !important;
+        flex: 1 1 0 !important;
         min-height: 0 !important;
         overflow-y: auto !important;
         overflow-x: hidden !important;
         -webkit-overflow-scrolling: touch !important;
-        padding: 15px !important;
+        padding: 12px 15px !important; /* Уменьшен padding */
+        box-sizing: border-box !important;
     }
     
     #deposit-modal .deposit-buttons {
         flex-shrink: 0 !important;
         background: #0a0a1a !important;
-        padding: 15px !important;
+        padding: 10px 12px 12px 12px !important; /* Уменьшен padding */
         margin: 0 !important;
         width: 100% !important;
         box-sizing: border-box !important;
         border-top: 1px solid rgba(0, 245, 255, 0.1) !important;
         border-radius: 0 0 18px 18px !important;
-        overflow: hidden !important;
+        overflow: visible !important;
         display: flex !important;
         flex-direction: row !important; /* Кнопки в ряд */
-        gap: 10px !important;
+        gap: 8px !important; /* Уменьшен gap */
         flex-wrap: nowrap !important; /* Не переносим на новую строку */
     }
     
     #deposit-modal .deposit-buttons .btn {
         flex: 1 1 0 !important; /* Равная ширина для кнопок */
         min-width: 0 !important;
-        min-height: 48px !important;
+        min-height: 42px !important; /* Уменьшена высота */
+        font-size: 12px !important; /* Уменьшен размер шрифта */
+        padding: 8px 6px !important; /* Уменьшен padding */
     }
     
     .payment-modal-content h3 {
-        padding: 20px 50px 15px 15px !important; /* ИСПРАВЛЕНИЕ: Padding для заголовка с учетом крестика */
+        padding: 16px 45px 14px 15px !important; /* Уменьшен padding для экономии места */
+        font-size: 20px !important; /* Уменьшен размер шрифта */
+    }
+    
+    #deposit-modal .payment-modal-content h3 {
+        padding: 16px 45px 14px 18px !important; /* Уменьшен padding */
+        font-size: 20px !important; /* Уменьшен размер шрифта */
     }
     
     .modal-close-btn {
