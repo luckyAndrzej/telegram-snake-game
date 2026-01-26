@@ -1362,19 +1362,18 @@ body::before {
 
 /* Кнопки в модальном окне депозита */
 .deposit-buttons {
-    margin: 0 !important; /* ИСПРАВЛЕНИЕ: Убираем margin */
-    padding: 20px 25px 25px 25px !important; /* ИСПРАВЛЕНИЕ: Padding для кнопок */
+    margin: 0 !important;
+    padding: 20px 25px 25px 25px !important;
     display: flex;
+    flex-direction: row !important; /* Кнопки в ряд */
     gap: 12px;
     justify-content: center;
-    flex-wrap: wrap;
-    flex-shrink: 0 !important; /* ИСПРАВЛЕНИЕ: Кнопки не сжимаются - КРИТИЧНО для видимости */
-    /* ИСПРАВЛЕНИЕ: Кнопки всегда внизу модального окна */
-    background: #0a0a1a !important; /* ИСПРАВЛЕНИЕ: Фон для кнопок */
-    border-top: 1px solid rgba(0, 245, 255, 0.1); /* ИСПРАВЛЕНИЕ: Визуальное разделение */
-    position: relative !important; /* ИСПРАВЛЕНИЕ: Убеждаемся, что кнопки позиционированы правильно */
-    z-index: 10002 !important; /* ИСПРАВЛЕНИЕ: Кнопки поверх контента */
-    /* ИСПРАВЛЕНИЕ: Убираем тёмные уголки внизу (как в rules) */
+    flex-wrap: nowrap !important; /* Не переносим на новую строку */
+    flex-shrink: 0 !important;
+    background: #0a0a1a !important;
+    border-top: 1px solid rgba(0, 245, 255, 0.1);
+    position: relative !important;
+    z-index: 10002 !important;
     border-radius: 0 0 18px 18px !important;
     overflow: hidden !important;
 }
@@ -1427,10 +1426,15 @@ body::before {
     box-sizing: border-box !important;
     border-top: 1px solid rgba(0, 245, 255, 0.1) !important;
     background: #0a0a1a !important;
+    display: flex !important;
+    flex-direction: row !important; /* Кнопки в ряд */
+    gap: 12px !important;
+    flex-wrap: nowrap !important; /* Не переносим на новую строку */
 }
 #deposit-modal .deposit-buttons .btn {
     min-height: 48px !important;
-    flex: 1 1 auto !important;
+    flex: 1 1 0 !important; /* Равная ширина для обеих кнопок */
+    min-width: 0 !important; /* Позволяет кнопкам сжиматься при необходимости */
 }
 
 #payment-status,
@@ -1754,6 +1758,16 @@ body::before {
         border-top: 1px solid rgba(0, 245, 255, 0.1) !important;
         border-radius: 0 0 18px 18px !important;
         overflow: hidden !important;
+        display: flex !important;
+        flex-direction: row !important; /* Кнопки в ряд */
+        gap: 10px !important;
+        flex-wrap: nowrap !important; /* Не переносим на новую строку */
+    }
+    
+    #deposit-modal .deposit-buttons .btn {
+        flex: 1 1 0 !important; /* Равная ширина для кнопок */
+        min-width: 0 !important;
+        min-height: 48px !important;
     }
     
     #deposit-status,
@@ -1787,12 +1801,14 @@ body::before {
     }
     
     .deposit-buttons {
-        flex-direction: column;
+        flex-direction: row !important; /* Кнопки в ряд */
         gap: 10px !important;
+        flex-wrap: nowrap !important; /* Не переносим на новую строку */
     }
     
     .deposit-buttons .btn {
-        width: 100% !important;
+        flex: 1 1 0 !important; /* Равная ширина для кнопок */
+        min-width: 0 !important;
         min-height: 48px !important;
         font-size: 14px !important;
     }
@@ -1885,16 +1901,16 @@ body::before {
         border-top: 1px solid rgba(0, 245, 255, 0.1) !important;
         border-radius: 0 0 18px 18px !important;
         overflow: visible !important;
+        display: flex !important;
+        flex-direction: row !important; /* Кнопки в ряд */
+        gap: 10px !important;
+        flex-wrap: nowrap !important; /* Не переносим на новую строку */
     }
     
     #deposit-modal .deposit-buttons .btn {
         min-height: 48px !important;
-        width: 100% !important;
-        margin-bottom: 10px !important;
-        flex: none !important;
-    }
-    
-    #deposit-modal .deposit-buttons .btn:last-child {
+        flex: 1 1 0 !important; /* Равная ширина для кнопок */
+        min-width: 0 !important;
         margin-bottom: 0 !important;
     }
     
@@ -1947,6 +1963,16 @@ body::before {
         border-top: 1px solid rgba(0, 245, 255, 0.1) !important;
         border-radius: 0 0 18px 18px !important;
         overflow: hidden !important;
+        display: flex !important;
+        flex-direction: row !important; /* Кнопки в ряд */
+        gap: 10px !important;
+        flex-wrap: nowrap !important; /* Не переносим на новую строку */
+    }
+    
+    #deposit-modal .deposit-buttons .btn {
+        flex: 1 1 0 !important; /* Равная ширина для кнопок */
+        min-width: 0 !important;
+        min-height: 48px !important;
     }
     
     .payment-modal-content h3 {
@@ -1993,8 +2019,17 @@ body::before {
         box-sizing: border-box !important;
         border-top: 1px solid rgba(0, 245, 255, 0.1) !important;
         position: relative !important;
-        min-height: 80px !important; /* ИСПРАВЛЕНИЕ: Минимальная высота для кнопок */
-        box-sizing: border-box !important;
+        min-height: 80px !important;
+        display: flex !important;
+        flex-direction: row !important; /* Кнопки в ряд */
+        gap: 10px !important;
+        flex-wrap: nowrap !important; /* Не переносим на новую строку */
+    }
+    
+    #deposit-modal .deposit-buttons .btn {
+        flex: 1 1 0 !important; /* Равная ширина для кнопок */
+        min-width: 0 !important;
+        min-height: 48px !important;
     }
     
     /* ИСПРАВЛЕНИЕ: Статусы не sticky, они просто перед кнопками */
