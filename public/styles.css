@@ -1736,6 +1736,16 @@ body::before {
         width: 32px !important;
         height: 32px !important;
         right: 10px !important;
+        top: 12px !important; /* Фиксированная позиция сверху */
+        transform: none !important; /* Убираем translateY */
+        z-index: 10003 !important;
+    }
+    
+    #deposit-modal .payment-modal-content h3 .modal-close-btn {
+        position: absolute !important;
+        top: 12px !important;
+        right: 12px !important;
+        z-index: 10003 !important;
     }
     
     .modal-close-x {
@@ -1876,16 +1886,26 @@ body::before {
     }
     
     #deposit-modal .payment-modal-content {
-        max-height: 75vh !important; /* Уменьшено для полной видимости кнопок на мобильных */
+        max-height: 70vh !important; /* Еще больше уменьшено для мобильных */
         height: auto !important;
         min-height: 0 !important;
     }
     
     #deposit-modal .payment-modal-content h3 {
         flex-shrink: 0 !important;
-        padding: 16px 45px 14px 20px !important; /* Уменьшен padding */
-        font-size: 22px !important;
-        line-height: 1.2 !important; /* Компактная высота строки */
+        padding: 14px 45px 12px 20px !important; /* Еще больше уменьшен padding */
+        font-size: 20px !important;
+        line-height: 1.2 !important;
+        min-height: 50px !important; /* Минимальная высота для заголовка */
+        box-sizing: border-box !important;
+        overflow: visible !important;
+    }
+    
+    #deposit-modal .payment-modal-content h3 .modal-close-btn {
+        position: absolute !important;
+        top: 12px !important; /* Позиционирование кнопки закрыть */
+        right: 12px !important;
+        z-index: 10003 !important; /* Высокий z-index для видимости */
     }
     
     #deposit-modal #deposit-info {
@@ -1962,7 +1982,23 @@ body::before {
     }
     
     #deposit-modal .payment-modal-content {
-        max-height: 85vh !important; /* Строгое ограничение для депозита */
+        max-height: 70vh !important; /* Строгое ограничение для депозита */
+    }
+    
+    #deposit-modal .payment-modal-content h3 {
+        padding: 14px 45px 12px 18px !important;
+        font-size: 18px !important;
+        line-height: 1.2 !important;
+        min-height: 48px !important;
+        box-sizing: border-box !important;
+        overflow: visible !important;
+    }
+    
+    #deposit-modal .payment-modal-content h3 .modal-close-btn {
+        position: absolute !important;
+        top: 10px !important;
+        right: 10px !important;
+        z-index: 10003 !important;
     }
     
     #deposit-modal #deposit-info {
@@ -2001,21 +2037,46 @@ body::before {
     }
     
     .payment-modal-content h3 {
-        padding: 14px 45px 12px 15px !important; /* Еще больше уменьшен padding */
-        font-size: 20px !important;
-        line-height: 1.2 !important; /* Компактная высота строки */
+        padding: 14px 45px 12px 15px !important;
+        font-size: 18px !important;
+        line-height: 1.2 !important;
+        min-height: 48px !important;
+        box-sizing: border-box !important;
+        overflow: visible !important;
     }
     
     #deposit-modal .payment-modal-content h3 {
-        padding: 14px 45px 12px 18px !important; /* Уменьшен padding */
-        font-size: 20px !important;
-        line-height: 1.2 !important; /* Компактная высота строки */
+        padding: 14px 45px 12px 18px !important;
+        font-size: 18px !important;
+        line-height: 1.2 !important;
+        min-height: 48px !important;
+        box-sizing: border-box !important;
+        overflow: visible !important;
+    }
+    
+    #deposit-modal .payment-modal-content h3 .modal-close-btn {
+        position: absolute !important;
+        top: 10px !important;
+        right: 10px !important;
+        z-index: 10003 !important;
     }
     
     .modal-close-btn {
         width: 30px !important;
         height: 30px !important;
         right: 8px !important;
+        top: 10px !important; /* Фиксированная позиция сверху */
+        transform: none !important; /* Убираем translateY */
+        z-index: 10003 !important;
+    }
+    
+    #deposit-modal .payment-modal-content h3 .modal-close-btn {
+        position: absolute !important;
+        top: 10px !important;
+        right: 10px !important;
+        z-index: 10003 !important;
+        width: 30px !important;
+        height: 30px !important;
     }
     
     .modal-close-x {
@@ -2030,14 +2091,26 @@ body::before {
     }
     
     #deposit-modal .payment-modal-content {
-        max-height: 75vh !important; /* Уменьшено для очень маленьких экранов */
+        max-height: 70vh !important; /* Уменьшено для очень маленьких экранов */
         padding: 0 !important;
     }
     
     #deposit-modal .payment-modal-content h3 {
-        padding: 14px 45px 12px 18px !important;
+        padding: 12px 40px 10px 15px !important; /* Минимальный padding */
         font-size: 18px !important;
         line-height: 1.2 !important;
+        min-height: 46px !important; /* Минимальная высота */
+        box-sizing: border-box !important;
+        overflow: visible !important;
+    }
+    
+    #deposit-modal .payment-modal-content h3 .modal-close-btn {
+        position: absolute !important;
+        top: 8px !important;
+        right: 8px !important;
+        z-index: 10003 !important;
+        width: 28px !important;
+        height: 28px !important;
     }
     
     #deposit-modal #deposit-info {
