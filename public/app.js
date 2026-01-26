@@ -1678,23 +1678,32 @@ function initEventListeners() {
       comment 
     });
     
-    // Создаем deep link для Telegram Wallet (тот же формат, что и для Tonkeeper)
-    const telegramWalletUrl = `ton://transfer/${address}?amount=${amountInNanoTon}&text=${encodeURIComponent(comment)}`;
+    // Для Telegram Wallet используем специальный deep link
+    // Формат: https://t.me/wallet?startapp=transfer_<address>_<amount>_<comment>
+    const telegramWalletUrl = `https://t.me/wallet?startapp=transfer_${address}_${amountInNanoTon}_${encodeURIComponent(comment)}`;
     
     console.log('Opening Telegram Wallet URL:', telegramWalletUrl);
-    
-    // Используем тот же подход, что и для Tonkeeper (tg.openLink() не поддерживает ton://)
-    const link = document.createElement('a');
-    link.href = telegramWalletUrl;
-    link.style.display = 'none';
-    document.body.appendChild(link);
     
     let paymentInitiated = false;
     
     try {
-      link.click();
-      console.log('Clicked Telegram Wallet link for deposit');
-      paymentInitiated = true;
+      // Для Telegram Wallet используем tg.openLink() с https:// URL
+      if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.openLink) {
+        window.Telegram.WebApp.openLink(telegramWalletUrl);
+        console.log('Opened Telegram Wallet via tg.openLink()');
+        paymentInitiated = true;
+      } else {
+        // Fallback: используем window.open или location.href
+        const opened = window.open(telegramWalletUrl, '_blank');
+        if (opened) {
+          console.log('Opened Telegram Wallet via window.open()');
+          paymentInitiated = true;
+        } else {
+          window.location.href = telegramWalletUrl;
+          console.log('Opened Telegram Wallet via location.href');
+          paymentInitiated = true;
+        }
+      }
       
       setTimeout(() => {
         document.body.removeChild(link);
@@ -1780,15 +1789,12 @@ function initEventListeners() {
         }
       }
     } catch (linkError) {
-      console.warn('Link click failed, trying window.location:', linkError);
+      console.warn('Error opening Telegram Wallet:', linkError);
       try {
-        document.body.removeChild(link);
-      } catch (e) {}
-      
-      try {
+        // Fallback: пробуем через window.open
         const opened = window.open(telegramWalletUrl, '_blank');
         if (opened) {
-          console.log('Opened Telegram Wallet via window.open()');
+          console.log('Opened Telegram Wallet via window.open() (fallback)');
           paymentInitiated = true;
         } else {
           window.location.href = telegramWalletUrl;
@@ -2090,27 +2096,32 @@ function initEventListeners() {
     
     try {
       const nanoTon = (parseFloat(amount) * 1000000000).toString();
-      const telegramWalletUrl = `ton://transfer/${address}?amount=${nanoTon}&text=${encodeURIComponent(comment)}`;
+      // Для Telegram Wallet используем специальный deep link через t.me/wallet
+      const telegramWalletUrl = `https://t.me/wallet?startapp=transfer_${address}_${nanoTon}_${encodeURIComponent(comment)}`;
       
       console.log('Opening Telegram Wallet URL:', telegramWalletUrl);
       
       let paymentInitiated = false;
       
-      // Используем тот же подход, что и для Tonkeeper (tg.openLink() не поддерживает ton://)
-      const link = document.createElement('a');
-      link.href = telegramWalletUrl;
-      link.style.display = 'none';
-      document.body.appendChild(link);
-      
-      try {
-        link.click();
-        console.log('Clicked Telegram Wallet link');
+      // Для Telegram Wallet используем tg.openLink() с https:// URL
+      if (window.Telegram && window.Telegram.WebApp && window.Telegram.WebApp.openLink) {
+        window.Telegram.WebApp.openLink(telegramWalletUrl);
+        console.log('Opened Telegram Wallet via tg.openLink()');
         paymentInitiated = true;
-        
-        setTimeout(() => {
-          document.body.removeChild(link);
-        }, 100);
-        
+      } else {
+        // Fallback: используем window.open или location.href
+        const opened = window.open(telegramWalletUrl, '_blank');
+        if (opened) {
+          console.log('Opened Telegram Wallet via window.open()');
+          paymentInitiated = true;
+        } else {
+          window.location.href = telegramWalletUrl;
+          console.log('Opened Telegram Wallet via location.href');
+          paymentInitiated = true;
+        }
+      }
+      
+      if (paymentInitiated) {
         const statusEl = document.getElementById('payment-status');
         if (statusEl) {
           statusEl.textContent = '⏳ Waiting for payment...';
@@ -2123,105 +2134,66 @@ function initEventListeners() {
           pollingStatusEl.textContent = '⏳ Waiting for transaction confirmation...';
         }
         
-        if (paymentInitiated) {
-          const initialBalance = localUserState.games_balance || 0;
-          let pollCount = 0;
-          const maxPolls = 30;
+        const initialBalance = localUserState.games_balance || 0;
+        let pollCount = 0;
+        const maxPolls = 30;
+        
+        const pollBalance = setInterval(async () => {
+          pollCount++;
+          console.log(`🔄 Polling balance (attempt ${pollCount}/${maxPolls})...`);
           
-          const pollBalance = setInterval(async () => {
-            pollCount++;
-            console.log(`🔄 Polling balance (attempt ${pollCount}/${maxPolls})...`);
+          try {
+            await refreshUserProfile();
+            const currentBalance = localUserState.games_balance || 0;
             
-            try {
-              await refreshUserProfile();
-              const currentBalance = localUserState.games_balance || 0;
+            if (currentBalance > initialBalance) {
+              console.log('✅ Balance updated! Closing payment modal.');
+              clearInterval(pollBalance);
               
-              if (currentBalance > initialBalance) {
-                console.log('✅ Balance updated! Closing payment modal.');
-                clearInterval(pollBalance);
-                
-                if (pollingStatusEl) {
-                  pollingStatusEl.style.display = 'none';
-                }
-                
-                toggleModal('payment-modal', false);
-                
-                if (statusEl) {
-                  statusEl.textContent = '✅ Payment received!';
-                  statusEl.style.color = '#00ff41';
-                  setTimeout(() => {
-                    statusEl.textContent = '';
-                  }, 2000);
-                }
-              } else if (pollCount >= maxPolls) {
-                clearInterval(pollBalance);
-                if (pollingStatusEl) {
-                  pollingStatusEl.style.display = 'none';
-                }
+              if (pollingStatusEl) {
+                pollingStatusEl.style.display = 'none';
               }
-            } catch (error) {
-              console.error('❌ Error polling balance:', error);
-              if (pollCount >= maxPolls) {
-                clearInterval(pollBalance);
-                if (pollingStatusEl) {
-                  pollingStatusEl.style.display = 'none';
-                }
+              
+              toggleModal('payment-modal', false);
+              
+              if (statusEl) {
+                statusEl.textContent = '✅ Payment received!';
+                statusEl.style.color = '#00ff41';
+                setTimeout(() => {
+                  statusEl.textContent = '';
+                }, 2000);
+              }
+            } else if (pollCount >= maxPolls) {
+              clearInterval(pollBalance);
+              if (pollingStatusEl) {
+                pollingStatusEl.style.display = 'none';
               }
             }
-          }, 10000);
-          
-          const paymentModal = document.getElementById('payment-modal');
-          if (paymentModal) {
-            const observer = new MutationObserver((mutations) => {
-              mutations.forEach((mutation) => {
-                if (!paymentModal.classList.contains('modal-visible')) {
-                  clearInterval(pollBalance);
-                  if (pollingStatusEl) {
-                    pollingStatusEl.style.display = 'none';
-                  }
-                  observer.disconnect();
-                }
-              });
-            });
-            observer.observe(paymentModal, { attributes: true, attributeFilter: ['class'] });
+          } catch (error) {
+            console.error('❌ Error polling balance:', error);
+            if (pollCount >= maxPolls) {
+              clearInterval(pollBalance);
+              if (pollingStatusEl) {
+                pollingStatusEl.style.display = 'none';
+              }
+            }
           }
-        }
-      } catch (linkError) {
-        console.warn('Link click failed, trying window.location:', linkError);
-        try {
-          document.body.removeChild(link);
-        } catch (e) {}
+        }, 10000);
         
-        try {
-          const opened = window.open(telegramWalletUrl, '_blank');
-          if (opened) {
-            console.log('Opened Telegram Wallet via window.open()');
-            paymentInitiated = true;
-          } else {
-            window.location.href = telegramWalletUrl;
-            console.log('Opened Telegram Wallet via window.location.href');
-            paymentInitiated = true;
-          }
-          
-          const statusEl = document.getElementById('payment-status');
-          if (statusEl) {
-            statusEl.textContent = '⏳ Waiting for payment...';
-            statusEl.style.color = '#667eea';
-          }
-          
-          if (paymentInitiated) {
-            setTimeout(() => {
-              refreshUserProfile();
-            }, 4000);
-          }
-        } catch (locationError) {
-          console.error('All methods to open Telegram Wallet failed:', locationError);
-          const statusEl = document.getElementById('payment-status');
-          if (statusEl) {
-            statusEl.innerHTML = '⚠️ Please copy the address and comment, then send the payment manually in Telegram Wallet.';
-            statusEl.style.color = '#ef4444';
-          }
-          tg.showAlert('Error opening Telegram Wallet. Please send the payment manually using the address and comment above.');
+        const paymentModal = document.getElementById('payment-modal');
+        if (paymentModal) {
+          const observer = new MutationObserver((mutations) => {
+            mutations.forEach((mutation) => {
+              if (!paymentModal.classList.contains('modal-visible')) {
+                clearInterval(pollBalance);
+                if (pollingStatusEl) {
+                  pollingStatusEl.style.display = 'none';
+                }
+                observer.disconnect();
+              }
+            });
+          });
+          observer.observe(paymentModal, { attributes: true, attributeFilter: ['class'] });
         }
       }
     } catch (error) {

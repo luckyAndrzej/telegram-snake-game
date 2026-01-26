@@ -1901,11 +1901,16 @@ body::before {
         overflow: visible !important;
     }
     
+    #deposit-modal .payment-modal-content h3 {
+        position: relative !important; /* Важно для позиционирования кнопки закрыть */
+    }
+    
     #deposit-modal .payment-modal-content h3 .modal-close-btn {
         position: absolute !important;
-        top: 12px !important; /* Позиционирование кнопки закрыть */
-        right: 12px !important;
+        top: 10px !important; /* Позиционирование кнопки закрыть */
+        right: 10px !important;
         z-index: 10003 !important; /* Высокий z-index для видимости */
+        transform: none !important; /* Убираем translateY */
     }
     
     #deposit-modal #deposit-info {
@@ -2070,13 +2075,18 @@ body::before {
         z-index: 10003 !important;
     }
     
+    #deposit-modal .payment-modal-content h3 {
+        position: relative !important; /* Важно для позиционирования кнопки закрыть */
+    }
+    
     #deposit-modal .payment-modal-content h3 .modal-close-btn {
         position: absolute !important;
-        top: 10px !important;
-        right: 10px !important;
+        top: 8px !important;
+        right: 8px !important;
         z-index: 10003 !important;
-        width: 30px !important;
-        height: 30px !important;
+        width: 28px !important;
+        height: 28px !important;
+        transform: none !important; /* Убираем translateY */
     }
     
     .modal-close-x {
