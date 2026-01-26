@@ -1033,6 +1033,7 @@ body::before {
     box-shadow: 0 0 50px rgba(0, 245, 255, 0.3);
     /* ИСПРАВЛЕНИЕ: Ограничение высоты - окно не может быть выше 90% экрана */
     max-height: 90vh !important;
+    height: auto !important;
     /* ИСПРАВЛЕНИЕ: Flex-структура для правильного расположения контента и кнопок */
     display: flex !important;
     flex-direction: column !important;
@@ -1380,18 +1381,20 @@ body::before {
 
 /* Депозит: скролл + липкие шапка (крестик) и подвал (кнопки) — всегда видны и кликабельны */
 #deposit-modal .payment-modal-content {
-    overflow-y: auto !important;
-    overflow-x: hidden !important;
-    -webkit-overflow-scrolling: touch !important;
-    max-height: min(90vh, calc(100vh - 40px)) !important;
+    display: flex !important;
+    flex-direction: column !important;
+    overflow: hidden !important;
+    max-height: calc(100vh - 40px) !important;
+    padding: 0 !important;
+    height: auto !important;
+    min-height: 0 !important;
 }
 #deposit-modal .payment-modal-content h3 {
-    position: sticky !important;
-    top: 0 !important;
-    z-index: 10002 !important;
     flex-shrink: 0 !important;
     border-radius: 18px 18px 0 0 !important;
-    padding-bottom: 18px !important;
+    padding: 20px 50px 18px 25px !important;
+    margin: 0 !important;
+    position: relative !important;
 }
 #deposit-modal .payment-modal-content h3::before {
     content: '' !important;
@@ -1401,14 +1404,33 @@ body::before {
     z-index: -1 !important;
     border-radius: 18px 18px 0 0 !important;
 }
-#deposit-modal .deposit-buttons {
-    position: sticky !important;
-    bottom: 0 !important;
+#deposit-modal #deposit-info {
+    flex: 1 1 0 !important;
+    overflow-y: auto !important;
+    overflow-x: hidden !important;
+    -webkit-overflow-scrolling: touch !important;
+    padding: 20px 25px !important;
+    min-height: 0 !important;
+    max-height: none !important;
+}
+#deposit-modal #deposit-status,
+#deposit-modal #deposit-polling-status {
     flex-shrink: 0 !important;
-    min-height: 72px !important;
+    padding: 10px 25px !important;
+    margin: 0 !important;
+}
+#deposit-modal .deposit-buttons {
+    flex-shrink: 0 !important;
+    padding: 15px 20px 20px 20px !important;
+    margin: 0 !important;
+    width: 100% !important;
+    box-sizing: border-box !important;
+    border-top: 1px solid rgba(0, 245, 255, 0.1) !important;
+    background: #0a0a1a !important;
 }
 #deposit-modal .deposit-buttons .btn {
-    min-height: 44px !important;
+    min-height: 48px !important;
+    flex: 1 1 auto !important;
 }
 
 #payment-status,
@@ -1713,20 +1735,23 @@ body::before {
         height: 16px !important;
     }
     
-    #deposit-info {
-        padding: 0 20px 15px 20px !important; /* ИСПРАВЛЕНИЕ: Padding для контента */
-        max-height: calc(90vh - 250px) !important; /* ИСПРАВЛЕНИЕ: Строгое ограничение высоты с учетом заголовка, статусов и кнопок */
-        overflow-y: auto !important; /* ИСПРАВЛЕНИЕ: Скролл контента */
-        overflow-x: hidden !important; /* ИСПРАВЛЕНИЕ: Скрываем горизонтальный скролл */
-        box-sizing: border-box !important;
+    #deposit-modal #deposit-info {
+        flex: 1 1 auto !important;
+        min-height: 0 !important;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+        -webkit-overflow-scrolling: touch !important;
+        padding: 15px 20px !important;
     }
     
-    .deposit-buttons {
-        padding: 15px 20px 20px 20px !important; /* ИСПРАВЛЕНИЕ: Padding для кнопок */
-        flex-shrink: 0 !important; /* ИСПРАВЛЕНИЕ: Кнопки НЕ сжимаются - КРИТИЧНО */
-        z-index: 10002 !important; /* ИСПРАВЛЕНИЕ: Кнопки поверх контента */
-        min-height: 80px !important; /* ИСПРАВЛЕНИЕ: Минимальная высота для кнопок */
+    #deposit-modal .deposit-buttons {
+        flex-shrink: 0 !important;
+        background: #0a0a1a !important;
+        padding: 15px 20px 20px 20px !important;
+        margin: 0 !important;
+        width: 100% !important;
         box-sizing: border-box !important;
+        border-top: 1px solid rgba(0, 245, 255, 0.1) !important;
         border-radius: 0 0 18px 18px !important;
         overflow: hidden !important;
     }
@@ -1813,29 +1838,64 @@ body::before {
     
     .payment-modal-content {
         position: relative !important;
-        width: 100% !important; /* ИСПРАВЛЕНИЕ: 100% с учетом padding родителя */
+        width: 100% !important;
         margin: 0 !important;
         max-width: 100% !important;
-        max-height: 90vh !important;
+        max-height: calc(100vh - 20px) !important;
         z-index: 10001 !important;
         display: flex !important;
         flex-direction: column !important;
-        border-radius: 20px !important; /* ИСПРАВЛЕНИЕ: border-radius: 20px */
-        overflow: hidden !important; /* ИСПРАВЛЕНИЕ: Убираем тёмные уголки внизу (как в rules) */
+        border-radius: 20px !important;
+        overflow: hidden !important;
     }
     
-    #deposit-info {
-        overflow-y: auto !important; /* ИСПРАВЛЕНИЕ: Скролл контента */
-        overflow-x: hidden !important; /* ИСПРАВЛЕНИЕ: Скрываем горизонтальный скролл */
-        max-height: calc(90vh - 250px) !important; /* ИСПРАВЛЕНИЕ: Строгое ограничение высоты */
-        box-sizing: border-box !important;
+    #deposit-modal .payment-modal-content {
+        max-height: calc(100vh - 20px) !important;
+        height: auto !important;
+        min-height: 0 !important;
     }
     
-    .deposit-buttons {
-        flex-shrink: 0 !important; /* ИСПРАВЛЕНИЕ: Кнопки НЕ сжимаются - КРИТИЧНО */
-        z-index: 10002 !important; /* ИСПРАВЛЕНИЕ: Кнопки поверх контента */
-        min-height: 80px !important; /* ИСПРАВЛЕНИЕ: Минимальная высота для кнопок */
+    #deposit-modal .payment-modal-content h3 {
+        flex-shrink: 0 !important;
+        padding: 20px 50px 18px 20px !important;
+    }
+    
+    #deposit-modal #deposit-info {
+        flex: 1 1 0 !important;
+        min-height: 0 !important;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+        -webkit-overflow-scrolling: touch !important;
+        padding: 15px 20px !important;
+    }
+    
+    #deposit-modal #deposit-status,
+    #deposit-modal #deposit-polling-status {
+        flex-shrink: 0 !important;
+        padding: 10px 20px !important;
+    }
+    
+    #deposit-modal .deposit-buttons {
+        flex-shrink: 0 !important;
+        background: #0a0a1a !important;
+        padding: 15px !important;
+        margin: 0 !important;
+        width: 100% !important;
         box-sizing: border-box !important;
+        border-top: 1px solid rgba(0, 245, 255, 0.1) !important;
+        border-radius: 0 0 18px 18px !important;
+        overflow: visible !important;
+    }
+    
+    #deposit-modal .deposit-buttons .btn {
+        min-height: 48px !important;
+        width: 100% !important;
+        margin-bottom: 10px !important;
+        flex: none !important;
+    }
+    
+    #deposit-modal .deposit-buttons .btn:last-child {
+        margin-bottom: 0 !important;
     }
     
     .btn {
@@ -1868,18 +1928,23 @@ body::before {
         padding: 0 !important; /* ИСПРАВЛЕНИЕ: Padding убран, добавляется к внутренним элементам */
     }
     
-    #deposit-info {
-        overflow-y: auto !important; /* ИСПРАВЛЕНИЕ: Скролл контента */
-        overflow-x: hidden !important; /* ИСПРАВЛЕНИЕ: Скрываем горизонтальный скролл */
-        max-height: calc(90vh - 250px) !important; /* ИСПРАВЛЕНИЕ: Строгое ограничение высоты */
-        box-sizing: border-box !important;
+    #deposit-modal #deposit-info {
+        flex: 1 1 auto !important;
+        min-height: 0 !important;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+        -webkit-overflow-scrolling: touch !important;
+        padding: 15px !important;
     }
     
-    .deposit-buttons {
-        flex-shrink: 0 !important; /* ИСПРАВЛЕНИЕ: Кнопки НЕ сжимаются - КРИТИЧНО */
-        z-index: 10002 !important; /* ИСПРАВЛЕНИЕ: Кнопки поверх контента */
-        min-height: 80px !important; /* ИСПРАВЛЕНИЕ: Минимальная высота для кнопок */
+    #deposit-modal .deposit-buttons {
+        flex-shrink: 0 !important;
+        background: #0a0a1a !important;
+        padding: 15px !important;
+        margin: 0 !important;
+        width: 100% !important;
         box-sizing: border-box !important;
+        border-top: 1px solid rgba(0, 245, 255, 0.1) !important;
         border-radius: 0 0 18px 18px !important;
         overflow: hidden !important;
     }
@@ -1905,21 +1970,29 @@ body::before {
         height: 14px !important;
     }
     
-    #deposit-info {
-        padding: 0 15px 15px 15px !important;
-        max-height: calc(90vh - 250px) !important; /* ИСПРАВЛЕНИЕ: Строгое ограничение высоты с учетом заголовка, статусов и кнопок */
-        overflow-y: auto !important; /* ИСПРАВЛЕНИЕ: Скролл контента */
-        overflow-x: hidden !important; /* ИСПРАВЛЕНИЕ: Скрываем горизонтальный скролл */
-        box-sizing: border-box !important;
+    #deposit-modal .payment-modal-content {
+        max-height: calc(100vh - 20px) !important;
+        padding: 0 !important;
     }
     
-    .deposit-buttons {
-        flex-shrink: 0 !important; /* ИСПРАВЛЕНИЕ: Кнопки НЕ сжимаются - КРИТИЧНО */
-        background: #0a0a1a !important; /* ИСПРАВЛЕНИЕ: Фон для кнопок */
-        padding: 15px 15px 20px 15px !important;
+    #deposit-modal #deposit-info {
+        padding: 15px !important;
+        flex: 1 1 auto !important;
+        min-height: 0 !important;
+        overflow-y: auto !important;
+        overflow-x: hidden !important;
+        -webkit-overflow-scrolling: touch !important;
+    }
+    
+    #deposit-modal .deposit-buttons {
+        flex-shrink: 0 !important;
+        background: #0a0a1a !important;
+        padding: 15px !important;
         margin: 0 !important;
-        z-index: 10002 !important; /* ИСПРАВЛЕНИЕ: Кнопки поверх контента */
-        position: relative !important; /* ИСПРАВЛЕНИЕ: Убираем sticky, используем обычное позиционирование */
+        width: 100% !important;
+        box-sizing: border-box !important;
+        border-top: 1px solid rgba(0, 245, 255, 0.1) !important;
+        position: relative !important;
         min-height: 80px !important; /* ИСПРАВЛЕНИЕ: Минимальная высота для кнопок */
         box-sizing: border-box !important;
     }
