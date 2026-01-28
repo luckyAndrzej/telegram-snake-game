@@ -2521,26 +2521,42 @@ function sendDirection(direction) {
     return; // Запрещаем поворот на 180°
   }
   
+  // ОПТИМИЗАЦИЯ: Throttling для снижения пинга - минимум 50ms между отправками команд
+  const now = performance.now();
+  const MIN_DIRECTION_INTERVAL = 50; // 50ms минимум между отправками (20 команд/сек максимум)
+  if (lastDirectionSentTime && (now - lastDirectionSentTime) < MIN_DIRECTION_INTERVAL) {
+    // Сохраняем команду в буфер для отправки позже
+    if (!inputBuffer) inputBuffer = [];
+    inputBuffer.push({ direction, timestamp: now });
+    return;
+  }
+  
   // Обновляем currentDirection для проверки на поворот на 180°
   currentDirection = direction;
   
   // Отправляем команду на сервер
   // Направление обновится только из данных сервера (socket.on('game_state'))
   socket.emit('direction', direction);
-  lastDirectionSentTime = performance.now();
+  lastDirectionSentTime = now;
 }
 
 /**
  * Обработка Input Buffer: отправка команд из очереди на сервер
  */
 function processInputBuffer() {
-  if (inputBuffer.length === 0) return;
+  if (!inputBuffer || inputBuffer.length === 0) return;
   if (!socket || !socket.connected) {
     inputBuffer = [];
     return;
   }
   
   const now = performance.now();
+  const MIN_DIRECTION_INTERVAL = 50; // 50ms минимум между отправками
+  
+  // Проверяем, прошло ли достаточно времени с последней отправки
+  if (lastDirectionSentTime && (now - lastDirectionSentTime) < MIN_DIRECTION_INTERVAL) {
+    return; // Еще рано отправлять следующую команду
+  }
   
   // Отправляем последнюю команду из буфера (самую актуальную)
   const latestCommand = inputBuffer[inputBuffer.length - 1];
@@ -3234,6 +3250,9 @@ function startAnimationLoop() {
       requestAnimationFrame(animationLoop);
       return;
     }
+    
+    // ОПТИМИЗАЦИЯ: Обрабатываем буфер команд направления для снижения пинга
+    processInputBuffer();
     
     // ИСПРАВЛЕНИЕ animationLoop: В самом начале цикла ОБЯЗАТЕЛЬНО
     gameCtx.setTransform(1, 0, 0, 1, 0, 0);

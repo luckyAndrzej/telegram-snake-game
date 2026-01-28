@@ -19,8 +19,8 @@ function start(io, activeGames, config, endGameCallback) {
   tickInterval = 1000 / config.TICK_RATE; // Например, 1000/18 = 55.56ms
   
   // Throttle для отправки game_state: отправляем с частотой тиков для плавности
-  const SEND_RATE = config.TICK_RATE; // Отправляем с той же частотой, что и тики (9 раз в секунду)
-  const sendInterval = 1000 / SEND_RATE; // ~111ms между отправками (замедлено в 2 раза)
+  const SEND_RATE = config.TICK_RATE; // Отправляем с той же частотой, что и тики (7 раз в секунду)
+  const sendInterval = 1000 / SEND_RATE; // ~143ms между отправками (оптимизировано для снижения пинга)
   let lastSendTime = 0;
   
   // Запускаем цикл обновления игры
