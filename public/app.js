@@ -2521,16 +2521,6 @@ function sendDirection(direction) {
     return; // Запрещаем поворот на 180°
   }
   
-  // ОПТИМИЗАЦИЯ: Throttling для снижения пинга - минимум 50ms между отправками команд
-  const now = performance.now();
-  const MIN_DIRECTION_INTERVAL = 50; // 50ms минимум между отправками (20 команд/сек максимум)
-  if (lastDirectionSentTime && (now - lastDirectionSentTime) < MIN_DIRECTION_INTERVAL) {
-    // Сохраняем команду в буфер для отправки позже
-    if (!inputBuffer) inputBuffer = [];
-    inputBuffer.push({ direction, timestamp: now });
-    return;
-  }
-  
   // Обновляем currentDirection для проверки на поворот на 180°
   currentDirection = direction;
   
@@ -2548,14 +2538,6 @@ function processInputBuffer() {
   if (!socket || !socket.connected) {
     inputBuffer = [];
     return;
-  }
-  
-  const now = performance.now();
-  const MIN_DIRECTION_INTERVAL = 50; // 50ms минимум между отправками
-  
-  // Проверяем, прошло ли достаточно времени с последней отправки
-  if (lastDirectionSentTime && (now - lastDirectionSentTime) < MIN_DIRECTION_INTERVAL) {
-    return; // Еще рано отправлять следующую команду
   }
   
   // Отправляем последнюю команду из буфера (самую актуальную)
@@ -3251,7 +3233,7 @@ function startAnimationLoop() {
       return;
     }
     
-    // ОПТИМИЗАЦИЯ: Обрабатываем буфер команд направления для снижения пинга
+    // Обрабатываем буфер команд направления (если есть)
     processInputBuffer();
     
     // ИСПРАВЛЕНИЕ animationLoop: В самом начале цикла ОБЯЗАТЕЛЬНО

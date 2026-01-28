@@ -89,7 +89,7 @@ const lastWithdrawRequest = new Map(); // userId -> timestamp (защита от
 const GAME_CONFIG = {
   FIELD_WIDTH: 30, // Увеличено с 20 до 30 (больше клеток для передвижения)
   FIELD_HEIGHT: 30, // Увеличено с 20 до 30
-  TICK_RATE: 7, // тиков в секунду (оптимизировано для снижения пинга: было 9, стало 7)
+  TICK_RATE: 9, // тиков в секунду
   ENTRY_PRICE: 1, // стоимость входа (в TON, списывается из winnings_ton)
   WINNER_PERCENTAGE: 0.75, // процент выигрыша победителя (75%)
   MAX_CONCURRENT_GAMES: 70 // лимит одновременных игр; при достижении новые пары ждут в очереди
